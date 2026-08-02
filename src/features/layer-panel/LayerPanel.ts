@@ -10,18 +10,21 @@ interface LayerDef {
   iconName: string;
   isGroup?: boolean;
   isChild?: boolean;
+  depth?: number;
   active?: boolean;
   badge?: string;
   spaced?: boolean;
+  hidden?: boolean;
+  layer?: Layer;
 }
 
 const layers: LayerDef[] = [
-  { name: 'Character 1',       iconName: 'folder_open', isGroup: true },
-  { name: 'Inks_Clean',        iconName: 'image',       isChild: true, active: true, badge: 'Focus AI' },
-  { name: 'Rough_Sketch',      iconName: 'brush',       isChild: true },
-  { name: 'Background',        iconName: 'folder',      isGroup: true, spaced: true },
-  { name: 'Screentones_Global', iconName: 'grid_on',     isGroup: true, spaced: true },
-  { name: 'Paper_Base',        iconName: 'layers',      isGroup: true },
+  { name: 'Character 1',       iconName: 'folder_open', isGroup: true, depth: 0 },
+  { name: 'Inks_Clean',        iconName: 'image',       isChild: true, depth: 1, active: true, badge: 'Focus AI' },
+  { name: 'Rough_Sketch',      iconName: 'brush',       isChild: true, depth: 1 },
+  { name: 'Background',        iconName: 'folder',      isGroup: true, spaced: true, depth: 0 },
+  { name: 'Screentones_Global', iconName: 'grid_on',     isGroup: true, spaced: true, depth: 0 },
+  { name: 'Paper_Base',        iconName: 'layers',      isGroup: true, depth: 0 },
 ];
 
 export function createLayerPanel(): HTMLElement {
@@ -60,47 +63,124 @@ export function createLayerPanel(): HTMLElement {
 
   const renderLayerTree = (items: LayerDef[]) => {
     tree.innerHTML = '';
-    for (const layer of items) {
+    for (let i = 0; i < items.length; i++) {
+      const layerDef = items[i];
       const item = document.createElement('div');
       const classes = ['layer-item'];
-      if (layer.active) classes.push('layer-item--active');
-      if (layer.isGroup) classes.push('layer-item--group');
-      if (layer.isChild) classes.push('layer-item--child');
-      if (layer.spaced) classes.push('layer-item--spaced');
+      if (layerDef.active) classes.push('layer-item--active');
+      if (layerDef.isGroup) classes.push('layer-item--group');
+      if (layerDef.isChild) classes.push('layer-item--child');
+      if (layerDef.spaced) classes.push('layer-item--spaced');
+      if (layerDef.hidden) classes.push('layer-item--hidden');
       item.className = classes.join(' ');
 
       // Click to select
       item.addEventListener('click', () => {
-        tree.querySelectorAll('.layer-item').forEach((el) => {
-          el.classList.remove('layer-item--active');
-        });
-        item.classList.add('layer-item--active');
+        items.forEach((l) => (l.active = false));
+        layerDef.active = true;
+        renderLayerTree(items);
       });
 
       // Visibility icon
-      const visIcon = icon('visibility', 16);
+      const visIconName = layerDef.hidden ? 'visibility_off' : 'visibility';
+      const visIcon = icon(visIconName, 16);
       visIcon.className = 'material-symbols-outlined layer-item__icon layer-item__icon--vis';
+      if (layerDef.hidden) {
+        visIcon.style.opacity = '0.4';
+        item.style.opacity = '0.6';
+      }
+
+      visIcon.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const targetHidden = !layerDef.hidden;
+        layerDef.hidden = targetHidden;
+        if (layerDef.layer) layerDef.layer.hidden = targetHidden;
+
+        // Toggle children if it's a group
+        if (layerDef.isGroup) {
+          const targetDepth = layerDef.depth || 0;
+          for (let j = i + 1; j < items.length; j++) {
+            const childDef = items[j];
+            const childDepth = childDef.depth ?? (childDef.isChild ? 1 : 0);
+            if (childDepth > targetDepth) {
+              childDef.hidden = targetHidden;
+              if (childDef.layer) childDef.layer.hidden = targetHidden;
+            } else {
+              break;
+            }
+          }
+        }
+
+        // Update ancestors based on children's state
+        let currentItemIndex = i;
+        while (true) {
+          let parentIndex = -1;
+          const currentDepth = items[currentItemIndex].depth || 0;
+          if (currentDepth === 0) break; // No parent
+
+          // Find the parent
+          for (let k = currentItemIndex - 1; k >= 0; k--) {
+            const kDepth = items[k].depth || 0;
+            if (kDepth < currentDepth) {
+              parentIndex = k;
+              break;
+            }
+          }
+
+          if (parentIndex === -1) break;
+
+          const parentDef = items[parentIndex];
+          const pDepth = parentDef.depth || 0;
+          
+          // Check if any direct child is visible
+          let anyChildVisible = false;
+          for (let j = parentIndex + 1; j < items.length; j++) {
+            const childDef = items[j];
+            const cDepth = childDef.depth || 0;
+            if (cDepth <= pDepth) break; // End of descendants
+             
+            if (cDepth === pDepth + 1) {
+              if (!childDef.hidden) {
+                anyChildVisible = true;
+                break;
+              }
+            }
+          }
+
+          const shouldHideParent = !anyChildVisible;
+          if (!!parentDef.hidden !== shouldHideParent) {
+            parentDef.hidden = shouldHideParent;
+            if (parentDef.layer) parentDef.layer.hidden = shouldHideParent;
+            currentItemIndex = parentIndex; // Bubble up to parent
+          } else {
+            break; // Stop bubbling if parent state didn't change
+          }
+        }
+
+        renderLayerTree(items);
+      });
+
       item.appendChild(visIcon);
 
       // Type icon
-      const typeIcon = icon(layer.iconName, 16);
+      const typeIcon = icon(layerDef.iconName, 16);
       typeIcon.className = `material-symbols-outlined layer-item__icon ${
-        layer.active || layer.isGroup ? 'layer-item__icon--type-active' : 'layer-item__icon--type'
+        layerDef.active || layerDef.isGroup ? 'layer-item__icon--type-active' : 'layer-item__icon--type'
       }`;
       item.appendChild(typeIcon);
 
       // Name
       const name = document.createElement('span');
       name.className = 'layer-item__name';
-      name.textContent = layer.name;
-      if (layer.active) name.style.color = 'var(--color-on-surface)';
+      name.textContent = layerDef.name;
+      if (layerDef.active) name.style.color = 'var(--color-on-surface)';
       item.appendChild(name);
 
       // Badge
-      if (layer.badge) {
+      if (layerDef.badge) {
         const badge = document.createElement('span');
         badge.className = 'layer-item__badge';
-        badge.textContent = layer.badge;
+        badge.textContent = layerDef.badge;
         item.appendChild(badge);
       }
 
@@ -183,7 +263,7 @@ export function createLayerPanel(): HTMLElement {
   return aside;
 }
 
-function mapPsdLayers(psdLayers: Layer[], isChild = false): LayerDef[] {
+function mapPsdLayers(psdLayers: Layer[], depth = 0): LayerDef[] {
   const result: LayerDef[] = [];
   
   // ag-psd returns layers in order from bottom to top (like Photoshop internal).
@@ -196,12 +276,15 @@ function mapPsdLayers(psdLayers: Layer[], isChild = false): LayerDef[] {
       name: layer.name || 'Unnamed Layer',
       iconName: isGroup ? 'folder' : (layer.canvas || layer.imageData ? 'image' : 'layers'),
       isGroup: isGroup,
-      isChild: isChild,
+      isChild: depth > 0,
+      depth: depth,
+      hidden: layer.hidden,
       active: false,
+      layer: layer,
     });
 
     if (layer.children) {
-      result.push(...mapPsdLayers(layer.children, true));
+      result.push(...mapPsdLayers(layer.children, depth + 1));
     }
   }
   return result;
