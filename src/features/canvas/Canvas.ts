@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Canvas — Central workspace with split compare view and floating toolbar.
  */
 import { icon } from '../../shared/utils/dom';
@@ -116,6 +116,60 @@ export function createCanvas(): HTMLElement {
   splitView.appendChild(resultPanel);
 
   main.appendChild(splitView);
+
+  // Listen for PSD loaded event to render the image
+  window.addEventListener('document:loaded', (e: Event) => {
+    const customEvent = e as CustomEvent<{ psd: any; filename: string }>;
+    const psd = customEvent.detail.psd;
+
+    if (psd.canvas) {
+      // Clear dummy backgrounds
+      sourcePanel.style.backgroundImage = 'none';
+      resultPanel.style.backgroundImage = 'none';
+
+      // Remove any previously appended canvas elements
+      sourcePanel.querySelectorAll('canvas').forEach(c => c.remove());
+      resultPanel.querySelectorAll('canvas').forEach(c => c.remove());
+
+      // Clone the canvas for the result panel, use original for source
+      const sourceCanvas = psd.canvas;
+      const resultCanvas = document.createElement('canvas');
+      resultCanvas.width = sourceCanvas.width;
+      resultCanvas.height = sourceCanvas.height;
+      const ctx = resultCanvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(sourceCanvas, 0, 0);
+      }
+
+      // Style both canvases
+      const styleCanvas = (c: HTMLCanvasElement) => {
+        c.style.width = '100%';
+        c.style.height = '100%';
+        c.style.objectFit = 'contain';
+        // Make sure it sits behind the labels
+        c.style.position = 'absolute';
+        c.style.top = '0';
+        c.style.left = '0';
+        c.style.zIndex = '0';
+      };
+
+      styleCanvas(sourceCanvas);
+      styleCanvas(resultCanvas);
+      
+      // The panels need to be relative for absolute positioning of children
+      sourcePanel.style.position = 'relative';
+      resultPanel.style.position = 'relative';
+      
+      // Ensure labels are above the canvas
+      sourceLabel.style.position = 'relative';
+      sourceLabel.style.zIndex = '1';
+      resultLabel.style.position = 'relative';
+      resultLabel.style.zIndex = '1';
+
+      sourcePanel.appendChild(sourceCanvas);
+      resultPanel.appendChild(resultCanvas);
+    }
+  });
 
   return main;
 }

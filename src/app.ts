@@ -15,6 +15,7 @@ import { createLayerPanel } from './features/layer-panel/LayerPanel';
 import { createCanvas } from './features/canvas/Canvas';
 import { createAIPanel } from './features/ai-panel/AIPanel';
 import { createStatusBar } from './features/status-bar/StatusBar';
+import { initDocumentManager } from './features/document/DocumentManager';
 
 function initApp(): void {
   const app = document.getElementById('app');
@@ -36,6 +37,9 @@ function initApp(): void {
   workspace.appendChild(createStatusBar());
 
   app.appendChild(workspace);
+
+  // Initialize global managers after UI is fully built
+  initDocumentManager();
 }
 
 document.addEventListener('DOMContentLoaded', initApp);

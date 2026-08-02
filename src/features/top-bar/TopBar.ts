@@ -32,23 +32,52 @@ export function createTopBar(): HTMLElement {
   const nav = document.createElement('nav');
   nav.className = 'topbar__nav';
   for (const item of menuItems) {
-    const a = document.createElement('a');
-    a.className = item.active
-      ? 'topbar__nav-item topbar__nav-item--active'
-      : 'topbar__nav-item';
-    a.href = '#';
-    a.textContent = item.label;
+    if (item.label === 'File') {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'topbar__nav-item-wrapper';
 
-    a.addEventListener('click', (e) => {
-      e.preventDefault();
-      nav.querySelectorAll('.topbar__nav-item').forEach((el) => {
-        el.classList.remove('topbar__nav-item--active');
+      const a = document.createElement('a');
+      a.className = item.active
+        ? 'topbar__nav-item topbar__nav-item--active'
+        : 'topbar__nav-item';
+      a.href = '#';
+      a.textContent = item.label;
+
+      const dropdown = document.createElement('div');
+      dropdown.className = 'topbar__dropdown';
+
+      const openOption = document.createElement('a');
+      openOption.className = 'topbar__dropdown-item';
+      openOption.href = '#';
+      openOption.textContent = 'Open PSD';
+      openOption.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.dispatchEvent(new Event('file:open'));
       });
-      a.classList.add('topbar__nav-item--active');
-      showToast(`${item.label} メニュー`);
-    });
+      dropdown.appendChild(openOption);
 
-    nav.appendChild(a);
+      wrapper.appendChild(a);
+      wrapper.appendChild(dropdown);
+      nav.appendChild(wrapper);
+    } else {
+      const a = document.createElement('a');
+      a.className = item.active
+        ? 'topbar__nav-item topbar__nav-item--active'
+        : 'topbar__nav-item';
+      a.href = '#';
+      a.textContent = item.label;
+
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        nav.querySelectorAll('.topbar__nav-item').forEach((el) => {
+          el.classList.remove('topbar__nav-item--active');
+        });
+        a.classList.add('topbar__nav-item--active');
+        showToast(`${item.label} メニュー`);
+      });
+
+      nav.appendChild(a);
+    }
   }
   left.appendChild(nav);
   header.appendChild(left);

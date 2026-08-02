@@ -1,8 +1,9 @@
-﻿/**
+/**
  * LayerPanel — Left sidebar with layer tree and layer properties inspector.
  */
 import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
+import type { Psd, Layer } from 'ag-psd';
 
 interface LayerDef {
   name: string;
@@ -57,52 +58,72 @@ export function createLayerPanel(): HTMLElement {
   const tree = document.createElement('div');
   tree.className = 'layer-tree';
 
-  for (const layer of layers) {
-    const item = document.createElement('div');
-    const classes = ['layer-item'];
-    if (layer.active) classes.push('layer-item--active');
-    if (layer.isGroup) classes.push('layer-item--group');
-    if (layer.isChild) classes.push('layer-item--child');
-    if (layer.spaced) classes.push('layer-item--spaced');
-    item.className = classes.join(' ');
+  const renderLayerTree = (items: LayerDef[]) => {
+    tree.innerHTML = '';
+    for (const layer of items) {
+      const item = document.createElement('div');
+      const classes = ['layer-item'];
+      if (layer.active) classes.push('layer-item--active');
+      if (layer.isGroup) classes.push('layer-item--group');
+      if (layer.isChild) classes.push('layer-item--child');
+      if (layer.spaced) classes.push('layer-item--spaced');
+      item.className = classes.join(' ');
 
-    // Click to select
-    item.addEventListener('click', () => {
-      tree.querySelectorAll('.layer-item').forEach((el) => {
-        el.classList.remove('layer-item--active');
+      // Click to select
+      item.addEventListener('click', () => {
+        tree.querySelectorAll('.layer-item').forEach((el) => {
+          el.classList.remove('layer-item--active');
+        });
+        item.classList.add('layer-item--active');
       });
-      item.classList.add('layer-item--active');
-    });
 
-    // Visibility icon
-    const visIcon = icon('visibility', 16);
-    visIcon.className = 'material-symbols-outlined layer-item__icon layer-item__icon--vis';
-    item.appendChild(visIcon);
+      // Visibility icon
+      const visIcon = icon('visibility', 16);
+      visIcon.className = 'material-symbols-outlined layer-item__icon layer-item__icon--vis';
+      item.appendChild(visIcon);
 
-    // Type icon
-    const typeIcon = icon(layer.iconName, 16);
-    typeIcon.className = `material-symbols-outlined layer-item__icon ${
-      layer.active || layer.isGroup ? 'layer-item__icon--type-active' : 'layer-item__icon--type'
-    }`;
-    item.appendChild(typeIcon);
+      // Type icon
+      const typeIcon = icon(layer.iconName, 16);
+      typeIcon.className = `material-symbols-outlined layer-item__icon ${
+        layer.active || layer.isGroup ? 'layer-item__icon--type-active' : 'layer-item__icon--type'
+      }`;
+      item.appendChild(typeIcon);
 
-    // Name
-    const name = document.createElement('span');
-    name.className = 'layer-item__name';
-    name.textContent = layer.name;
-    if (layer.active) name.style.color = 'var(--color-on-surface)';
-    item.appendChild(name);
+      // Name
+      const name = document.createElement('span');
+      name.className = 'layer-item__name';
+      name.textContent = layer.name;
+      if (layer.active) name.style.color = 'var(--color-on-surface)';
+      item.appendChild(name);
 
-    // Badge
-    if (layer.badge) {
-      const badge = document.createElement('span');
-      badge.className = 'layer-item__badge';
-      badge.textContent = layer.badge;
-      item.appendChild(badge);
+      // Badge
+      if (layer.badge) {
+        const badge = document.createElement('span');
+        badge.className = 'layer-item__badge';
+        badge.textContent = layer.badge;
+        item.appendChild(badge);
+      }
+
+      tree.appendChild(item);
     }
+  };
 
-    tree.appendChild(item);
-  }
+  // Initial render with dummy data
+  renderLayerTree(layers);
+
+  // Listen for PSD loaded event
+  window.addEventListener('document:loaded', (e: Event) => {
+    const customEvent = e as CustomEvent<{ psd: Psd; filename: string }>;
+    const psd = customEvent.detail.psd;
+    const filename = customEvent.detail.filename;
+
+    title.textContent = filename;
+
+    if (psd.children) {
+      const mappedLayers = mapPsdLayers(psd.children);
+      renderLayerTree(mappedLayers);
+    }
+  });
   aside.appendChild(tree);
 
   // ── Layer Properties ──
@@ -160,4 +181,28 @@ export function createLayerPanel(): HTMLElement {
   aside.appendChild(props);
 
   return aside;
+}
+
+function mapPsdLayers(psdLayers: Layer[], isChild = false): LayerDef[] {
+  const result: LayerDef[] = [];
+  
+  // ag-psd returns layers in order from bottom to top (like Photoshop internal).
+  // Usually UI layer lists are top to bottom. So we iterate backwards.
+  for (let i = psdLayers.length - 1; i >= 0; i--) {
+    const layer = psdLayers[i];
+    const isGroup = layer.children !== undefined;
+    
+    result.push({
+      name: layer.name || 'Unnamed Layer',
+      iconName: isGroup ? 'folder' : (layer.canvas || layer.imageData ? 'image' : 'layers'),
+      isGroup: isGroup,
+      isChild: isChild,
+      active: false,
+    });
+
+    if (layer.children) {
+      result.push(...mapPsdLayers(layer.children, true));
+    }
+  }
+  return result;
 }
