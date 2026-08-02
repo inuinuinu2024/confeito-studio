@@ -1,0 +1,72 @@
+/* ============================================================
+   Confeito-Studio — Design Tokens (Obsidian Theme)
+   Based on DESIGN.md specification
+   ============================================================ */
+
+:root {
+  /* ── Colors ─────────────────────────────────────────────── */
+  --color-surface: #131315;
+  --color-surface-dim: #131315;
+  --color-surface-bright: #39393b;
+  --color-surface-container-lowest: #0e0e10;
+  --color-surface-container-low: #1c1b1d;
+  --color-surface-container: #201f22;
+  --color-surface-container-high: #2a2a2c;
+  --color-surface-container-highest: #353437;
+  --color-on-surface: #e5e1e4;
+  --color-on-surface-variant: #c4c7c8;
+  --color-inverse-surface: #e5e1e4;
+  --color-inverse-on-surface: #313032;
+  --color-outline: #8e9192;
+  --color-outline-variant: #444748;
+  --color-surface-tint: #c6c6c7;
+  --color-surface-variant: #353437;
+
+  --color-primary: #ffffff;
+  --color-on-primary: #2f3131;
+  --color-primary-container: #e2e2e2;
+  --color-on-primary-container: #636565;
+  --color-inverse-primary: #5d5f5f;
+  --color-primary-fixed: #e2e2e2;
+  --color-primary-fixed-dim: #c6c6c7;
+
+  --color-secondary: #c6c6cf;
+  --color-on-secondary: #2f3037;
+  --color-secondary-container: #45464e;
+  --color-on-secondary-container: #b4b4bd;
+  --color-secondary-fixed: #e2e1eb;
+  --color-secondary-fixed-dim: #c6c6cf;
+
+  --color-tertiary: #ffffff;
+  --color-on-tertiary: #303037;
+  --color-tertiary-container: #e3e1ea;
+  --color-on-tertiary-container: #64646b;
+
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+
+  --color-background: #131315;
+  --color-on-background: #e5e1e4;
+
+  /* ── Typography ─────────────────────────────────────────── */
+  --font-headline: 'Inter', system-ui, sans-serif;
+  --font-label: 'Geist', 'Inter', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+
+  /* ── Spacing ────────────────────────────────────────────── */
+  --sidebar-width: 280px;
+  --toolbar-width: 48px;
+  --container-padding: 12px;
+  --panel-gap: 1px;
+  --element-gap: 8px;
+  --unit: 4px;
+
+  /* ── Border Radius ──────────────────────────────────────── */
+  --radius-xs: 0.125rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-full: 9999px;
+}
