@@ -9,7 +9,7 @@ const menuItems = [
   { label: 'File' },
   { label: 'Edit' },
   { label: 'View' },
-  { label: 'Layer', active: true },
+  { label: 'Layer' },
   { label: 'Select' },
   { label: 'Filter' },
   { label: 'Window' },
@@ -37,9 +37,7 @@ export function createTopBar(): HTMLElement {
       wrapper.className = 'topbar__nav-item-wrapper';
 
       const a = document.createElement('a');
-      a.className = item.active
-        ? 'topbar__nav-item topbar__nav-item--active'
-        : 'topbar__nav-item';
+      a.className = 'topbar__nav-item';
       a.href = '#';
       a.textContent = item.label;
 
@@ -56,23 +54,21 @@ export function createTopBar(): HTMLElement {
       });
       dropdown.appendChild(openOption);
 
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+      });
+
       wrapper.appendChild(a);
       wrapper.appendChild(dropdown);
       nav.appendChild(wrapper);
     } else {
       const a = document.createElement('a');
-      a.className = item.active
-        ? 'topbar__nav-item topbar__nav-item--active'
-        : 'topbar__nav-item';
+      a.className = 'topbar__nav-item';
       a.href = '#';
       a.textContent = item.label;
 
       a.addEventListener('click', (e) => {
         e.preventDefault();
-        nav.querySelectorAll('.topbar__nav-item').forEach((el) => {
-          el.classList.remove('topbar__nav-item--active');
-        });
-        a.classList.add('topbar__nav-item--active');
         showToast(`${item.label} メニュー`);
       });
 

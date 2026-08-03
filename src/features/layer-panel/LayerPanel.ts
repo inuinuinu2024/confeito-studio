@@ -76,9 +76,14 @@ export function createLayerPanel(): HTMLElement {
 
       // Click to select
       item.addEventListener('click', () => {
+        const wasActive = layerDef.active;
         items.forEach((l) => (l.active = false));
-        layerDef.active = true;
+        layerDef.active = !wasActive;
         renderLayerTree(items);
+        
+        window.dispatchEvent(new CustomEvent('layer:selected', {
+          detail: { layer: layerDef.active ? layerDef.layer : null }
+        }));
       });
 
       // Visibility icon
@@ -158,6 +163,7 @@ export function createLayerPanel(): HTMLElement {
         }
 
         renderLayerTree(items);
+        window.dispatchEvent(new Event('document:redraw'));
       });
 
       item.appendChild(visIcon);

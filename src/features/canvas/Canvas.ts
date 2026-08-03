@@ -44,10 +44,7 @@ export function createCanvas(): HTMLElement {
   knob.className = 'toggle__knob';
   toggle.appendChild(knob);
 
-  toggle.addEventListener('click', () => {
-    toggle.classList.toggle('toggle--on');
-    toggle.classList.toggle('toggle--off');
-  });
+
 
   compareGroup.appendChild(toggle);
   toolbar.appendChild(compareGroup);
@@ -115,14 +112,67 @@ export function createCanvas(): HTMLElement {
   resultPanel.appendChild(resultLabel);
   splitView.appendChild(resultPanel);
 
+  let compareMode = true;
+  toggle.addEventListener('click', () => {
+    compareMode = !compareMode;
+    toggle.classList.toggle('toggle--on', compareMode);
+    toggle.classList.toggle('toggle--off', !compareMode);
+    
+    if (compareMode) {
+      resultPanel.style.display = '';
+      splitDivider.style.display = '';
+      // Reset flex logic
+      sourcePanel.style.flex = '1';
+      resultPanel.style.flex = '1';
+    } else {
+      resultPanel.style.display = 'none';
+      splitDivider.style.display = 'none';
+      sourcePanel.style.flex = '1';
+    }
+  });
+
   main.appendChild(splitView);
+
+  // Variables for layer preview
+  let currentSourceCanvas: HTMLCanvasElement | null = null;
+  let currentResultCanvas: HTMLCanvasElement | null = null;
+  let psdWidth = 0;
+  let psdHeight = 0;
+  let currentPsd: any = null;
+
+  function renderComposite(ctx: CanvasRenderingContext2D) {
+    if (!currentPsd) return;
+    
+    // Clear the canvas to transparent before drawing
+    ctx.clearRect(0, 0, psdWidth, psdHeight);
+
+    function drawLayers(layers: any[]) {
+      // ag-psd returns layers from top to bottom, so we iterate backwards to draw bottom-up
+      for (let i = layers.length - 1; i >= 0; i--) {
+        const layer = layers[i];
+        if (layer.hidden) continue;
+
+        if (layer.children) {
+          drawLayers(layer.children);
+        } else if (layer.canvas) {
+          // Simply draw the layer at its original coordinates
+          ctx.drawImage(layer.canvas, layer.left || 0, layer.top || 0);
+        }
+      }
+    }
+
+    if (currentPsd.children) {
+      drawLayers(currentPsd.children);
+    }
+  }
 
   // Listen for PSD loaded event to render the image
   window.addEventListener('document:loaded', (e: Event) => {
     const customEvent = e as CustomEvent<{ psd: any; filename: string }>;
     const psd = customEvent.detail.psd;
+    currentPsd = psd;
 
-    if (psd.canvas) {
+    if (psd.width && psd.height) {
       // Clear dummy backgrounds
       sourcePanel.style.backgroundImage = 'none';
       resultPanel.style.backgroundImage = 'none';
@@ -131,15 +181,20 @@ export function createCanvas(): HTMLElement {
       sourcePanel.querySelectorAll('canvas').forEach(c => c.remove());
       resultPanel.querySelectorAll('canvas').forEach(c => c.remove());
 
-      // Clone the canvas for the result panel, use original for source
-      const sourceCanvas = psd.canvas;
-      const resultCanvas = document.createElement('canvas');
-      resultCanvas.width = sourceCanvas.width;
-      resultCanvas.height = sourceCanvas.height;
-      const ctx = resultCanvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(sourceCanvas, 0, 0);
-      }
+      psdWidth = psd.width;
+      psdHeight = psd.height;
+
+      currentSourceCanvas = document.createElement('canvas');
+      currentSourceCanvas.width = psdWidth;
+      currentSourceCanvas.height = psdHeight;
+      const ctxSource = currentSourceCanvas.getContext('2d');
+      if (ctxSource) renderComposite(ctxSource);
+
+      currentResultCanvas = document.createElement('canvas');
+      currentResultCanvas.width = psdWidth;
+      currentResultCanvas.height = psdHeight;
+      const ctxResult = currentResultCanvas.getContext('2d');
+      if (ctxResult) renderComposite(ctxResult);
 
       // Style both canvases
       const styleCanvas = (c: HTMLCanvasElement) => {
@@ -153,8 +208,8 @@ export function createCanvas(): HTMLElement {
         c.style.zIndex = '0';
       };
 
-      styleCanvas(sourceCanvas);
-      styleCanvas(resultCanvas);
+      styleCanvas(currentSourceCanvas);
+      styleCanvas(currentResultCanvas);
       
       // The panels need to be relative for absolute positioning of children
       sourcePanel.style.position = 'relative';
@@ -166,9 +221,25 @@ export function createCanvas(): HTMLElement {
       resultLabel.style.position = 'relative';
       resultLabel.style.zIndex = '1';
 
-      sourcePanel.appendChild(sourceCanvas);
-      resultPanel.appendChild(resultCanvas);
+      sourcePanel.appendChild(currentSourceCanvas);
+      resultPanel.appendChild(currentResultCanvas);
     }
+  });
+
+  window.addEventListener('document:redraw', () => {
+    if (!currentSourceCanvas || !currentResultCanvas) return;
+    
+    const ctxSource = currentSourceCanvas.getContext('2d');
+    if (ctxSource) renderComposite(ctxSource);
+
+    const ctxResult = currentResultCanvas.getContext('2d');
+    if (ctxResult) renderComposite(ctxResult);
+  });
+
+  // Keep layer:selected listener just in case other features want to use it
+  window.addEventListener('layer:selected', (e: Event) => {
+    // Currently doing nothing on the canvas itself, 
+    // as we want to always show the composite view.
   });
 
   return main;
