@@ -3,6 +3,30 @@
 このファイルは、本プロジェクトを「バイブコーディング」するAIエージェント（Antigravity）向けの作業メモおよびコンテキスト共有ファイルです。
 エージェントは、機能追加やアーキテクチャ変更を行う際、このファイルおよび `README.md` を**自律的に更新**し、最新の開発状況と方針を常に同期させる義務があります。
 
+## プロジェクト構成（モノレポ）
+
+```text
+confeito-studio/
+├── frontend/          # TypeScript + Vite フロントエンド
+│   ├── src/
+│   ├── index.html
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── vite.config.ts
+├── backend/           # Python (FastAPI) バックエンド
+│   ├── src/app/
+│   │   ├── main.py        # FastAPI アプリ
+│   │   ├── config.py      # 設定（環境変数）
+│   │   ├── providers/     # 生成AIプロバイダー（プロバイダーパターン）
+│   │   └── routers/       # APIルーター
+│   └── pyproject.toml
+├── docs/              # 設計ドキュメント（OKF, プロジェクト共通）
+├── sample/            # テスト用アセット（共通）
+├── setup/             # デスクトップショートカット等
+├── .agents/           # エージェント設定
+└── README.md
+```
+
 ## 現在の状態（v0.1.0）
 
 ### ✅ 完了済み: UIシェルの構築とWebアプリ化
@@ -40,11 +64,37 @@ TypeScript + Vite + Vanilla CSS の**純粋なWebアプリケーション**と�
 ## 重要な設計判断と方針
 
 - **バイブコーディング主導**: 今後の開発はすべてAntigravity（AIエージェント）によるバイブコーディングを前提とします。設計の意図やアーキテクチャの変更があった場合は、必ず `AGENTS.md` と `README.md` をAI自身が自動で修正してください。
-- **Feature-based (Vertical Slice) アーキテクチャ**: `src/features/` 以下に機能単位でUIコンポーネントを配置します。これによりAIが一度に読み込むべきコード量を減らします。
+- **Feature-based (Vertical Slice) アーキテクチャ**: `frontend/src/features/` 以下に機能単位でUIコンポーネントを配置します。これによりAIが一度に読み込むべきコード量を減らします。
 - **OKFドキュメントとGit Worktree**: `docs/concepts/` に機能ごとの知識を分離し、YAMLフロントマターで作業ブランチのトラッキングを行います。
 - **フレームワーク不使用**: React/Vue等は使わず、Vanilla TypeScript + DOM API で構築。
-- **CSS変数ベース**: デザイントークンは全て `variables.css` の CSS Custom Properties。
-- **自動シャットダウン**: `vite.config.ts` にカスタムプラグインを導入し、ブラウザの全タブが閉じられると開発サーバーも自動終了する仕組みを入れています。
+- **CSS変数ベース**: デザイントークンは全て `frontend/src/shared/styles/variables.css` の CSS Custom Properties。
+- **自動シャットダウン**: `frontend/vite.config.ts` にカスタムプラグインを導入し、ブラウザの全タブが閉じられると開発サーバーも自動終了する仕組みを入れています。
+- **モノレポ構成**: フロントエンド(`frontend/`)とバックエンド(`backend/`)を同一リポジトリ内で分離。`docs/`, `sample/` はプロジェクト共通。
+
+## バックエンドアーキテクチャ
+
+### 技術スタック
+- **Python 3.11+** / **FastAPI** / **uvicorn**
+- **psd-tools**: PSDファイルの保存・エクスポート
+- **uv**: パッケージ管理 (pyproject.toml)
+
+### 通信方式
+- **REST API (HTTP)**: PSD保存、設定取得等の単発リクエスト
+- **WebSocket**: 画像生成の進捗通知のみ
+
+### PSD処理の役割分担（ハイブリッド方式）
+- **フロントエンド (ag-psd)**: PSD読み込み、プレビュー表示、レイヤー操作UI
+- **バックエンド (psd-tools)**: PSD保存、エクスポート、高品質レンダリング
+
+### 生成AIプロバイダーパターン
+画像生成バックエンドは `ImageGenerationProvider` 抽象クラスを介して差し替え可能:
+- `ComfyUIProvider` (ローカルComfyUI)
+- `StabilityAIProvider` (クラウドAPI)
+- 他の生成AI (Google Imagen等)
+
+### ストレージ
+- ローカルファイルシステム（プロジェクトフォルダ単位）
+- 認証不要（ローカル専用ツール）
 
 ## 元のモックアップとの差異
 
@@ -59,15 +109,15 @@ TypeScript + Vite + Vanilla CSS の**純粋なWebアプリケーション**と�
 技術種別(components/, hooks/, utils/)でトップレベルを分けるのではなく、**機能単位**でトップレベルフォルダを分ける。
 
 ```text
-src/
+frontend/src/
   features/
     user-profile/
-      UserProfile.tsx
+      UserProfile.ts
       userProfile.types.ts
       userProfile.api.ts
       userProfile.test.ts
     settings/
-      Settings.tsx
+      Settings.ts
       settings.types.ts
   shared/
     components/
@@ -98,7 +148,7 @@ docs/
 ```
 
 #### 使い方
-- AIへの指示時、まず `docs/concepts/xxx.md` を読ませてから該当する `src/features/xxx/` を読ませることで、実装ファイルを総当たりで読ませるより大幅にトークンを節約できる
+- AIへの指示時、まず `docs/concepts/xxx.md` を読ませてから該当する `frontend/src/features/xxx/` を読ませることで、実装ファイルを総当たりで読ませるより大幅にトークンを節約できる
 
 ### 3. git worktreeとの併用
 

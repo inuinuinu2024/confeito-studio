@@ -1,5 +1,14 @@
 # dependencies
-node_modules/
+**/node_modules/
 
 # build
-dist/
+**/dist/
+
+# Python
+**/__pycache__/
+**/*.egg-info/
+**/.venv/
+**/.ruff_cache/
+
+# Environment / secrets
+.env

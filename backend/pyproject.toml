@@ -1,0 +1,21 @@
+[project]
+name = "confeito-studio-backend"
+version = "0.1.0"
+description = "Confeito-Studio backend — image generation proxy & PSD processing"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "psd-tools>=1.9",
+    "pydantic-settings>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["ruff", "pytest", "httpx"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]

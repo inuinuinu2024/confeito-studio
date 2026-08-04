@@ -8,20 +8,38 @@ ComfyUI連携のマンガPSDエディタ — TypeScript + Vite による純粋�
 
 ### 初回セットアップ
 
-1. 依存関係をインストールします。
+1. フロントエンドの依存関係をインストールします。
    ```bash
+   cd frontend
    npm install
    ```
-2. （任意）`setup/` フォルダの中に任意の `app-icon.png` を配置し、`npm run setup-icon` を実行するとアイコン画像を作成できます。
+2. バックエンドの依存関係をインストールします。
+   ```bash
+   cd backend
+   uv sync
+   ```
 3. `setup/` フォルダ内にある **`create-shortcut.bat`** をダブルクリックして実行します。
 4. 同じ `setup/` フォルダ内に `Confeito-Studio.lnk`（ショートカット）が作成されるので、これを右クリックして**タスクバーにピン留め**します。
 
 ### 日常の起動方法
 
 - タスクバーにピン留めしたアイコンをクリックするだけです。
-- （裏で自動的にローカルサーバーが立ち上がり、ブラウザでアプリが開きます。ブラウザを閉じるとサーバーも自動終了します）
+- （裏で自動的にフロントエンドのローカルサーバーが立ち上がり、ブラウザでアプリが開きます。ブラウザを閉じるとサーバーも自動終了します）
+- ※現在はバックエンドも必要な場合は、別途手動でバックエンドサーバーを起動する必要があります。
 
-※開発用途で手動起動したい場合は、これまで通りターミナルで `npm run dev` を実行してください。
+※開発用途で手動起動したい場合は、それぞれのディレクトリでサーバーを起動してください：
+
+**フロントエンド**:
+```bash
+cd frontend
+npm run dev
+```
+
+**バックエンド**:
+```bash
+cd backend
+uv run uvicorn src.app.main:app --reload --port 8000
+```
 
 ## 技術スタック
 
@@ -47,31 +65,38 @@ UIコンポーネントを技術的要素（components, utilsなど）で分け�
 
 ## ディレクトリ構成
 
-```
+```text
 confeito-studio/
-├── package.json
-├── tsconfig.json
-├── vite.config.ts
-├── index.html                 # Viteエントリ（Google Fonts読み込み）
-├── docs/
-│   └── concepts/              # AI向けの機能別設計知識ドキュメント (OKF)
-│       ├── ai-panel.md        # 各機能の設計意図や作業ブランチ(worktree)状態を管理
-│       └── ...
+├── frontend/                  # TypeScript + Vite フロントエンド
+│   ├── index.html             # Viteエントリ（Google Fonts読み込み）
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── vite.config.ts
+│   └── src/
+│       ├── app.ts             # エントリポイント（UI組み立て）
+│       ├── features/          # 機能ごとのUIコンポーネント群
+│       │   ├── ai-panel/      # ComfyUIコントロール
+│       │   ├── canvas/        # 描画キャンバス領域
+│       │   ├── layer-panel/   # レイヤーツリー + プロパティインスペクタ
+│       │   ├── status-bar/    # フッター
+│       │   ├── toolbar/       # 左ナビレール
+│       │   └── top-bar/       # ヘッダー
+│       └── shared/            # 機能間で共有される依存関係
+│           ├── utils/
+│           └── styles/        # デザイントークン・共通レイアウト用CSS
+├── backend/                   # Python (FastAPI) バックエンド
+│   ├── src/app/
+│   │   ├── main.py            # FastAPI アプリ
+│   │   ├── config.py          # 設定（環境変数）
+│   │   ├── providers/         # 生成AIプロバイダー（プロバイダーパターン）
+│   │   └── routers/           # APIルーター
+│   └── pyproject.toml
+├── docs/                      # 設計ドキュメント (OKF, プロジェクト共通)
+│   └── concepts/
+├── sample/                    # テスト用PSDファイルなど
 ├── setup/                     # 起動用ショートカット生成スクリプト等
-├── src/
-│   ├── app.ts                 # エントリポイント（UI組み立て）
-│   ├── features/              # 機能ごとのUIコンポーネント群
-│   │   ├── ai-panel/          # ComfyUIコントロール（プロンプト/スライダーなど）
-│   │   ├── canvas/            # 描画キャンバス領域
-│   │   ├── layer-panel/       # レイヤーツリー + プロパティインスペクタ
-│   │   ├── status-bar/        # フッター（処理状況 + VRAM情報など）
-│   │   ├── toolbar/           # 左ナビレール（ツールアイコン群）
-│   │   └── top-bar/           # ヘッダー（ロゴ + メニュー）
-│   └── shared/                # 機能間で共有される依存関係（変更は慎重に）
-│       ├── utils/             # DOM作成や通知ヘルパーなど
-│       └── styles/            # デザイントークン・共通レイアウト用CSS
-├── キャラ参考図/                # プロジェクトアセット（キャラ設定）
-└── 作画指示/                    # プロジェクトアセット（作画に関する指示）
+├── .agents/                   # エージェント設定
+└── README.md
 ```
 
 ## 設計方針
