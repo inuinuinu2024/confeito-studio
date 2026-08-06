@@ -17,9 +17,127 @@ export class DocumentManager {
 
     this.fileInput.addEventListener('change', this.handleFileSelect.bind(this));
     window.addEventListener('file:open', () => this.fileInput.click());
+    window.addEventListener('file:save', () => this.handleFileSave(false));
+    window.addEventListener('file:save-as', () => this.handleFileSave(true));
     
     // Load cached PSD on startup
     this.loadCachedPsd();
+  }
+
+  private extractLayerState(layers: any[]): any[] {
+    const state: any[] = [];
+    for (const layer of layers) {
+      if (layer.id !== undefined) {
+        state.push({
+          id: layer.id,
+          visible: !layer.hidden,
+          opacity: layer.opacity
+        });
+      }
+      if (layer.children) {
+        state.push(...this.extractLayerState(layer.children));
+      }
+    }
+    return state;
+  }
+
+  private async handleFileSave(isSaveAs: boolean = false) {
+    if (!this.currentPsd || !this.currentFilename) {
+      showToast('No PSD loaded to save.');
+      return;
+    }
+
+    let saveFilename = this.currentFilename;
+    let fileHandle: FileSystemFileHandle | null = null;
+
+    // Use File System Access API if available
+    if (isSaveAs && 'showSaveFilePicker' in window) {
+      try {
+        fileHandle = await (window as any).showSaveFilePicker({
+          suggestedName: this.currentFilename,
+          types: [
+            {
+              description: 'Photoshop Document',
+              accept: { 'image/vnd.adobe.photoshop': ['.psd'] },
+            },
+            {
+              description: 'ZIP Archive (Layers as PNG)',
+              accept: { 'application/zip': ['.zip'] },
+            }
+          ],
+        });
+        if (fileHandle) {
+          saveFilename = (fileHandle as any).name;
+          if (saveFilename.toLowerCase().endsWith('.psd')) {
+            this.currentFilename = saveFilename;
+          }
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError') return; // User cancelled
+        console.warn('showSaveFilePicker failed:', err);
+      }
+    } else if (isSaveAs) {
+      // Fallback for browsers without File System Access API
+      let newName = prompt('Enter new file name (end with .psd or .zip):', this.currentFilename);
+      if (!newName) return; // User cancelled
+      if (!newName.toLowerCase().endsWith('.psd') && !newName.toLowerCase().endsWith('.zip')) {
+        newName += '.psd';
+      }
+      saveFilename = newName;
+      if (saveFilename.toLowerCase().endsWith('.psd')) {
+        this.currentFilename = saveFilename;
+      }
+    }
+
+    showToast(`Saving ${saveFilename} via backend...`);
+    
+    try {
+      const cache = await getPsdCache();
+      if (!cache) {
+        showToast('Error: Original file not found in cache.');
+        return;
+      }
+      
+      const layerStates = this.extractLayerState(this.currentPsd.children || []);
+      
+      const formData = new FormData();
+      const blob = new Blob([cache.buffer], { type: 'application/octet-stream' });
+      formData.append('file', blob, saveFilename);
+      formData.append('state', JSON.stringify(layerStates));
+      
+      const response = await fetch('http://localhost:8000/api/psd/save', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}`);
+      }
+      
+      const resultBlob = await response.blob();
+
+      if (fileHandle) {
+        // Write directly to the file chosen by the user
+        const writable = await (fileHandle as any).createWritable();
+        await writable.write(resultBlob);
+        await writable.close();
+      } else {
+        // Fallback: download via <a> tag (saves to default Downloads folder)
+        const url = URL.createObjectURL(resultBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = saveFilename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+      
+      showToast(`${saveFilename} saved successfully!`);
+    } catch (e) {
+      console.error('Save failed:', e);
+      showToast(`Failed to save ${saveFilename}.`);
+    }
   }
 
   private async loadCachedPsd() {

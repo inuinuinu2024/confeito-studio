@@ -51,7 +51,7 @@ export function createLayerPanel(): HTMLElement {
     const btn = document.createElement('button');
     btn.className = 'layer-panel__action-btn';
     btn.appendChild(icon(action.iconName, 16));
-    btn.addEventListener('click', () => showToast(action.label));
+    btn.addEventListener('click', () => showToast(action.label, true));
     actions.appendChild(btn);
   }
   header.appendChild(actions);

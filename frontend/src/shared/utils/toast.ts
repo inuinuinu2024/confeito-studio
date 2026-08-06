@@ -9,7 +9,7 @@ let hideTimer: ReturnType<typeof setTimeout> | null = null;
  * Show a toast indicating a feature is not yet implemented.
  * @param featureName  Human-readable name of the feature
  */
-export function showToast(featureName: string): void {
+export function showToast(message: string, isMock: boolean = false): void {
   // Remove any existing toast immediately
   if (activeToast) {
     activeToast.remove();
@@ -29,7 +29,7 @@ export function showToast(featureName: string): void {
   toast.appendChild(icon);
 
   const text = document.createElement('span');
-  text.textContent = `「${featureName}」は現在開発中です`;
+  text.textContent = isMock ? `「${message}」は現在開発中です` : message;
   toast.appendChild(text);
 
   document.body.appendChild(toast);

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * StatusBar — Bottom footer with processing status, progress bar,
  * links, and VRAM info.
  */
@@ -42,7 +42,7 @@ export function createStatusBar(): HTMLElement {
     a.textContent = label;
     a.addEventListener('click', (e) => {
       e.preventDefault();
-      showToast(label);
+      showToast(label, true);
     });
     center.appendChild(a);
   }

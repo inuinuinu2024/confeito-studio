@@ -8,6 +8,8 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "psd-tools>=1.9",
     "pydantic-settings>=2.0",
+    "python-multipart>=0.0.9",
+    "requests>=2.34.2",
 ]
 
 [project.optional-dependencies]

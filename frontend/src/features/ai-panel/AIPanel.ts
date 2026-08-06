@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AIPanel — Right sidebar with ComfyUI controls:
  * prompts, parameter sliders, ControlNet adapters, and generate button.
  */
@@ -118,7 +118,7 @@ export function createAIPanel(): HTMLElement {
     setTimeout(() => {
       genBtn.style.transform = '';
     }, 120);
-    showToast('ComfyUI 生成');
+    showToast('ComfyUI 生成', true);
   });
 
   footer.appendChild(genBtn);

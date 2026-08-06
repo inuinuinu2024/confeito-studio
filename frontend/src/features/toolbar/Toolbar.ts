@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Toolbar — Left vertical navigation rail with tool icons.
  */
 import { icon } from '../../shared/utils/dom';
@@ -41,7 +41,7 @@ export function createToolbar(): HTMLElement {
         b.classList.remove('toolbar__btn--active');
       });
       btn.classList.add('toolbar__btn--active');
-      showToast(tool.name);
+      showToast(tool.name, true);
     });
 
     toolsDiv.appendChild(btn);
@@ -57,7 +57,7 @@ export function createToolbar(): HTMLElement {
   const statusIcon = icon('sensors', 20);
   statusIcon.style.color = 'var(--color-secondary)';
   statusBtn.appendChild(statusIcon);
-  statusBtn.addEventListener('click', () => showToast('接続状態'));
+  statusBtn.addEventListener('click', () => showToast('接続状態', true));
   bottomDiv.appendChild(statusBtn);
   nav.appendChild(bottomDiv);
 

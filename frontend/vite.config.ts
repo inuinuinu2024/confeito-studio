@@ -17,8 +17,13 @@ function closeOnDisconnectPlugin(): Plugin {
         client.on('close', () => {
           activeConnections--;
           if (activeConnections <= 0) {
-            timeoutId = setTimeout(() => {
-              console.log('\nAll browser tabs closed. Shutting down server...');
+            timeoutId = setTimeout(async () => {
+              console.log('\nAll browser tabs closed. Shutting down servers...');
+              try {
+                await fetch('http://localhost:8000/api/shutdown', { method: 'POST' });
+              } catch (e) {
+                // Ignore errors if backend is already down
+              }
               // @ts-ignore
               process.exit(0);
             }, 1000);

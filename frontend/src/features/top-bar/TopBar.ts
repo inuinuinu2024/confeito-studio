@@ -54,6 +54,26 @@ export function createTopBar(): HTMLElement {
       });
       dropdown.appendChild(openOption);
 
+      const saveOption = document.createElement('a');
+      saveOption.className = 'topbar__dropdown-item';
+      saveOption.href = '#';
+      saveOption.textContent = 'Save...';
+      saveOption.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.dispatchEvent(new Event('file:save'));
+      });
+      dropdown.appendChild(saveOption);
+
+      const saveAsOption = document.createElement('a');
+      saveAsOption.className = 'topbar__dropdown-item';
+      saveAsOption.href = '#';
+      saveAsOption.textContent = 'Save As...';
+      saveAsOption.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.dispatchEvent(new Event('file:save-as'));
+      });
+      dropdown.appendChild(saveAsOption);
+
       a.addEventListener('click', (e) => {
         e.preventDefault();
       });
@@ -69,7 +89,7 @@ export function createTopBar(): HTMLElement {
 
       a.addEventListener('click', (e) => {
         e.preventDefault();
-        showToast(`${item.label} メニュー`);
+        showToast(`${item.label} メニュー`, true);
       });
 
       nav.appendChild(a);
@@ -101,7 +121,7 @@ export function createTopBar(): HTMLElement {
     const btn = document.createElement('button');
     btn.className = 'topbar__action-btn';
     btn.appendChild(icon(action.iconName));
-    btn.addEventListener('click', () => showToast(action.label));
+    btn.addEventListener('click', () => showToast(action.label, true));
     right.appendChild(btn);
   }
 
