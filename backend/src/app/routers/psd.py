@@ -40,9 +40,10 @@ async def save_psd(
         for layer in psd:
             apply_state(layer)
             
-        filename = file.filename or "saved.psd"
+        filename = file.filename or "export.zip"
         
-        if filename.lower().endswith('.zip'):
+        if not filename.lower().endswith('.zip'):
+            raise HTTPException(status_code=400, detail="Backend only supports .zip export. Use frontend for .psd saving.")
             import zipfile
             
             output_buffer = BytesIO()
@@ -83,11 +84,6 @@ async def save_psd(
                 
             output_buffer.seek(0)
             media_type = "application/zip"
-        else:
-            output_buffer = BytesIO()
-            psd.save(output_buffer)
-            output_buffer.seek(0)
-            media_type = "application/octet-stream"
             
         from fastapi.responses import Response
         

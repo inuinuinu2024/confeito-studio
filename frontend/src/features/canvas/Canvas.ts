@@ -17,15 +17,6 @@ export function createCanvas(): HTMLElement {
   const toolbar = document.createElement('div');
   toolbar.className = 'canvas-toolbar';
 
-  const zoomLabel = document.createElement('span');
-  zoomLabel.className = 'canvas-toolbar__zoom';
-  zoomLabel.textContent = 'Zoom: 150%';
-  toolbar.appendChild(zoomLabel);
-
-  const divider = document.createElement('div');
-  divider.className = 'canvas-toolbar__divider';
-  toolbar.appendChild(divider);
-
   const compareGroup = document.createElement('div');
   compareGroup.className = 'canvas-toolbar__compare';
 
@@ -61,10 +52,6 @@ export function createCanvas(): HTMLElement {
   sourcePanel.style.backgroundSize = 'cover';
   sourcePanel.style.backgroundPosition = 'center';
 
-  const sourceLabel = document.createElement('div');
-  sourceLabel.className = 'canvas-split__label canvas-split__label--source';
-  sourceLabel.textContent = 'Source (Inks_Clean)';
-  sourcePanel.appendChild(sourceLabel);
   splitView.appendChild(sourcePanel);
 
   // Divider
@@ -106,10 +93,6 @@ export function createCanvas(): HTMLElement {
   resultPanel.style.backgroundSize = 'cover';
   resultPanel.style.backgroundPosition = 'center';
 
-  const resultLabel = document.createElement('div');
-  resultLabel.className = 'canvas-split__label canvas-split__label--result';
-  resultLabel.textContent = 'AI Result preview';
-  resultPanel.appendChild(resultLabel);
   splitView.appendChild(resultPanel);
 
   let compareMode = true;
@@ -214,12 +197,6 @@ export function createCanvas(): HTMLElement {
       // The panels need to be relative for absolute positioning of children
       sourcePanel.style.position = 'relative';
       resultPanel.style.position = 'relative';
-      
-      // Ensure labels are above the canvas
-      sourceLabel.style.position = 'relative';
-      sourceLabel.style.zIndex = '1';
-      resultLabel.style.position = 'relative';
-      resultLabel.style.zIndex = '1';
 
       sourcePanel.appendChild(currentSourceCanvas);
       resultPanel.appendChild(currentResultCanvas);

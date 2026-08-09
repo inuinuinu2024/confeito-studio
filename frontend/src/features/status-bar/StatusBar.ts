@@ -32,21 +32,7 @@ export function createStatusBar(): HTMLElement {
 
   footer.appendChild(left);
 
-  // ── Center: Links ──
-  const center = document.createElement('div');
-  center.className = 'statusbar__center';
-  for (const label of ['Docs', 'Support', 'API']) {
-    const a = document.createElement('a');
-    a.className = 'statusbar__link';
-    a.href = '#';
-    a.textContent = label;
-    a.addEventListener('click', (e) => {
-      e.preventDefault();
-      showToast(label, true);
-    });
-    center.appendChild(a);
-  }
-  footer.appendChild(center);
+
 
   // ── Right: VRAM ──
   const right = document.createElement('div');

@@ -30,6 +30,40 @@ const layers: LayerDef[] = [
 export function createLayerPanel(): HTMLElement {
   const aside = document.createElement('aside');
   aside.className = 'layer-panel';
+  
+  // ── Resizer ──
+  const resizer = document.createElement('div');
+  resizer.className = 'layer-panel__resizer';
+  
+  let isResizing = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  resizer.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    startX = e.clientX;
+    startWidth = aside.getBoundingClientRect().width;
+    document.body.style.cursor = 'ew-resize';
+    e.preventDefault(); // Prevent text selection
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const newWidth = startWidth + (e.clientX - startX);
+    // Add constraints
+    if (newWidth > 150 && newWidth < 600) {
+      document.documentElement.style.setProperty('--left-sidebar-width', `${newWidth}px`);
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isResizing) {
+      isResizing = false;
+      document.body.style.cursor = '';
+    }
+  });
+
+  aside.appendChild(resizer);
 
   // ── Header ──
   const header = document.createElement('div');
@@ -43,7 +77,6 @@ export function createLayerPanel(): HTMLElement {
   const actions = document.createElement('div');
   actions.className = 'layer-panel__actions';
   const layerActions: { iconName: string; label: string }[] = [
-    { iconName: 'add', label: 'レイヤー追加' },
     { iconName: 'folder', label: 'グループ作成' },
     { iconName: 'delete', label: 'レイヤー削除' },
   ];
@@ -77,11 +110,39 @@ export function createLayerPanel(): HTMLElement {
       item.className = classes.join(' ');
 
       // Click to select
-      item.addEventListener('click', () => {
+      item.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).tagName === 'INPUT') return; // Don't trigger when clicking input
+
         const wasActive = layerDef.active;
         items.forEach((l) => (l.active = false));
         layerDef.active = !wasActive;
-        renderLayerTree(items);
+        
+        // Instead of full re-render, update DOM states manually to allow dblclick to fire
+        const allItems = tree.querySelectorAll('.layer-item');
+        allItems.forEach((el, index) => {
+          const lDef = items[index];
+          if (lDef.active) {
+            el.classList.add('layer-item--active');
+            const nameSpan = el.querySelector('.layer-item__name') as HTMLElement;
+            if (nameSpan) nameSpan.style.color = 'var(--color-on-surface)';
+            const typeIcon = el.querySelector('.layer-item__icon--type');
+            if (typeIcon) {
+              typeIcon.classList.remove('layer-item__icon--type');
+              typeIcon.classList.add('layer-item__icon--type-active');
+            }
+          } else {
+            el.classList.remove('layer-item--active');
+            const nameSpan = el.querySelector('.layer-item__name') as HTMLElement;
+            if (nameSpan) nameSpan.style.color = '';
+            if (!lDef.isGroup) {
+              const typeIconActive = el.querySelector('.layer-item__icon--type-active');
+              if (typeIconActive) {
+                typeIconActive.classList.remove('layer-item__icon--type-active');
+                typeIconActive.classList.add('layer-item__icon--type');
+              }
+            }
+          }
+        });
         
         window.dispatchEvent(new CustomEvent('layer:selected', {
           detail: { layer: layerDef.active ? layerDef.layer : null }
@@ -275,6 +336,35 @@ export function createLayerPanel(): HTMLElement {
       name.className = 'layer-item__name';
       name.textContent = layerDef.name;
       if (layerDef.active) name.style.color = 'var(--color-on-surface)';
+      
+      name.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = layerDef.name;
+        input.className = 'layer-item__name-input';
+        
+        const saveName = () => {
+          layerDef.name = input.value || 'Unnamed Layer';
+          if (layerDef.layer) layerDef.layer.name = layerDef.name;
+          renderLayerTree(items);
+        };
+        
+        input.addEventListener('blur', saveName);
+        input.addEventListener('keydown', (ke) => {
+          if (ke.key === 'Enter') {
+            input.blur();
+          } else if (ke.key === 'Escape') {
+            renderLayerTree(items);
+          }
+        });
+        
+        item.replaceChild(input, name);
+        input.focus();
+        input.select();
+      });
+      
       item.appendChild(name);
 
       // Badge
@@ -310,59 +400,145 @@ export function createLayerPanel(): HTMLElement {
   });
   aside.appendChild(tree);
 
-  // ── Layer Properties ──
-  const props = document.createElement('div');
-  props.className = 'layer-props';
+  // ── CACHE ──
+  const cachePanel = document.createElement('div');
+  cachePanel.className = 'layer-cache';
+  
+  const cacheResizer = document.createElement('div');
+  cacheResizer.className = 'layer-cache__resizer';
+  
+  let isCacheResizing = false;
+  let cacheStartY = 0;
+  let cacheStartHeight = 0;
 
-  const propsTitle = document.createElement('span');
-  propsTitle.className = 'layer-props__title';
-  propsTitle.textContent = 'Layer Properties';
-  props.appendChild(propsTitle);
-
-  // Opacity row
-  const opacityRow = document.createElement('div');
-  opacityRow.className = 'layer-props__row';
-  const opacityLabel = document.createElement('span');
-  opacityLabel.className = 'layer-props__label';
-  opacityLabel.textContent = 'Opacity';
-  const opacityValue = document.createElement('span');
-  opacityValue.className = 'layer-props__value';
-  opacityValue.textContent = '100%';
-  opacityRow.appendChild(opacityLabel);
-  opacityRow.appendChild(opacityValue);
-  props.appendChild(opacityRow);
-
-  // Opacity slider
-  const opacitySlider = document.createElement('input');
-  opacitySlider.type = 'range';
-  opacitySlider.min = '0';
-  opacitySlider.max = '100';
-  opacitySlider.value = '100';
-  opacitySlider.className = 'layer-props__slider';
-  opacitySlider.addEventListener('input', () => {
-    opacityValue.textContent = `${opacitySlider.value}%`;
+  cacheResizer.addEventListener('mousedown', (e) => {
+    isCacheResizing = true;
+    cacheStartY = e.clientY;
+    cacheStartHeight = cachePanel.getBoundingClientRect().height;
+    document.body.style.cursor = 'ns-resize';
+    e.preventDefault();
   });
-  props.appendChild(opacitySlider);
 
-  // Blend Mode row
-  const blendRow = document.createElement('div');
-  blendRow.className = 'layer-props__row';
-  const blendLabel = document.createElement('span');
-  blendLabel.className = 'layer-props__label';
-  blendLabel.textContent = 'Blend Mode';
-  const blendSelect = document.createElement('select');
-  blendSelect.className = 'layer-props__select';
-  for (const mode of ['Multiply', 'Normal', 'Screen', 'Overlay', 'Soft Light']) {
-    const opt = document.createElement('option');
-    opt.value = mode;
-    opt.textContent = mode;
-    blendSelect.appendChild(opt);
+  document.addEventListener('mousemove', (e) => {
+    if (!isCacheResizing) return;
+    // Dragging UP increases height because resizer is at the top of the panel
+    const newHeight = cacheStartHeight - (e.clientY - cacheStartY);
+    if (newHeight > 100 && newHeight < 600) {
+      document.documentElement.style.setProperty('--cache-panel-height', `${newHeight}px`);
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isCacheResizing) {
+      isCacheResizing = false;
+      document.body.style.cursor = '';
+    }
+  });
+  
+  cachePanel.appendChild(cacheResizer);
+
+  const cacheHeader = document.createElement('div');
+  cacheHeader.className = 'layer-cache__header';
+
+  const cacheTitle = document.createElement('span');
+  cacheTitle.className = 'layer-cache__title';
+  cacheTitle.textContent = 'CACHE';
+  cacheHeader.appendChild(cacheTitle);
+
+  const promoteBtn = document.createElement('button');
+  promoteBtn.className = 'layer-panel__action-btn';
+  promoteBtn.title = 'レイヤーに昇格';
+  promoteBtn.appendChild(icon('arrow_upward', 16));
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'layer-panel__action-btn';
+  deleteBtn.title = 'キャッシュ削除';
+  deleteBtn.appendChild(icon('delete', 16));
+
+  const cacheActions = document.createElement('div');
+  cacheActions.style.display = 'flex';
+  cacheActions.style.gap = '4px';
+  cacheActions.appendChild(promoteBtn);
+  cacheActions.appendChild(deleteBtn);
+
+  cacheHeader.appendChild(cacheActions);
+
+  cachePanel.appendChild(cacheHeader);
+
+  const cacheList = document.createElement('div');
+  cacheList.className = 'layer-cache__list';
+
+  // State for active cache item
+  let activeCacheItemIndex: number | null = null;
+  const cacheItemElements: HTMLElement[] = [];
+
+  promoteBtn.addEventListener('click', () => {
+    if (activeCacheItemIndex !== null) {
+      showToast(`Generated Cache ${activeCacheItemIndex}をレイヤーに昇格 (未実装)`, true);
+    } else {
+      showToast('昇格するキャッシュを選択してください', false);
+    }
+  });
+
+  deleteBtn.addEventListener('click', () => {
+    if (activeCacheItemIndex !== null) {
+      showToast(`Generated Cache ${activeCacheItemIndex}を削除 (未実装)`, true);
+    } else {
+      showToast('削除するキャッシュを選択してください', false);
+    }
+  });
+
+  // Add dummy cache items for now
+  for (let i = 1; i <= 6; i++) {
+    const item = document.createElement('div');
+    item.className = 'layer-item'; // Reuse layer tree item styling
+    
+    // Icon
+    const typeIcon = document.createElement('div');
+    typeIcon.className = 'layer-item__icon layer-item__icon--type';
+    typeIcon.appendChild(icon('image', 16));
+    item.appendChild(typeIcon);
+    
+    // Name
+    const label = document.createElement('span');
+    label.className = 'layer-item__name';
+    label.textContent = `Generated Cache ${i}`;
+    item.appendChild(label);
+    
+    // Selection logic
+    item.addEventListener('click', () => {
+       if (activeCacheItemIndex === i) {
+          activeCacheItemIndex = null;
+          item.classList.remove('layer-item--active');
+          const typeIconActive = item.querySelector('.layer-item__icon--type-active');
+          if (typeIconActive) {
+            typeIconActive.classList.remove('layer-item__icon--type-active');
+            typeIconActive.classList.add('layer-item__icon--type');
+          }
+       } else {
+          // Deselect all
+          cacheItemElements.forEach(el => {
+             el.classList.remove('layer-item--active');
+             const tActive = el.querySelector('.layer-item__icon--type-active');
+             if (tActive) {
+                tActive.classList.remove('layer-item__icon--type-active');
+                tActive.classList.add('layer-item__icon--type');
+             }
+          });
+          
+          activeCacheItemIndex = i;
+          item.classList.add('layer-item--active');
+          typeIcon.classList.remove('layer-item__icon--type');
+          typeIcon.classList.add('layer-item__icon--type-active');
+       }
+    });
+
+    cacheItemElements.push(item);
+    cacheList.appendChild(item);
   }
-  blendRow.appendChild(blendLabel);
-  blendRow.appendChild(blendSelect);
-  props.appendChild(blendRow);
 
-  aside.appendChild(props);
+  cachePanel.appendChild(cacheList);
+  aside.appendChild(cachePanel);
 
   return aside;
 }

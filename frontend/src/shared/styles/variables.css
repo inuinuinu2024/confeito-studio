@@ -56,7 +56,8 @@
   --font-body: 'Inter', system-ui, sans-serif;
 
   /* ── Spacing ────────────────────────────────────────────── */
-  --sidebar-width: 280px;
+  --left-sidebar-width: 280px;
+  --right-sidebar-width: 280px;
   --topbar-height: 48px;
   --container-padding: 12px;
   --panel-gap: 1px;

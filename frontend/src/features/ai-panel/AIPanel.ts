@@ -34,6 +34,39 @@ export function createAIPanel(): HTMLElement {
   const aside = document.createElement('aside');
   aside.className = 'ai-panel';
 
+  // ── Resizer ──
+  const resizer = document.createElement('div');
+  resizer.className = 'ai-panel__resizer';
+  
+  let isResizing = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  resizer.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    startX = e.clientX;
+    startWidth = aside.getBoundingClientRect().width;
+    document.body.style.cursor = 'ew-resize';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const newWidth = startWidth - (e.clientX - startX);
+    if (newWidth > 150 && newWidth < 600) {
+      document.documentElement.style.setProperty('--right-sidebar-width', `${newWidth}px`);
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isResizing) {
+      isResizing = false;
+      document.body.style.cursor = '';
+    }
+  });
+
+  aside.appendChild(resizer);
+
   // ── Activity Indicator ──
   const indicator = document.createElement('div');
   indicator.className = 'ai-panel__indicator';

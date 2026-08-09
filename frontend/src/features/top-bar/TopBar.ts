@@ -55,7 +55,7 @@ export function createTopBar(): HTMLElement {
       const saveOption = document.createElement('a');
       saveOption.className = 'topbar__dropdown-item';
       saveOption.href = '#';
-      saveOption.textContent = 'Save...';
+      saveOption.textContent = 'Save';
       saveOption.addEventListener('click', (e) => {
         e.preventDefault();
         window.dispatchEvent(new Event('file:save'));

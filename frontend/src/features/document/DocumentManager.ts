@@ -1,4 +1,4 @@
-import { readPsd, type Psd } from 'ag-psd';
+import { readPsd, writePsd, type Psd } from 'ag-psd';
 import { showToast } from '../../shared/utils/toast';
 import { setPsdCache, getPsdCache } from '../../shared/utils/idb';
 
@@ -49,7 +49,7 @@ export class DocumentManager {
     }
 
     let saveFilename = this.currentFilename;
-    let fileHandle: FileSystemFileHandle | null = null;
+    let fileHandle: FileSystemFileHandle | null = isSaveAs ? null : this.currentFileHandle;
 
     // Use File System Access API if available
     if (isSaveAs && 'showSaveFilePicker' in window) {
@@ -75,6 +75,7 @@ export class DocumentManager {
           saveFilename = (fileHandle as any).name;
           if (saveFilename.toLowerCase().endsWith('.psd')) {
             this.currentFilename = saveFilename;
+            this.currentFileHandle = fileHandle; // Save the new handle
           }
         }
       } catch (err: any) {
@@ -94,32 +95,41 @@ export class DocumentManager {
       }
     }
 
-    showToast(`Saving ${saveFilename} via backend...`);
+    showToast(`Saving ${saveFilename}...`);
     
     try {
-      const cache = await getPsdCache();
-      if (!cache) {
-        showToast('Error: Original file not found in cache.');
-        return;
+      let resultBlob: Blob;
+
+      if (saveFilename.toLowerCase().endsWith('.psd')) {
+        // Save locally using ag-psd
+        const arrayBuffer = writePsd(this.currentPsd);
+        resultBlob = new Blob([arrayBuffer], { type: 'application/vnd.adobe.photoshop' });
+      } else {
+        // Fallback to backend for ZIP exports
+        const cache = await getPsdCache();
+        if (!cache) {
+          showToast('Error: Original file not found in cache.');
+          return;
+        }
+        
+        const layerStates = this.extractLayerState(this.currentPsd.children || []);
+        
+        const formData = new FormData();
+        const blob = new Blob([cache.buffer], { type: 'application/octet-stream' });
+        formData.append('file', blob, saveFilename);
+        formData.append('state', JSON.stringify(layerStates));
+        
+        const response = await fetch('http://localhost:8000/api/psd/save', {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}`);
+        }
+        
+        resultBlob = await response.blob();
       }
-      
-      const layerStates = this.extractLayerState(this.currentPsd.children || []);
-      
-      const formData = new FormData();
-      const blob = new Blob([cache.buffer], { type: 'application/octet-stream' });
-      formData.append('file', blob, saveFilename);
-      formData.append('state', JSON.stringify(layerStates));
-      
-      const response = await fetch('http://localhost:8000/api/psd/save', {
-        method: 'POST',
-        body: formData
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}`);
-      }
-      
-      const resultBlob = await response.blob();
 
       if (fileHandle) {
         // Write directly to the file chosen by the user
