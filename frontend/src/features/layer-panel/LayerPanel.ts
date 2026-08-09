@@ -4,6 +4,7 @@
 import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
 import type { Psd, Layer } from 'ag-psd';
+import { getAllImageCaches, deleteImageCache, renameImageCache, CachedImage } from '../../shared/utils/idb';
 
 interface LayerDef {
   name: string;
@@ -28,6 +29,8 @@ const layers: LayerDef[] = [
 ];
 
 export function createLayerPanel(): HTMLElement {
+  let currentLayerDefs: LayerDef[] = [...layers];
+
   const aside = document.createElement('aside');
   aside.className = 'layer-panel';
   
@@ -76,17 +79,105 @@ export function createLayerPanel(): HTMLElement {
 
   const actions = document.createElement('div');
   actions.className = 'layer-panel__actions';
-  const layerActions: { iconName: string; label: string }[] = [
-    { iconName: 'folder', label: 'グループ作成' },
-    { iconName: 'delete', label: 'レイヤー削除' },
-  ];
-  for (const action of layerActions) {
-    const btn = document.createElement('button');
-    btn.className = 'layer-panel__action-btn';
-    btn.appendChild(icon(action.iconName, 16));
-    btn.addEventListener('click', () => showToast(action.label, true));
-    actions.appendChild(btn);
-  }
+  const showAllBtn = document.createElement('button');
+  showAllBtn.className = 'layer-panel__action-btn';
+  showAllBtn.title = '全て表示';
+  showAllBtn.appendChild(icon('visibility', 16));
+  showAllBtn.addEventListener('click', () => {
+    currentLayerDefs.forEach(l => {
+      l.hidden = false;
+      if (l.layer) l.layer.hidden = false;
+    });
+    if (currentPsd) {
+      currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
+    }
+    renderLayerTree(currentLayerDefs);
+    window.dispatchEvent(new Event('document:redraw'));
+    showToast('全て表示しました', 'success');
+  });
+  actions.appendChild(showAllBtn);
+
+  const hideAllBtn = document.createElement('button');
+  hideAllBtn.className = 'layer-panel__action-btn';
+  hideAllBtn.title = '全て非表示';
+  hideAllBtn.appendChild(icon('visibility_off', 16));
+  hideAllBtn.addEventListener('click', () => {
+    currentLayerDefs.forEach(l => {
+      l.hidden = true;
+      if (l.layer) l.layer.hidden = true;
+    });
+    if (currentPsd) {
+      currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
+    }
+    renderLayerTree(currentLayerDefs);
+    window.dispatchEvent(new Event('document:redraw'));
+    showToast('全て非表示にしました', 'success');
+  });
+  actions.appendChild(hideAllBtn);
+
+  const createGroupBtn = document.createElement('button');
+  createGroupBtn.className = 'layer-panel__action-btn';
+  createGroupBtn.title = 'グループ作成';
+  createGroupBtn.appendChild(icon('folder', 16));
+  createGroupBtn.addEventListener('click', () => {
+    const newGroupDef: LayerDef = {
+      name: 'New Group',
+      iconName: 'folder',
+      isGroup: true,
+      depth: 0,
+      active: true,
+      layer: { name: 'New Group', children: [] }
+    };
+
+    currentLayerDefs.forEach(l => l.active = false);
+    currentLayerDefs.push(newGroupDef);
+
+    if (currentPsd) {
+      currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
+    }
+    
+    renderLayerTree(currentLayerDefs);
+    window.dispatchEvent(new Event('document:redraw'));
+  });
+  actions.appendChild(createGroupBtn);
+
+  const deleteLayerBtn = document.createElement('button');
+  deleteLayerBtn.className = 'layer-panel__action-btn';
+  deleteLayerBtn.title = 'レイヤー削除';
+  deleteLayerBtn.appendChild(icon('delete', 16));
+  deleteLayerBtn.addEventListener('click', () => {
+    const activeIndex = currentLayerDefs.findIndex(l => l.active);
+    if (activeIndex === -1) {
+      showToast('削除するレイヤーを選択してください', false);
+      return;
+    }
+
+    const activeLayer = currentLayerDefs[activeIndex];
+    let deleteCount = 1;
+
+    if (activeLayer.isGroup) {
+      const groupDepth = activeLayer.depth || 0;
+      for (let i = activeIndex + 1; i < currentLayerDefs.length; i++) {
+        if ((currentLayerDefs[i].depth || 0) > groupDepth) {
+          deleteCount++;
+        } else {
+          break;
+        }
+      }
+    }
+
+    currentLayerDefs.splice(activeIndex, deleteCount);
+
+    if (currentPsd) {
+      currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
+    }
+
+    renderLayerTree(currentLayerDefs);
+    window.dispatchEvent(new Event('document:redraw'));
+    showToast(`「${activeLayer.name}」を削除しました`, 'success');
+  });
+  actions.appendChild(deleteLayerBtn);
+
   header.appendChild(actions);
   aside.appendChild(header);
 
@@ -118,9 +209,10 @@ export function createLayerPanel(): HTMLElement {
         layerDef.active = !wasActive;
         
         // Instead of full re-render, update DOM states manually to allow dblclick to fire
-        const allItems = tree.querySelectorAll('.layer-item');
+        const allItems = tree.querySelectorAll('.layer-item:not(.layer-item--drop-zone)');
         allItems.forEach((el, index) => {
           const lDef = items[index];
+          if (!lDef) return;
           if (lDef.active) {
             el.classList.add('layer-item--active');
             const nameSpan = el.querySelector('.layer-item__name') as HTMLElement;
@@ -377,10 +469,67 @@ export function createLayerPanel(): HTMLElement {
 
       tree.appendChild(item);
     }
+
+    // Add drop zone at the bottom
+    const dropZone = document.createElement('div');
+    dropZone.className = 'layer-item layer-item--drop-zone';
+    dropZone.style.flex = '1';
+    dropZone.style.minHeight = '20px';
+    dropZone.style.background = 'transparent';
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (draggedIndex !== null) {
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        dropZone.classList.add('layer-item--drag-over');
+      }
+    });
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('layer-item--drag-over');
+    });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('layer-item--drag-over');
+      if (draggedIndex !== null) {
+        const draggedItem = items[draggedIndex];
+        const draggedDepth = draggedItem.depth || 0;
+        let draggedCount = 1;
+
+        if (draggedItem.isGroup) {
+          for (let j = draggedIndex + 1; j < items.length; j++) {
+            if ((items[j].depth || 0) > draggedDepth) {
+              draggedCount++;
+            } else {
+              break;
+            }
+          }
+        }
+
+        if (draggedIndex + draggedCount === items.length) {
+          return; // Already at the bottom
+        }
+
+        const movingItems = items.splice(draggedIndex, draggedCount);
+        
+        for (const movingItem of movingItems) {
+          movingItem.depth = (movingItem.depth || 0) - draggedDepth;
+          movingItem.isChild = (movingItem.depth > 0);
+        }
+
+        items.push(...movingItems);
+        
+        if (currentPsd) {
+          currentPsd.children = rebuildPsdHierarchy(items);
+        }
+
+        renderLayerTree(items);
+        window.dispatchEvent(new Event('document:redraw'));
+      }
+    });
+    tree.appendChild(dropZone);
   };
 
   // Initial render with dummy data
-  renderLayerTree(layers);
+  renderLayerTree(currentLayerDefs);
 
   let currentPsd: Psd | null = null;
 
@@ -394,8 +543,8 @@ export function createLayerPanel(): HTMLElement {
     title.textContent = filename;
 
     if (psd.children) {
-      const mappedLayers = mapPsdLayers(psd.children);
-      renderLayerTree(mappedLayers);
+      currentLayerDefs = mapPsdLayers(psd.children);
+      renderLayerTree(currentLayerDefs);
     }
   });
   aside.appendChild(tree);
@@ -469,73 +618,273 @@ export function createLayerPanel(): HTMLElement {
   cacheList.className = 'layer-cache__list';
 
   // State for active cache item
-  let activeCacheItemIndex: number | null = null;
+  let activeCacheItemIndices: Set<number> = new Set();
+  let lastSelectedCacheIndex: number | null = null;
   const cacheItemElements: HTMLElement[] = [];
+  let currentCaches: CachedImage[] = [];
 
-  promoteBtn.addEventListener('click', () => {
-    if (activeCacheItemIndex !== null) {
-      showToast(`Generated Cache ${activeCacheItemIndex}をレイヤーに昇格 (未実装)`, true);
+  promoteBtn.addEventListener('click', async () => {
+    if (activeCacheItemIndices.size > 0) {
+      if (!currentPsd) {
+        showToast('PSDが開かれていません', false);
+        return;
+      }
+      try {
+        const sortedIndices = Array.from(activeCacheItemIndices).sort((a, b) => a - b);
+        let activeIndex = currentLayerDefs.findIndex(l => l.active);
+        
+        let baseInsertIndex = currentLayerDefs.length;
+        let insertDepth = 0;
+
+        if (activeIndex !== -1) {
+          const activeLayer = currentLayerDefs[activeIndex];
+          if (activeLayer.isGroup) {
+            insertDepth = (activeLayer.depth || 0) + 1;
+            baseInsertIndex = currentLayerDefs.length;
+            for (let i = activeIndex + 1; i < currentLayerDefs.length; i++) {
+              if ((currentLayerDefs[i].depth || 0) <= (activeLayer.depth || 0)) {
+                baseInsertIndex = i;
+                break;
+              }
+            }
+          } else {
+            insertDepth = activeLayer.depth || 0;
+            baseInsertIndex = currentLayerDefs.length;
+            for (let i = activeIndex + 1; i < currentLayerDefs.length; i++) {
+              if ((currentLayerDefs[i].depth || 0) < insertDepth) {
+                baseInsertIndex = i;
+                break;
+              }
+            }
+          }
+        }
+
+        currentLayerDefs.forEach(l => l.active = false);
+
+        for (let i = 0; i < sortedIndices.length; i++) {
+          const cache = currentCaches[sortedIndices[i]];
+          const bmp = await createImageBitmap(cache.blob);
+          const canvas = document.createElement('canvas');
+          canvas.width = bmp.width;
+          canvas.height = bmp.height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.drawImage(bmp, 0, 0);
+
+          const newLayer = {
+            name: cache.name,
+            canvas: canvas,
+            hidden: false,
+            opacity: 255,
+            blendMode: 'normal'
+          };
+
+          const newDef: LayerDef = {
+            name: cache.name,
+            iconName: 'image',
+            isGroup: false,
+            isChild: insertDepth > 0,
+            depth: insertDepth,
+            active: i === sortedIndices.length - 1, // Make the last promoted layer active
+            layer: newLayer
+          };
+
+          currentLayerDefs.splice(baseInsertIndex + i, 0, newDef);
+        }
+
+        currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
+        renderLayerTree(currentLayerDefs);
+        window.dispatchEvent(new Event('document:redraw'));
+
+        showToast(`${sortedIndices.length}件のキャッシュをレイヤーに昇格しました`, 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('昇格に失敗しました', 'error');
+      }
     } else {
       showToast('昇格するキャッシュを選択してください', false);
     }
   });
 
-  deleteBtn.addEventListener('click', () => {
-    if (activeCacheItemIndex !== null) {
-      showToast(`Generated Cache ${activeCacheItemIndex}を削除 (未実装)`, true);
+  deleteBtn.addEventListener('click', async () => {
+    if (activeCacheItemIndices.size > 0) {
+      try {
+        const promises = Array.from(activeCacheItemIndices).map(idx => {
+          const cache = currentCaches[idx];
+          return deleteImageCache(cache.key);
+        });
+        await Promise.all(promises);
+        showToast(`${activeCacheItemIndices.size}件のキャッシュを削除しました。`, 'success');
+        // Refresh the list
+        await loadCacheList();
+      } catch (err) {
+        console.error('Failed to delete cache', err);
+        showToast(`削除に失敗しました`, 'error');
+      }
     } else {
       showToast('削除するキャッシュを選択してください', false);
     }
   });
 
-  // Add dummy cache items for now
-  for (let i = 1; i <= 6; i++) {
-    const item = document.createElement('div');
-    item.className = 'layer-item'; // Reuse layer tree item styling
-    
-    // Icon
-    const typeIcon = document.createElement('div');
-    typeIcon.className = 'layer-item__icon layer-item__icon--type';
-    typeIcon.appendChild(icon('image', 16));
-    item.appendChild(typeIcon);
-    
-    // Name
-    const label = document.createElement('span');
-    label.className = 'layer-item__name';
-    label.textContent = `Generated Cache ${i}`;
-    item.appendChild(label);
-    
-    // Selection logic
-    item.addEventListener('click', () => {
-       if (activeCacheItemIndex === i) {
-          activeCacheItemIndex = null;
-          item.classList.remove('layer-item--active');
-          const typeIconActive = item.querySelector('.layer-item__icon--type-active');
-          if (typeIconActive) {
-            typeIconActive.classList.remove('layer-item__icon--type-active');
-            typeIconActive.classList.add('layer-item__icon--type');
-          }
-       } else {
-          // Deselect all
-          cacheItemElements.forEach(el => {
-             el.classList.remove('layer-item--active');
-             const tActive = el.querySelector('.layer-item__icon--type-active');
-             if (tActive) {
-                tActive.classList.remove('layer-item__icon--type-active');
-                tActive.classList.add('layer-item__icon--type');
-             }
-          });
-          
-          activeCacheItemIndex = i;
-          item.classList.add('layer-item--active');
-          typeIcon.classList.remove('layer-item__icon--type');
-          typeIcon.classList.add('layer-item__icon--type-active');
-       }
-    });
+  async function loadCacheList(autoSelectKey?: string) {
+    cacheList.innerHTML = '';
+    cacheItemElements.length = 0;
+    activeCacheItemIndices.clear();
+    lastSelectedCacheIndex = null;
+    currentCaches = [];
 
-    cacheItemElements.push(item);
-    cacheList.appendChild(item);
+    try {
+      const caches = await getAllImageCaches();
+      currentCaches = caches;
+      caches.forEach((c, i) => {
+        const item = document.createElement('div');
+        item.className = 'layer-item';
+        
+        const typeIcon = document.createElement('div');
+        typeIcon.className = 'layer-item__icon layer-item__icon--type';
+        typeIcon.appendChild(icon('image', 16));
+        item.appendChild(typeIcon);
+        
+        const label = document.createElement('span');
+        label.className = 'layer-item__name';
+        label.textContent = c.name;
+        item.appendChild(label);
+        
+        label.addEventListener('dblclick', (e) => {
+           e.stopPropagation();
+           
+           const input = document.createElement('input');
+           input.type = 'text';
+           input.value = c.name;
+           input.className = 'layer-item__name-input';
+
+           const finishEditing = async () => {
+              const newName = input.value.trim() || '';
+              if (!newName || newName === c.name) {
+                 if (item.contains(input)) item.replaceChild(label, input);
+                 return;
+              }
+              
+              const isDuplicate = currentCaches.some(cache => cache.key !== c.key && cache.name === newName);
+              if (isDuplicate) {
+                 showToast(`エラー: 「${newName}」は既に存在します`, 'error');
+                 if (item.contains(input)) item.replaceChild(label, input);
+                 return;
+              }
+
+              try {
+                 await renameImageCache(c.key, newName);
+                 c.name = newName;
+                 label.textContent = newName;
+                 showToast(`名前を「${newName}」に変更しました`, 'success');
+              } catch (err) {
+                 console.error(err);
+                 showToast('名前の変更に失敗しました', 'error');
+              } finally {
+                 if (item.contains(input)) item.replaceChild(label, input);
+              }
+           };
+
+           input.addEventListener('blur', finishEditing, { once: true });
+           input.addEventListener('keydown', (ke) => {
+              if (ke.key === 'Enter') {
+                 ke.preventDefault();
+                 input.blur();
+              } else if (ke.key === 'Escape') {
+                 if (item.contains(input)) item.replaceChild(label, input);
+              }
+           });
+
+           item.replaceChild(input, label);
+           input.focus();
+           input.select();
+        });
+
+        if (autoSelectKey && c.key === autoSelectKey) {
+           activeCacheItemIndices.add(i);
+           lastSelectedCacheIndex = i;
+           item.classList.add('layer-item--active');
+           typeIcon.classList.remove('layer-item__icon--type');
+           typeIcon.classList.add('layer-item__icon--type-active');
+        }
+        
+        item.addEventListener('click', (e: MouseEvent) => {
+           if ((e.target as HTMLElement).tagName === 'INPUT') return;
+           
+           const updateUI = () => {
+              cacheItemElements.forEach((el, idx) => {
+                 const tActive = el.querySelector('.layer-item__icon--type-active');
+                 const tInactive = el.querySelector('.layer-item__icon--type');
+                 if (activeCacheItemIndices.has(idx)) {
+                    el.classList.add('layer-item--active');
+                    if (tInactive) {
+                       tInactive.classList.remove('layer-item__icon--type');
+                       tInactive.classList.add('layer-item__icon--type-active');
+                    }
+                 } else {
+                    el.classList.remove('layer-item--active');
+                    if (tActive) {
+                       tActive.classList.remove('layer-item__icon--type-active');
+                       tActive.classList.add('layer-item__icon--type');
+                    }
+                 }
+              });
+
+              if (activeCacheItemIndices.size === 1) {
+                 const selectedIdx = Array.from(activeCacheItemIndices)[0];
+                 const cCache = currentCaches[selectedIdx];
+                 window.dispatchEvent(new CustomEvent('tool:result-ready', { detail: { key: cCache.key, toolName: cCache.name } }));
+              } else {
+                 window.dispatchEvent(new CustomEvent('tool:result-cleared'));
+              }
+           };
+
+           if (e.shiftKey && lastSelectedCacheIndex !== null) {
+              const start = Math.min(lastSelectedCacheIndex, i);
+              const end = Math.max(lastSelectedCacheIndex, i);
+              
+              if (!e.ctrlKey && !e.metaKey) {
+                 activeCacheItemIndices.clear();
+              }
+              for (let j = start; j <= end; j++) {
+                 activeCacheItemIndices.add(j);
+              }
+              updateUI();
+           } else if (e.ctrlKey || e.metaKey) {
+              if (activeCacheItemIndices.has(i)) {
+                 activeCacheItemIndices.delete(i);
+              } else {
+                 activeCacheItemIndices.add(i);
+              }
+              lastSelectedCacheIndex = i;
+              updateUI();
+           } else {
+              if (activeCacheItemIndices.size === 1 && activeCacheItemIndices.has(i)) {
+                 activeCacheItemIndices.clear();
+                 lastSelectedCacheIndex = null;
+                 updateUI();
+              } else {
+                 activeCacheItemIndices.clear();
+                 activeCacheItemIndices.add(i);
+                 lastSelectedCacheIndex = i;
+                 updateUI();
+              }
+           }
+        });
+
+        cacheItemElements.push(item);
+        cacheList.appendChild(item);
+      });
+    } catch (err) {
+      console.error('Failed to load caches', err);
+    }
   }
+
+  loadCacheList();
+
+  window.addEventListener('tool:cache-updated', (e: Event) => {
+    const customEvent = e as CustomEvent;
+    loadCacheList(customEvent.detail?.autoSelectKey);
+  });
 
   cachePanel.appendChild(cacheList);
   aside.appendChild(cachePanel);

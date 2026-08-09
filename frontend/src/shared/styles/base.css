@@ -217,3 +217,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
   font-size: 16px;
   color: var(--color-secondary);
 }
+
+.toast--success .toast__icon {
+  color: var(--color-primary);
+}
+
+.toast--error .toast__icon {
+  color: var(--color-error);
+}

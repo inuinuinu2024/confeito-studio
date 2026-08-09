@@ -8,6 +8,7 @@ export class DocumentManager {
   private currentFilename: string | null = null;
   private currentFileHandle: any = null;
   private fileInput: HTMLInputElement;
+  private currentSelectedLayer: import('ag-psd').Layer | null = null;
 
   private constructor() {
     this.fileInput = document.createElement('input');
@@ -20,9 +21,14 @@ export class DocumentManager {
     window.addEventListener('file:open', this.handleFileOpen.bind(this));
     window.addEventListener('file:save', () => this.handleFileSave(false));
     window.addEventListener('file:save-as', () => this.handleFileSave(true));
+    window.addEventListener('layer:selected', this.handleLayerSelected.bind(this) as EventListener);
     
     // Load cached PSD on startup
     this.loadCachedPsd();
+  }
+
+  private handleLayerSelected(event: CustomEvent<{ layer: import('ag-psd').Layer | null }>) {
+    this.currentSelectedLayer = event.detail.layer;
   }
 
   private extractLayerState(layers: any[]): any[] {
@@ -108,7 +114,7 @@ export class DocumentManager {
         // Fallback to backend for ZIP exports
         const cache = await getPsdCache();
         if (!cache) {
-          showToast('Error: Original file not found in cache.');
+          showToast('Error: Original file not found in cache.', 'error');
           return;
         }
         
@@ -148,10 +154,10 @@ export class DocumentManager {
         URL.revokeObjectURL(url);
       }
       
-      showToast(`${saveFilename} saved successfully!`);
+      showToast(`${saveFilename} saved successfully!`, 'success');
     } catch (e) {
       console.error('Save failed:', e);
-      showToast(`Failed to save ${saveFilename}.`);
+      showToast(`Failed to save ${saveFilename}.`, 'error');
     }
   }
 
@@ -229,7 +235,7 @@ export class DocumentManager {
       this.currentFilename = file.name;
       console.log('PSD loaded successfully:', psd);
       
-      showToast(`${file.name} loaded successfully!`);
+      showToast(`${file.name} loaded successfully!`, 'success');
       
       // Dispatch an event so other components (Canvas, LayerPanel) can react
       window.dispatchEvent(new CustomEvent('document:loaded', { 
@@ -237,12 +243,45 @@ export class DocumentManager {
       }));
     } catch (error) {
       console.error('Error loading PSD:', error);
-      showToast('Error loading PSD file.');
+      showToast('Error loading PSD file.', 'error');
     }
   }
 
   public getCurrentPsd(): Psd | null {
     return this.currentPsd;
+  }
+
+  public getCurrentSelectedLayer(): import('ag-psd').Layer | null {
+    return this.currentSelectedLayer;
+  }
+
+  public async addLayerAndSave(newLayer: import('ag-psd').Layer): Promise<void> {
+    if (!this.currentPsd || !this.currentFilename) return;
+
+    if (!this.currentPsd.children) {
+      this.currentPsd.children = [];
+    }
+
+    // Insert just above the selected layer if exists, else at top
+    let insertIndex = 0;
+    if (this.currentSelectedLayer) {
+      const idx = this.currentPsd.children.indexOf(this.currentSelectedLayer);
+      if (idx !== -1) {
+        insertIndex = idx; // Insert before it (which visually is above it in typical Top-Down rendering)
+      }
+    }
+
+    this.currentPsd.children.splice(insertIndex, 0, newLayer);
+
+    // Write to buffer and update cache
+    const arrayBuffer = writePsd(this.currentPsd);
+    await setPsdCache(this.currentFilename, arrayBuffer);
+
+    // Notify others
+    window.dispatchEvent(new CustomEvent('document:loaded', {
+      detail: { psd: this.currentPsd, filename: this.currentFilename }
+    }));
+    window.dispatchEvent(new Event('document:redraw'));
   }
 }
 

@@ -2,6 +2,7 @@
  * Canvas — Central workspace with split compare view and floating toolbar.
  */
 import { icon } from '../../shared/utils/dom';
+import { getImageCache } from '../../shared/utils/idb';
 
 const SOURCE_IMAGE =
   'https://lh3.googleusercontent.com/aida-public/AB6AXuBOjBDI-NCafz1QuAcWVa7bAxd-XGA8SIyL1BXWHpoLE7uIzC5sQIVAGG6AcV3db4D-kwCIPM_sKETNx5UTvSyw6Wi6GSRsFzqHaEnBvdxe6r_7yPP2MCoh0fwwJXs5S3VFMhP3sogaFVTpEMVFCUusjbRGMr9_X8sRV89K351R5XVcA08yPFPUWoU6B5gOqAvWPCPSbx_9qH6ArYrbFc22JpW9ooxDInwMim-MP8JbeYtcpY2VlQmIrDJ9YMoeHoS5dHVxlux57kVA';
@@ -26,7 +27,7 @@ export function createCanvas(): HTMLElement {
 
   const compareLabel = document.createElement('span');
   compareLabel.className = 'canvas-toolbar__compare-label';
-  compareLabel.textContent = 'Compare Mode';
+  compareLabel.textContent = 'Slider';
   compareGroup.appendChild(compareLabel);
 
   const toggle = document.createElement('div');
@@ -49,10 +50,11 @@ export function createCanvas(): HTMLElement {
   const sourcePanel = document.createElement('div');
   sourcePanel.className = 'canvas-split__panel';
   sourcePanel.style.backgroundImage = `url('${SOURCE_IMAGE}')`;
-  sourcePanel.style.backgroundSize = 'cover';
+  sourcePanel.style.backgroundSize = 'contain';
   sourcePanel.style.backgroundPosition = 'center';
+  sourcePanel.style.backgroundRepeat = 'no-repeat';
 
-  splitView.appendChild(sourcePanel);
+
 
   // Divider
   const splitDivider = document.createElement('div');
@@ -61,7 +63,7 @@ export function createCanvas(): HTMLElement {
   handle.className = 'canvas-split__divider-handle';
   handle.appendChild(icon('drag_indicator', 14));
   splitDivider.appendChild(handle);
-  splitView.appendChild(splitDivider);
+  splitDivider.appendChild(handle);
 
   // Draggable divider logic
   let isDragging = false;
@@ -72,11 +74,13 @@ export function createCanvas(): HTMLElement {
   });
   document.addEventListener('mousemove', (e) => {
     if (!isDragging) return;
-    const rect = splitView.getBoundingClientRect();
+    const rect = splitViewInner.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const pct = Math.max(10, Math.min(90, (x / rect.width) * 100));
-    sourcePanel.style.flex = `0 0 ${pct}%`;
-    resultPanel.style.flex = `0 0 ${100 - pct}%`;
+    splitPct = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    
+    // Fast update during drag
+    sourcePanel.style.clipPath = `polygon(0 0, ${splitPct}% 0, ${splitPct}% 100%, 0 100%)`;
+    splitDivider.style.left = `${splitPct}%`;
   });
   document.addEventListener('mouseup', () => {
     if (isDragging) {
@@ -90,29 +94,109 @@ export function createCanvas(): HTMLElement {
   const resultPanel = document.createElement('div');
   resultPanel.className = 'canvas-split__panel';
   resultPanel.style.backgroundImage = `url('${RESULT_IMAGE}')`;
-  resultPanel.style.backgroundSize = 'cover';
+  resultPanel.style.backgroundSize = 'contain';
   resultPanel.style.backgroundPosition = 'center';
+  resultPanel.style.backgroundRepeat = 'no-repeat';
 
-  splitView.appendChild(resultPanel);
+  // Inner container to avoid padding issues with absolute positioning
+  const splitViewInner = document.createElement('div');
+  splitViewInner.style.flex = '1';
+  splitViewInner.style.display = 'flex';
+  splitViewInner.style.position = 'relative';
+  
+  splitViewInner.appendChild(sourcePanel);
+  splitViewInner.appendChild(splitDivider);
+  splitViewInner.appendChild(resultPanel);
+
+  splitView.appendChild(splitViewInner);
 
   let compareMode = true;
+  let isCacheSelected = false;
+  let splitPct = 50;
+
+  function updateCanvasLayout() {
+    if (isCacheSelected) {
+      compareGroup.style.display = 'flex';
+      
+      if (compareMode) {
+        resultPanel.style.display = '';
+        splitDivider.style.display = 'flex';
+        
+        // OVERLAY Layout
+        splitViewInner.style.gap = '0';
+        
+        sourcePanel.style.flex = 'none';
+        sourcePanel.style.position = 'absolute';
+        sourcePanel.style.top = '0';
+        sourcePanel.style.left = '0';
+        sourcePanel.style.width = '100%';
+        sourcePanel.style.height = '100%';
+        sourcePanel.style.zIndex = '2';
+        sourcePanel.style.clipPath = `polygon(0 0, ${splitPct}% 0, ${splitPct}% 100%, 0 100%)`;
+
+        resultPanel.style.flex = 'none';
+        resultPanel.style.position = 'absolute';
+        resultPanel.style.top = '0';
+        resultPanel.style.left = '0';
+        resultPanel.style.width = '100%';
+        resultPanel.style.height = '100%';
+        resultPanel.style.zIndex = '1';
+        resultPanel.style.clipPath = 'none';
+
+        splitDivider.style.position = 'absolute';
+        splitDivider.style.top = '0';
+        splitDivider.style.bottom = '0';
+        splitDivider.style.left = `${splitPct}%`;
+        splitDivider.style.transform = 'translateX(-50%)';
+        splitDivider.style.zIndex = '3';
+        
+      } else {
+        resultPanel.style.display = '';
+        splitDivider.style.display = 'none';
+        
+        // SIDE BY SIDE Layout
+        splitViewInner.style.gap = '16px';
+        
+        sourcePanel.style.flex = '1';
+        sourcePanel.style.position = 'relative';
+        sourcePanel.style.width = 'auto';
+        sourcePanel.style.height = 'auto';
+        sourcePanel.style.zIndex = '';
+        sourcePanel.style.clipPath = 'none';
+
+        resultPanel.style.flex = '1';
+        resultPanel.style.position = 'relative';
+        resultPanel.style.width = 'auto';
+        resultPanel.style.height = 'auto';
+        resultPanel.style.zIndex = '';
+        resultPanel.style.clipPath = 'none';
+      }
+    } else {
+      compareGroup.style.display = 'none';
+      resultPanel.style.display = 'none';
+      splitDivider.style.display = 'none';
+      
+      // SINGLE Layout
+      splitViewInner.style.gap = '0';
+      
+      sourcePanel.style.flex = '1';
+      sourcePanel.style.position = 'relative';
+      sourcePanel.style.width = 'auto';
+      sourcePanel.style.height = 'auto';
+      sourcePanel.style.zIndex = '';
+      sourcePanel.style.clipPath = 'none';
+    }
+  }
+
   toggle.addEventListener('click', () => {
     compareMode = !compareMode;
     toggle.classList.toggle('toggle--on', compareMode);
     toggle.classList.toggle('toggle--off', !compareMode);
-    
-    if (compareMode) {
-      resultPanel.style.display = '';
-      splitDivider.style.display = '';
-      // Reset flex logic
-      sourcePanel.style.flex = '1';
-      resultPanel.style.flex = '1';
-    } else {
-      resultPanel.style.display = 'none';
-      splitDivider.style.display = 'none';
-      sourcePanel.style.flex = '1';
-    }
+    updateCanvasLayout();
   });
+  
+  // Initial layout state
+  updateCanvasLayout();
 
   main.appendChild(splitView);
 
@@ -217,6 +301,32 @@ export function createCanvas(): HTMLElement {
   window.addEventListener('layer:selected', (e: Event) => {
     // Currently doing nothing on the canvas itself, 
     // as we want to always show the composite view.
+  });
+
+  window.addEventListener('tool:result-ready', async (e: Event) => {
+    const customEvent = e as CustomEvent<{ key: string, toolName: string }>;
+    const blob = await getImageCache(customEvent.detail.key);
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      resultPanel.style.backgroundImage = `url('${url}')`;
+      
+      if (currentResultCanvas) {
+        currentResultCanvas.style.display = 'none';
+      }
+      
+      isCacheSelected = true;
+      updateCanvasLayout();
+    }
+  });
+
+  window.addEventListener('tool:result-cleared', () => {
+    resultPanel.style.backgroundImage = 'none';
+    if (currentResultCanvas) {
+      currentResultCanvas.style.display = 'block';
+    }
+    
+    isCacheSelected = false;
+    updateCanvasLayout();
   });
 
   return main;

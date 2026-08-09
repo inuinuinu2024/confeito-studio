@@ -9,7 +9,10 @@ let hideTimer: ReturnType<typeof setTimeout> | null = null;
  * Show a toast indicating a feature is not yet implemented.
  * @param featureName  Human-readable name of the feature
  */
-export function showToast(message: string, isMock: boolean = false): void {
+export type ToastType = 'info' | 'success' | 'error' | 'mock' | boolean;
+
+export function showToast(message: string, type: ToastType = 'info'): void {
+  const resolvedType = type === true ? 'mock' : (type === false ? 'info' : type);
   // Remove any existing toast immediately
   if (activeToast) {
     activeToast.remove();
@@ -25,11 +28,21 @@ export function showToast(message: string, isMock: boolean = false): void {
 
   const icon = document.createElement('span');
   icon.className = 'material-symbols-outlined toast__icon';
-  icon.textContent = 'info';
+  
+  if (resolvedType === 'error') {
+    icon.textContent = 'error';
+    toast.classList.add('toast--error');
+  } else if (resolvedType === 'success') {
+    icon.textContent = 'check_circle';
+    toast.classList.add('toast--success');
+  } else {
+    icon.textContent = 'info';
+  }
+  
   toast.appendChild(icon);
 
   const text = document.createElement('span');
-  text.textContent = isMock ? `「${message}」は現在開発中です` : message;
+  text.textContent = resolvedType === 'mock' ? `「${message}」は現在開発中です` : message;
   toast.appendChild(text);
 
   document.body.appendChild(toast);

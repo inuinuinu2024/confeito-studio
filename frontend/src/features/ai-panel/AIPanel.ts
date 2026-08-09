@@ -4,6 +4,15 @@
  */
 import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
+import { ToolRegistry } from '../../shared/utils/ToolRegistry';
+import { InvertColorTool, GrayscaleTool } from '../tools/builtins';
+import { DocumentManager } from '../document/DocumentManager';
+import { setImageCache } from '../../shared/utils/idb';
+import { ToolContext } from '../../shared/types/tool.types';
+
+// Register built-in tools
+ToolRegistry.register(new InvertColorTool());
+ToolRegistry.register(new GrayscaleTool());
 
 interface SliderDef {
   label: string;
@@ -183,13 +192,112 @@ export function createAIPanel(): HTMLElement {
   comfyView.appendChild(footer);
   viewsContainer.appendChild(comfyView);
 
-  // ── AI Tools View (Placeholder) ──
+  // ── AI Tools View ──
   const toolsView = document.createElement('div');
   toolsView.className = 'ai-panel__view';
   toolsView.style.display = 'flex';
+  toolsView.style.flexDirection = 'column';
   toolsView.style.padding = '16px';
-  toolsView.style.color = 'var(--color-on-surface-variant)';
-  toolsView.textContent = 'AI Tools content goes here.';
+  toolsView.style.gap = '8px';
+
+
+
+  const tools = ToolRegistry.getAllTools();
+  for (const tool of tools) {
+    const btn = document.createElement('button');
+    btn.className = 'ai-tool-btn';
+    btn.appendChild(icon(tool.icon, 16));
+    btn.appendChild(document.createTextNode(tool.name));
+
+    btn.addEventListener('click', async () => {
+      btn.style.transform = 'scale(0.97)';
+      setTimeout(() => btn.style.transform = '', 120);
+
+      const docManager = DocumentManager.getInstance();
+      const psd = docManager.getCurrentPsd();
+      const selectedLayer = docManager.getCurrentSelectedLayer();
+
+      const context: ToolContext = {
+        psd,
+        selectedLayer,
+        getSelectedImage: async () => {
+          if (!selectedLayer || !selectedLayer.canvas) {
+            // Provide a dummy canvas for prototyping purposes if no valid layer/image exists
+            const dummyCanvas = document.createElement('canvas');
+            dummyCanvas.width = 512;
+            dummyCanvas.height = 512;
+            const ctx = dummyCanvas.getContext('2d');
+            if (ctx) {
+               ctx.fillStyle = '#cccccc';
+               ctx.fillRect(0, 0, 512, 512);
+               ctx.fillStyle = '#333333';
+               ctx.font = '24px sans-serif';
+               ctx.textAlign = 'center';
+               ctx.textBaseline = 'middle';
+               ctx.fillText(selectedLayer ? (selectedLayer.name || 'Folder') : 'Dummy Layer', 256, 256);
+            }
+            return dummyCanvas;
+          }
+          // Clone the canvas to avoid modifying the original layer preview immediately
+          const canvas = document.createElement('canvas');
+          canvas.width = selectedLayer.canvas.width;
+          canvas.height = selectedLayer.canvas.height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.drawImage(selectedLayer.canvas, 0, 0);
+          return canvas;
+        },
+        cacheResult: async (image: HTMLCanvasElement | Blob, toolName: string) => {
+          let canvasToAdd: HTMLCanvasElement;
+          let blob: Blob;
+
+          if (image instanceof HTMLCanvasElement) {
+            canvasToAdd = image;
+            blob = await new Promise<Blob | null>(res => image.toBlob(res)) as Blob;
+          } else {
+            blob = image;
+            canvasToAdd = await new Promise((resolve, reject) => {
+              const img = new Image();
+              img.onload = () => {
+                const cvs = document.createElement('canvas');
+                cvs.width = img.width;
+                cvs.height = img.height;
+                cvs.getContext('2d')?.drawImage(img, 0, 0);
+                resolve(cvs);
+              };
+              img.onerror = reject;
+              img.src = URL.createObjectURL(blob);
+            });
+          }
+
+          if (!blob) throw new Error('Failed to create blob from canvas');
+          
+          const date = new Date();
+          const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+          const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
+          const displayName = `${dateStr}_${timeStr}_${toolName}`;
+          
+          const key = `ToolResult_${Date.now()}`;
+          await setImageCache(key, blob, displayName);
+          
+          // Dispatch event for Canvas and LayerPanel to update
+          window.dispatchEvent(new CustomEvent('tool:result-ready', { detail: { key, toolName: displayName } }));
+          window.dispatchEvent(new CustomEvent('tool:cache-updated', { detail: { autoSelectKey: key } }));
+          return key;
+        }
+      };
+
+      try {
+        await tool.execute(context);
+        showToast(`${tool.name} completed.`, 'success');
+      } catch (err: any) {
+        console.error(err);
+        showToast(`${tool.name} failed: ${err.message || 'Unknown error'}`, 'error');
+      }
+    });
+
+    toolsView.appendChild(btn);
+  }
+
   viewsContainer.appendChild(toolsView);
 
   // ── Chatbot View (Placeholder) ──

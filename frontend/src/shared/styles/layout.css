@@ -564,7 +564,7 @@
   flex: 1;
   position: relative;
   background-color: transparent;
-  background-size: cover;
+  background-size: contain;
   background-position: center;
   background-repeat: no-repeat;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
@@ -878,6 +878,32 @@
 }
 
 .ai-generate-btn:active {
+  transform: scale(0.98);
+}
+
+.ai-tool-btn {
+  width: 100%;
+  background: var(--color-surface-container-high);
+  color: var(--color-on-surface);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  transition: background-color 150ms ease, transform 50ms ease;
+  cursor: pointer;
+}
+
+.ai-tool-btn:hover {
+  background: var(--color-surface-container-highest);
+}
+
+.ai-tool-btn:active {
   transform: scale(0.98);
 }
 
