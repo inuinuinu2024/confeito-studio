@@ -10,8 +10,6 @@ const menuItems = [
   { label: 'Edit' },
   { label: 'View' },
   { label: 'Layer' },
-  { label: 'Select' },
-  { label: 'Filter' },
   { label: 'Window' },
   { label: 'Help' },
 ];

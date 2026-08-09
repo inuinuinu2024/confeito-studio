@@ -9,7 +9,6 @@ import './shared/styles/variables.css';
 import './shared/styles/base.css';
 import './shared/styles/layout.css';
 
-import { createToolbar } from './features/toolbar/Toolbar';
 import { createTopBar } from './features/top-bar/TopBar';
 import { createLayerPanel } from './features/layer-panel/LayerPanel';
 import { createCanvas } from './features/canvas/Canvas';
@@ -20,9 +19,6 @@ import { initDocumentManager } from './features/document/DocumentManager';
 function initApp(): void {
   const app = document.getElementById('app');
   if (!app) return;
-
-  // Left toolbar rail (outside the grid)
-  app.appendChild(createToolbar());
 
   // Main workspace grid
   const workspace = document.createElement('div');

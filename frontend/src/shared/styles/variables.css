@@ -57,7 +57,7 @@
 
   /* ── Spacing ────────────────────────────────────────────── */
   --sidebar-width: 280px;
-  --toolbar-width: 48px;
+  --topbar-height: 48px;
   --container-padding: 12px;
   --panel-gap: 1px;
   --element-gap: 8px;

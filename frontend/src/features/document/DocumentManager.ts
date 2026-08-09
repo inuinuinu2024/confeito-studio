@@ -6,6 +6,7 @@ export class DocumentManager {
   private static instance: DocumentManager;
   private currentPsd: Psd | null = null;
   private currentFilename: string | null = null;
+  private currentFileHandle: any = null;
   private fileInput: HTMLInputElement;
 
   private constructor() {
@@ -16,7 +17,7 @@ export class DocumentManager {
     document.body.appendChild(this.fileInput);
 
     this.fileInput.addEventListener('change', this.handleFileSelect.bind(this));
-    window.addEventListener('file:open', () => this.fileInput.click());
+    window.addEventListener('file:open', this.handleFileOpen.bind(this));
     window.addEventListener('file:save', () => this.handleFileSave(false));
     window.addEventListener('file:save-as', () => this.handleFileSave(true));
     
@@ -53,7 +54,7 @@ export class DocumentManager {
     // Use File System Access API if available
     if (isSaveAs && 'showSaveFilePicker' in window) {
       try {
-        fileHandle = await (window as any).showSaveFilePicker({
+        const options: any = {
           suggestedName: this.currentFilename,
           types: [
             {
@@ -65,7 +66,11 @@ export class DocumentManager {
               accept: { 'application/zip': ['.zip'] },
             }
           ],
-        });
+        };
+        if (this.currentFileHandle) {
+          options.startIn = this.currentFileHandle;
+        }
+        fileHandle = await (window as any).showSaveFilePicker(options);
         if (fileHandle) {
           saveFilename = (fileHandle as any).name;
           if (saveFilename.toLowerCase().endsWith('.psd')) {
@@ -165,11 +170,39 @@ export class DocumentManager {
     return DocumentManager.instance;
   }
 
+  private async handleFileOpen() {
+    if ('showOpenFilePicker' in window) {
+      try {
+        const [fileHandle] = await (window as any).showOpenFilePicker({
+          types: [{
+            description: 'Photoshop Document',
+            accept: { 'image/vnd.adobe.photoshop': ['.psd'] },
+          }],
+        });
+        const file = await fileHandle.getFile();
+        this.currentFileHandle = fileHandle;
+        await this.processFile(file);
+      } catch (err: any) {
+        if (err.name !== 'AbortError') console.warn('showOpenFilePicker failed:', err);
+      }
+    } else {
+      this.fileInput.click();
+    }
+  }
+
   private async handleFileSelect(event: Event) {
     const target = event.target as HTMLInputElement;
     if (!target.files || target.files.length === 0) return;
 
     const file = target.files[0];
+    this.currentFileHandle = null; // Clear handle since we used standard input
+    await this.processFile(file);
+    
+    // Reset the input so the same file can be selected again if needed
+    target.value = '';
+  }
+
+  private async processFile(file: File) {
     showToast(`Loading ${file.name}...`);
     
     try {
@@ -195,9 +228,6 @@ export class DocumentManager {
     } catch (error) {
       console.error('Error loading PSD:', error);
       showToast('Error loading PSD file.');
-    } finally {
-      // Reset the input so the same file can be selected again if needed
-      target.value = '';
     }
   }
 

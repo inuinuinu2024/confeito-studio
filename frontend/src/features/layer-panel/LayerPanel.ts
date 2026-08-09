@@ -61,6 +61,8 @@ export function createLayerPanel(): HTMLElement {
   const tree = document.createElement('div');
   tree.className = 'layer-tree';
 
+  let draggedIndex: number | null = null;
+
   const renderLayerTree = (items: LayerDef[]) => {
     tree.innerHTML = '';
     for (let i = 0; i < items.length; i++) {
@@ -84,6 +86,99 @@ export function createLayerPanel(): HTMLElement {
         window.dispatchEvent(new CustomEvent('layer:selected', {
           detail: { layer: layerDef.active ? layerDef.layer : null }
         }));
+      });
+
+      // Drag and drop
+      item.draggable = true;
+
+      item.addEventListener('dragstart', (e) => {
+        draggedIndex = i;
+        item.classList.add('layer-item--dragging');
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', i.toString());
+        }
+      });
+
+      item.addEventListener('dragend', () => {
+        item.classList.remove('layer-item--dragging');
+        draggedIndex = null;
+        const allItems = tree.querySelectorAll('.layer-item');
+        allItems.forEach(el => el.classList.remove('layer-item--drag-over'));
+      });
+
+      item.addEventListener('dragover', (e) => {
+        e.preventDefault(); // Necessary to allow dropping
+        if (draggedIndex !== null && draggedIndex !== i) {
+          const draggedItem = items[draggedIndex];
+          let isChildOfDragged = false;
+          if (draggedItem.isGroup) {
+            const draggedDepth = draggedItem.depth || 0;
+            for (let j = draggedIndex + 1; j <= i; j++) {
+              if ((items[j].depth || 0) <= draggedDepth) {
+                break;
+              }
+              if (j === i) isChildOfDragged = true;
+            }
+          }
+
+          if (!isChildOfDragged) {
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+            item.classList.add('layer-item--drag-over');
+          }
+        }
+      });
+
+      item.addEventListener('dragleave', () => {
+        item.classList.remove('layer-item--drag-over');
+      });
+
+      item.addEventListener('drop', (e) => {
+        e.preventDefault();
+        item.classList.remove('layer-item--drag-over');
+        if (draggedIndex !== null && draggedIndex !== i) {
+          const draggedItem = items[draggedIndex];
+          const draggedDepth = draggedItem.depth || 0;
+          let draggedCount = 1;
+
+          if (draggedItem.isGroup) {
+            for (let j = draggedIndex + 1; j < items.length; j++) {
+              if ((items[j].depth || 0) > draggedDepth) {
+                draggedCount++;
+              } else {
+                break;
+              }
+            }
+          }
+
+          if (i >= draggedIndex && i < draggedIndex + draggedCount) {
+            return; // Dropping inside itself
+          }
+
+          const movingItems = items.splice(draggedIndex, draggedCount);
+          let insertIndex = i;
+          if (draggedIndex < i) {
+            insertIndex -= draggedCount;
+          }
+
+          const targetDepth = items[insertIndex] ? (items[insertIndex].depth || 0) : 0;
+          const depthDiff = targetDepth - draggedDepth;
+          if (depthDiff !== 0) {
+            for (const movingItem of movingItems) {
+              movingItem.depth = (movingItem.depth || 0) + depthDiff;
+              movingItem.isChild = (movingItem.depth > 0);
+            }
+          }
+
+          items.splice(insertIndex, 0, ...movingItems);
+          
+          if (currentPsd) {
+            currentPsd.children = rebuildPsdHierarchy(items);
+          }
+
+          renderLayerTree(items);
+          window.dispatchEvent(new Event('document:redraw'));
+        }
       });
 
       // Visibility icon
@@ -197,12 +292,15 @@ export function createLayerPanel(): HTMLElement {
   // Initial render with dummy data
   renderLayerTree(layers);
 
+  let currentPsd: Psd | null = null;
+
   // Listen for PSD loaded event
   window.addEventListener('document:loaded', (e: Event) => {
     const customEvent = e as CustomEvent<{ psd: Psd; filename: string }>;
     const psd = customEvent.detail.psd;
     const filename = customEvent.detail.filename;
 
+    currentPsd = psd;
     title.textContent = filename;
 
     if (psd.children) {
@@ -294,4 +392,42 @@ function mapPsdLayers(psdLayers: Layer[], depth = 0): LayerDef[] {
     }
   }
   return result;
+}
+
+function rebuildPsdHierarchy(items: LayerDef[]): Layer[] {
+  const rootLayers: Layer[] = [];
+  const stack: { depth: number; layers: Layer[] }[] = [{ depth: -1, layers: rootLayers }];
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const depth = item.depth || 0;
+    
+    while (stack[stack.length - 1].depth >= depth) {
+      stack.pop();
+    }
+    
+    const parentList = stack[stack.length - 1].layers;
+    
+    if (item.layer) {
+      if (item.isGroup) {
+        item.layer.children = [];
+        parentList.push(item.layer);
+        stack.push({ depth: depth, layers: item.layer.children });
+      } else {
+        item.layer.children = undefined;
+        parentList.push(item.layer);
+      }
+    }
+  }
+
+  function reverseLayers(layers: Layer[]) {
+    layers.reverse();
+    for (const l of layers) {
+      if (l.children) reverseLayers(l.children);
+    }
+  }
+  
+  reverseLayers(rootLayers);
+  
+  return rootLayers;
 }

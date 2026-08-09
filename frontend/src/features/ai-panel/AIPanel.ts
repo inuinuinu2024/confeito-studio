@@ -42,19 +42,63 @@ export function createAIPanel(): HTMLElement {
   indicator.appendChild(indicatorBar);
   aside.appendChild(indicator);
 
-  // ── Header ──
-  const header = document.createElement('div');
-  header.className = 'ai-panel__header';
-  const headerIcon = icon('smart_toy', 18);
-  headerIcon.className = 'material-symbols-outlined ai-panel__header-icon';
-  header.appendChild(headerIcon);
-  const headerTitle = document.createElement('span');
-  headerTitle.className = 'ai-panel__header-title';
-  headerTitle.textContent = 'ComfyUI Controls';
-  header.appendChild(headerTitle);
-  aside.appendChild(header);
+  // ── Tabs ──
+  const tabsContainer = document.createElement('div');
+  tabsContainer.className = 'ai-panel__tabs';
 
-  // ── Body ──
+  const toolsTab = document.createElement('button');
+  toolsTab.className = 'ai-panel__tab ai-panel__tab--active';
+  toolsTab.textContent = 'Tools';
+
+  const chatTab = document.createElement('button');
+  chatTab.className = 'ai-panel__tab';
+  chatTab.textContent = 'Chat';
+
+  const comfyTab = document.createElement('button');
+  comfyTab.className = 'ai-panel__tab';
+  comfyTab.textContent = 'ComfyUI';
+
+  tabsContainer.appendChild(toolsTab);
+  tabsContainer.appendChild(chatTab);
+  tabsContainer.appendChild(comfyTab);
+  aside.appendChild(tabsContainer);
+
+  // ── Views Container ──
+  const viewsContainer = document.createElement('div');
+  viewsContainer.className = 'ai-panel__views';
+  viewsContainer.style.display = 'flex';
+  viewsContainer.style.flexDirection = 'column';
+  viewsContainer.style.flex = '1';
+  viewsContainer.style.overflow = 'hidden';
+
+  // ── ComfyUI View ──
+  const comfyView = document.createElement('div');
+  comfyView.className = 'ai-panel__view';
+  comfyView.style.display = 'none';
+  comfyView.style.flexDirection = 'column';
+  comfyView.style.flex = '1';
+  comfyView.style.overflow = 'hidden';
+
+  // Footer: Generate Button
+  const footer = document.createElement('div');
+  footer.className = 'ai-panel__footer';
+
+  const genBtn = document.createElement('button');
+  genBtn.className = 'ai-generate-btn';
+  genBtn.appendChild(icon('auto_awesome'));
+  genBtn.appendChild(document.createTextNode('Generate with ComfyUI'));
+
+  genBtn.addEventListener('click', () => {
+    genBtn.style.transform = 'scale(0.97)';
+    setTimeout(() => {
+      genBtn.style.transform = '';
+    }, 120);
+    showToast('ComfyUI 生成', true);
+  });
+
+  footer.appendChild(genBtn);
+
+  // Body
   const body = document.createElement('div');
   body.className = 'ai-panel__body';
 
@@ -102,27 +146,43 @@ export function createAIPanel(): HTMLElement {
   }
   body.appendChild(controlnet);
 
-  aside.appendChild(body);
+  comfyView.appendChild(body);
+  comfyView.appendChild(footer);
+  viewsContainer.appendChild(comfyView);
 
-  // ── Footer: Generate Button ──
-  const footer = document.createElement('div');
-  footer.className = 'ai-panel__footer';
+  // ── AI Tools View (Placeholder) ──
+  const toolsView = document.createElement('div');
+  toolsView.className = 'ai-panel__view';
+  toolsView.style.display = 'flex';
+  toolsView.style.padding = '16px';
+  toolsView.style.color = 'var(--color-on-surface-variant)';
+  toolsView.textContent = 'AI Tools content goes here.';
+  viewsContainer.appendChild(toolsView);
 
-  const genBtn = document.createElement('button');
-  genBtn.className = 'ai-generate-btn';
-  genBtn.appendChild(icon('auto_awesome'));
-  genBtn.appendChild(document.createTextNode('Generate with ComfyUI'));
+  // ── Chatbot View (Placeholder) ──
+  const chatView = document.createElement('div');
+  chatView.className = 'ai-panel__view';
+  chatView.style.display = 'none';
+  chatView.style.padding = '16px';
+  chatView.style.color = 'var(--color-on-surface-variant)';
+  chatView.textContent = 'Chat interface goes here.';
+  viewsContainer.appendChild(chatView);
 
-  genBtn.addEventListener('click', () => {
-    genBtn.style.transform = 'scale(0.97)';
-    setTimeout(() => {
-      genBtn.style.transform = '';
-    }, 120);
-    showToast('ComfyUI 生成', true);
+  aside.appendChild(viewsContainer);
+
+  // Tab switching logic
+  const tabs = [toolsTab, chatTab, comfyTab];
+  const views = [toolsView, chatView, comfyView];
+
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('ai-panel__tab--active'));
+      views.forEach(v => v.style.display = 'none');
+
+      tab.classList.add('ai-panel__tab--active');
+      views[index].style.display = 'flex';
+    });
   });
-
-  footer.appendChild(genBtn);
-  aside.appendChild(footer);
 
   return aside;
 }
