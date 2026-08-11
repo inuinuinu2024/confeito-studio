@@ -588,17 +588,23 @@ export class NanoBananaProTool implements Tool {
 
   async execute(context: ToolContext): Promise<void> {
     if (!this.buildPayloadFn) {
-      showToast('設定画面が開かれていません。', 'error');
-      return;
+      throw new Error('設定画面が開かれていません。');
     }
 
     try {
       const payload = await this.buildPayloadFn();
       
-      const response = await fetch('http://localhost:8000/api/generate/nano-banana-pro', {
+      const apiKey = localStorage.getItem('geminiApiKey');
+      if (!apiKey) {
+        throw new Error('Gemini API Key が設定されていません。右上の設定アイコンから設定してください。');
+      }
+      
+      const response = await fetch('http://127.0.0.1:8000/api/nano-banana-pro', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+          'X-Provider': 'gemini'
         },
         body: JSON.stringify(payload)
       });
@@ -620,13 +626,3 @@ export class NanoBananaProTool implements Tool {
   }
 }
 
-export class NanoBanana2Tool implements Tool {
-  id = 'nano-banana-2';
-  name = 'Nano Banana 2';
-  icon = 'auto_awesome';
-  hasSettings = true;
-
-  async execute(context: ToolContext): Promise<void> {
-    showToast(`${this.name} is a placeholder and not implemented yet.`, 'info');
-  }
-}

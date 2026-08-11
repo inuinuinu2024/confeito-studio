@@ -88,12 +88,14 @@ confeito-studio/
 
 元の `stitch_manga_ai_psd_editor/code.html`（Tailwind CDNの単一HTMLモックアップ）をベースに、TypeScript + Vite + Vanilla CSS の純粋なWebアプリケーションとして再構築が完了しました。（Electronから移行済み）
 
-### ✅ 実装済みの機能・インタラクション（フロントエンドのみ）
+### ✅ 実装済みの機能・インタラクション
 
-- ツールバーアイコン、メニュー項目のアクティブ切替
-- リアルタイム数値更新（Opacity, Denoising Strength, CFG Scale等）
-- ControlNet Adapters トグルスイッチ ON/OFF
-- Generate ボタンのクリックアニメーション
+- **UI・ツール管理**:
+  - ツールバーアイコン、メニュー項目のアクティブ切替
+  - リアルタイム数値更新（Opacity, Denoising Strength, CFG Scale等）
+  - ControlNet Adapters トグルスイッチ ON/OFF
+  - Generate ボタンのクリックアニメーション
+  - 各ツールが独立したファイル(`1ツール1ファイル`)にリファクタリングされ、保守性が向上。
 - **CACHEパネル（IndexedDB連動）**: 
   - ツールの実行結果をキャッシュして一覧表示
   - キャッシュ画像の選択/非選択（レイヤーツリーと統一されたクリック挙動）
@@ -102,13 +104,16 @@ confeito-studio/
 - **キャンバスのCompare Mode（比較表示）**:
   - Compare Mode ON: 元画像とキャッシュ画像を重ね合わせ（Overlay）、ドラッグ可能なスプリットバーでワイプ比較できるUI（Image Comparison Slider）
   - Compare Mode OFF: 元画像とキャッシュ画像を左右に並べて表示（Side-by-Side）
+- **バックエンドとの連携（生成AI）**:
+  - Gemini API (Google Imagen 3) を用いた画像生成の実装 (`NanoBananaProTool`)
+  - バックエンドへのRESTリクエストと、マルチモーダル入力（複数画像＋プロンプト）の処理
 
-### ❌ 未実装（バックエンド/機能面）
+### ❌ 未実装（機能面）
 
-以下は一切未実装。全てUIの見た目（ダミー）だけの状態：
+以下は未実装であり、ダミーデータやプレースホルダー状態のものを含みます：
 
 1. **ファイル操作**: PSD読み込み/保存、File/Editメニューの実動作
-2. **ComfyUI連携**: WebSocket接続、画像生成リクエスト送信、結果受信
+2. **ComfyUI連携**: WebSocket接続、ComfyUIへの画像生成リクエスト送信・結果受信 (現状はGeminiのみ稼働)
 3. **レイヤー管理**: 追加/削除/並び替え/グループ化（現在はハードコードされたダミーデータ）
 4. **キャンバス描画**: 実際の画像描画エンジン（Canvas API / WebGL）※現在は背景に画像を表示しているのみ
 5. **Undo/Redo**: 操作履歴
@@ -132,9 +137,9 @@ confeito-studio/
 
 ### 生成AIプロバイダーパターン
 画像生成バックエンドは `ImageGenerationProvider` 抽象クラスを介して差し替え可能:
-- `ComfyUIProvider` (ローカルComfyUI)
-- `StabilityAIProvider` (クラウドAPI)
-- 他の生成AI (Google Imagen等)
+- `GeminiProvider` (実装済み: Google Imagen APIを用いた画像生成・マルチモーダル対応)
+- `ComfyUIProvider` (未実装: ローカルComfyUI)
+- `StabilityAIProvider` (未実装: クラウドAPI)
 
 ### ストレージ
 - ローカルファイルシステム（プロジェクトフォルダ単位）

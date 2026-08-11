@@ -5,9 +5,10 @@
 import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
 import { ToolRegistry } from '../../shared/utils/ToolRegistry';
-import { InvertColorTool, GrayscaleTool } from '../tools/builtins';
-import { GeminiGenerationTool } from '../tools/gemini';
-import { NanoBananaProTool, NanoBanana2Tool } from '../tools/nano-banana';
+import { InvertColorTool } from '../tools/invert-color';
+import { GrayscaleTool } from '../tools/grayscale';
+import { NanoBananaProTool } from '../tools/nano-banana-pro';
+import { NanoBanana2Tool } from '../tools/nano-banana-2';
 import { createToolPromptDialog } from './components/ToolPromptDialog';
 import { createToolSettingsSidebar } from './components/ToolSettingsSidebar';
 import { DocumentManager } from '../document/DocumentManager';
@@ -17,7 +18,6 @@ import { ToolContext } from '../../shared/types/tool.types';
 // Register built-in tools
 ToolRegistry.register(new InvertColorTool());
 ToolRegistry.register(new GrayscaleTool());
-ToolRegistry.register(new GeminiGenerationTool());
 ToolRegistry.register(new NanoBananaProTool());
 ToolRegistry.register(new NanoBanana2Tool());
 
