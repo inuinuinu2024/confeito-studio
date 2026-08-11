@@ -48,7 +48,7 @@ export function createCanvas(): HTMLElement {
     if (isGlobalCompareMode) {
       rightSelectedLayer = leftSelectedLayer;
       rightHiddenLayers = new Set(leftHiddenLayers);
-      rightCacheOverlay.style.backgroundImage = leftCacheOverlay.style.backgroundImage;
+      rightCacheUrl = leftCacheUrl;
       
       if (currentResultCanvas) {
         const ctx = currentResultCanvas.getContext('2d');
@@ -159,15 +159,39 @@ export function createCanvas(): HTMLElement {
   let isSliderMode = false;
   let splitPct = 50;
 
+  let leftCacheUrl = '';
+  let rightCacheUrl = '';
+
+  const leftCacheOverlay = document.createElement('div');
+  const rightCacheOverlay = document.createElement('div');
+
+  function styleOverlay(overlay: HTMLDivElement) {
+    overlay.style.position = 'absolute';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.backgroundSize = 'contain';
+    overlay.style.backgroundPosition = 'center';
+    overlay.style.backgroundRepeat = 'no-repeat';
+    overlay.style.zIndex = '1';
+    overlay.style.pointerEvents = 'none';
+  }
+  
+  styleOverlay(leftCacheOverlay);
+  styleOverlay(rightCacheOverlay);
+
   function updateCanvasLayout() {
     compareGroup.style.display = 'flex';
-    if (isGlobalCompareMode) {
+    
+    const hasLeftCache = leftCacheUrl !== '';
+    const showTwoPanes = isGlobalCompareMode || (!isGlobalCompareMode && hasLeftCache);
+
+    if (showTwoPanes) {
       resultPanel.style.display = '';
       
       if (isSliderMode) {
         splitDivider.style.display = 'flex';
-        
-        // OVERLAY Layout
         splitViewInner.style.gap = '0';
         
         sourcePanel.style.flex = 'none';
@@ -197,8 +221,6 @@ export function createCanvas(): HTMLElement {
         
       } else {
         splitDivider.style.display = 'none';
-        
-        // SIDE BY SIDE Layout
         splitViewInner.style.gap = '16px';
         
         sourcePanel.style.flex = '1';
@@ -218,8 +240,6 @@ export function createCanvas(): HTMLElement {
     } else {
       resultPanel.style.display = 'none';
       splitDivider.style.display = 'none';
-      
-      // SINGLE Layout
       splitViewInner.style.gap = '0';
       
       sourcePanel.style.flex = '1';
@@ -229,9 +249,27 @@ export function createCanvas(): HTMLElement {
       sourcePanel.style.zIndex = '';
       sourcePanel.style.clipPath = 'none';
     }
+
+    if (isGlobalCompareMode) {
+      leftCacheOverlay.style.backgroundImage = leftCacheUrl ? `url('${leftCacheUrl}')` : 'none';
+      rightCacheOverlay.style.backgroundImage = rightCacheUrl ? `url('${rightCacheUrl}')` : 'none';
+    } else {
+      if (hasLeftCache) {
+        leftCacheOverlay.style.backgroundImage = 'none';
+        rightCacheOverlay.style.backgroundImage = leftCacheUrl ? `url('${leftCacheUrl}')` : 'none';
+      } else {
+        leftCacheOverlay.style.backgroundImage = 'none';
+        rightCacheOverlay.style.backgroundImage = 'none';
+      }
+    }
   }
 
   toggle.addEventListener('click', () => {
+    if (!isGlobalCompareMode && leftCacheUrl === '') {
+      showToast('比較するキャッシュが選択されていません', 'error');
+      return;
+    }
+
     isSliderMode = !isSliderMode;
     toggle.classList.toggle('toggle--on', isSliderMode);
     toggle.classList.toggle('toggle--off', !isSliderMode);
@@ -255,25 +293,6 @@ export function createCanvas(): HTMLElement {
 
   let leftHiddenLayers = new Set<any>();
   let rightHiddenLayers = new Set<any>();
-
-  const leftCacheOverlay = document.createElement('div');
-  const rightCacheOverlay = document.createElement('div');
-
-  function styleOverlay(overlay: HTMLDivElement) {
-    overlay.style.position = 'absolute';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.width = '100%';
-    overlay.style.height = '100%';
-    overlay.style.backgroundSize = 'contain';
-    overlay.style.backgroundPosition = 'center';
-    overlay.style.backgroundRepeat = 'no-repeat';
-    overlay.style.zIndex = '1';
-    overlay.style.pointerEvents = 'none';
-  }
-  
-  styleOverlay(leftCacheOverlay);
-  styleOverlay(rightCacheOverlay);
 
   function drawNode(ctx: CanvasRenderingContext2D, node: any, hiddenLayers: Set<any>) {
     if (hiddenLayers.has(node)) return;
@@ -356,6 +375,11 @@ export function createCanvas(): HTMLElement {
   });
 
   window.addEventListener('document:redraw', () => {
+    if (!isGlobalCompareMode) {
+      rightSelectedLayer = leftSelectedLayer;
+      rightHiddenLayers = new Set(leftHiddenLayers);
+    }
+    
     if (currentSourceCanvas) {
       const ctx = currentSourceCanvas.getContext('2d');
       if (ctx) renderSideContext(ctx, leftSelectedLayer, leftHiddenLayers);
@@ -398,26 +422,33 @@ export function createCanvas(): HTMLElement {
     const customEvent = e as CustomEvent<{ key: string, toolName: string }>;
     const blob = await getImageCache(customEvent.detail.key);
     if (blob) {
-      const url = URL.createObjectURL(blob);
-      leftCacheOverlay.style.backgroundImage = `url('${url}')`;
+      leftCacheUrl = URL.createObjectURL(blob);
+      updateCanvasLayout();
     }
   });
 
   window.addEventListener('tool:result-cleared', () => {
-    leftCacheOverlay.style.backgroundImage = 'none';
+    leftCacheUrl = '';
+    if (!isGlobalCompareMode && isSliderMode) {
+      isSliderMode = false;
+      toggle.classList.add('toggle--off');
+      toggle.classList.remove('toggle--on');
+    }
+    updateCanvasLayout();
   });
 
   window.addEventListener('tool:result-ready:right', async (e: Event) => {
     const customEvent = e as CustomEvent<{ key: string, toolName: string }>;
     const blob = await getImageCache(customEvent.detail.key);
     if (blob) {
-      const url = URL.createObjectURL(blob);
-      rightCacheOverlay.style.backgroundImage = `url('${url}')`;
+      rightCacheUrl = URL.createObjectURL(blob);
+      updateCanvasLayout();
     }
   });
 
   window.addEventListener('tool:result-cleared:right', () => {
-    rightCacheOverlay.style.backgroundImage = 'none';
+    rightCacheUrl = '';
+    updateCanvasLayout();
   });
 
   return main;
