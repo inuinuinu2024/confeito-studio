@@ -45,7 +45,7 @@ confeito-studio/
 │   └── src/
 │       ├── app.ts             # エントリポイント（UI組み立て）
 │       ├── features/          # 機能ごとのUIコンポーネント群
-│       │   ├── ai-panel/      # ComfyUIコントロール
+│       │   ├── ai-panel/      # AIツール用右サイドバー
 │       │   ├── canvas/        # 描画キャンバス領域
 │       │   ├── layer-panel/   # レイヤーツリー + プロパティインスペクタ
 │       │   ├── status-bar/    # フッター
@@ -95,9 +95,6 @@ confeito-studio/
 
 - **UI・ツール管理**:
   - ツールバーアイコン、メニュー項目のアクティブ切替
-  - リアルタイム数値更新（Opacity, Denoising Strength, CFG Scale等）
-  - ControlNet Adapters トグルスイッチ ON/OFF
-  - Generate ボタンのクリックアニメーション
   - 各ツールが独立したファイル(`1ツール1ファイル`)にリファクタリングされ、保守性が向上。
 - **CACHEパネル（IndexedDB連動）**: 
   - ツールの実行結果をキャッシュして一覧表示
@@ -116,12 +113,11 @@ confeito-studio/
 以下は未実装であり、ダミーデータやプレースホルダー状態のものを含みます：
 
 1. **ファイル操作**: PSD読み込み/保存、Fileメニューの実動作
-2. **ComfyUI連携**: WebSocket接続、ComfyUIへの画像生成リクエスト送信・結果受信 (現状はGeminiのみ稼働)
-3. **レイヤー管理**: 追加/削除/並び替え/グループ化（現在はハードコードされたダミーデータ）
-4. **キャンバス描画**: 実際の画像描画エンジン（Canvas API / WebGL）※現在は背景に画像を表示しているのみ
-5. **Undo/Redo**: 操作履歴
-6. **設定画面**: ComfyUI接続先URL設定など
-7. **キーボードショートカット**
+2. **レイヤー管理**: 追加/削除/並び替え/グループ化（現在はハードコードされたダミーデータ）
+3. **キャンバス描画**: 実際の画像描画エンジン（Canvas API / WebGL）※現在は背景に画像を表示しているのみ
+4. **Undo/Redo**: 操作履歴
+5. **設定画面**: APIキーの設定など
+6. **キーボードショートカット**
 
 ## バックエンドアーキテクチャ
 
@@ -141,7 +137,6 @@ confeito-studio/
 ### 生成AIプロバイダーパターン
 画像生成バックエンドは `ImageGenerationProvider` 抽象クラスを介して差し替え可能:
 - `GeminiProvider` (実装済み: Google Imagen APIを用いた画像生成・マルチモーダル対応)
-- `ComfyUIProvider` (未実装: ローカルComfyUI)
 - `StabilityAIProvider` (未実装: クラウドAPI)
 
 ### ストレージと設定

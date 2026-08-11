@@ -20,7 +20,7 @@ export interface ToolContext {
 export interface Tool {
   id: string;
   name: string;
-  icon: string; // Material symbols icon name
+  icon?: string; // Material symbols icon name
   hasSettings?: boolean;
   renderSettings?: (container: HTMLElement) => void;
   execute(context: ToolContext): Promise<void>;

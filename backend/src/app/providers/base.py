@@ -22,14 +22,10 @@ class ImageGenerationProvider(ABC):
     """
     生成AIプロバイダーの抽象基底クラス。
 
-    ComfyUI, Stability AI, Google Imagen 等を差し替え可能にするための
+    Stability AI, Google Imagen 等を差し替え可能にするための
     共通インターフェースを定義する。
 
     Usage:
-        class ComfyUIProvider(ImageGenerationProvider):
-            async def generate(self, prompt, negative_prompt, **params):
-                ...
-
         class StabilityAIProvider(ImageGenerationProvider):
             async def generate(self, prompt, negative_prompt, **params):
                 ...
@@ -66,5 +62,5 @@ class ImageGenerationProvider(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """プロバイダー名 (例: "ComfyUI", "Stability AI")"""
+        """プロバイダー名 (例: "Gemini", "Stability AI")"""
         ...

@@ -16,8 +16,7 @@ class Settings(BaseSettings):
     api_port: int = 8000
     api_host: str = "127.0.0.1"
 
-    # ComfyUI (optional, default local)
-    comfyui_url: str = "http://127.0.0.1:8188"
+
 
     # Project workspace — PSD保存先のベースディレクトリ
     workspace_dir: str = "./workspace"

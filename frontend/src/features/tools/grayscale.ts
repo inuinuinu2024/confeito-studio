@@ -3,7 +3,6 @@ import { Tool, ToolContext } from '../../shared/types/tool.types';
 export class GrayscaleTool implements Tool {
   id = 'grayscale';
   name = 'Grayscale';
-  icon = 'tonality';
 
   async execute(context: ToolContext): Promise<void> {
     const canvas = await context.getSelectedImage();

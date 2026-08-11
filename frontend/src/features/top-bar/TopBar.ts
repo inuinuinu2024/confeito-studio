@@ -1,6 +1,6 @@
 /**
  * TopBar — Application header with logo, menu navigation,
- * ComfyUI connection status, and action buttons.
+ * and action buttons.
  */
 import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';

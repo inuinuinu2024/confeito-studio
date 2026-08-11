@@ -35,7 +35,6 @@ uv run uvicorn src.app.main:app --reload --port 8000
 |--------|-----------|------|
 | `CONFEITO_API_PORT` | `8000` | サーバーポート |
 | `CONFEITO_API_HOST` | `127.0.0.1` | サーバーホスト |
-| `CONFEITO_COMFYUI_URL` | `http://127.0.0.1:8188` | ComfyUI 接続先 |
 | `CONFEITO_WORKSPACE_DIR` | `./workspace` | PSD保存先ディレクトリ |
 
 ## アーキテクチャ

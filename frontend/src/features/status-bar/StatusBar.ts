@@ -98,46 +98,6 @@ export function createStatusBar(): HTMLElement {
   window.addEventListener('settings:updated', updateGeminiStatus);
   updateGeminiStatus();
 
-  // ComfyUI Status
-  const comfyStatus = document.createElement('div');
-  comfyStatus.className = 'statusbar__status-item';
-  
-  const comfyDot = document.createElement('span');
-  comfyDot.className = 'statusbar__status-dot';
-  
-  const comfyText = document.createTextNode('ComfyUI: Checking...');
-  
-  comfyStatus.appendChild(comfyDot);
-  comfyStatus.appendChild(comfyText);
-  right.appendChild(comfyStatus);
-
-  const updateComfyStatus = async () => {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
-      
-      // Ping ComfyUI system stats endpoint
-      const res = await fetch('http://127.0.0.1:8188/system_stats', { signal: controller.signal });
-      clearTimeout(timeoutId);
-      
-      if (res.ok) {
-        comfyDot.style.backgroundColor = 'var(--color-success, #4ade80)';
-        comfyDot.style.boxShadow = '0 0 8px var(--color-success, #4ade80)';
-        comfyText.textContent = 'ComfyUI: Connected';
-      } else {
-        throw new Error('Status not OK');
-      }
-    } catch (err) {
-      comfyDot.style.backgroundColor = 'var(--color-error, #f87171)';
-      comfyDot.style.boxShadow = '0 0 8px var(--color-error, #f87171)';
-      comfyText.textContent = 'ComfyUI: Disconnected';
-    }
-  };
-
-  updateComfyStatus();
-  // Poll every 5 seconds
-  setInterval(updateComfyStatus, 5000);
-
   footer.appendChild(right);
 
   // ── Event Listeners ──
