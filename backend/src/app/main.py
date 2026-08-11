@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 # Load project root .env
-root_env = Path(__file__).parent.parent.parent.parent.parent / ".env"
+root_env = Path(__file__).parent.parent.parent.parent / ".env"
 if root_env.exists():
     with open(root_env, "r", encoding="utf-8") as f:
         for line in f:
