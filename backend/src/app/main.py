@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import health, psd
+from .routers import health, psd, generate
 
 app = FastAPI(
     title="Confeito-Studio Backend",
@@ -26,4 +26,5 @@ app.add_middleware(
 # ── Routers ──
 app.include_router(health.router, prefix="/api")
 app.include_router(psd.router, prefix="/api")
+app.include_router(generate.router, prefix="/api")
 

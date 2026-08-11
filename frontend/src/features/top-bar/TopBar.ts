@@ -4,6 +4,7 @@
  */
 import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
+import { createSettingsDialog } from './components/SettingsDialog';
 
 const menuItems = [
   { label: 'File' },
@@ -110,16 +111,26 @@ export function createTopBar(): HTMLElement {
   right.appendChild(status);
 
   // Action icons
-  const actionButtons: { iconName: string; label: string }[] = [
-    { iconName: 'settings', label: '設定' },
+  const actionButtons: { iconName: string; label: string; action?: () => void }[] = [
+    { iconName: 'settings', label: '設定', action: () => settingsDialog.open() },
     { iconName: 'cloud_done', label: 'クラウド同期' },
     { iconName: 'account_circle', label: 'アカウント' },
   ];
+  
+  const settingsDialog = createSettingsDialog();
+  document.body.appendChild(settingsDialog.overlay);
+
   for (const action of actionButtons) {
     const btn = document.createElement('button');
     btn.className = 'topbar__action-btn';
     btn.appendChild(icon(action.iconName));
-    btn.addEventListener('click', () => showToast(action.label, true));
+    btn.addEventListener('click', () => {
+      if (action.action) {
+        action.action();
+      } else {
+        showToast(action.label, true);
+      }
+    });
     right.appendChild(btn);
   }
 

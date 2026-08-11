@@ -6,6 +6,8 @@ import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
 import { ToolRegistry } from '../../shared/utils/ToolRegistry';
 import { InvertColorTool, GrayscaleTool } from '../tools/builtins';
+import { GeminiGenerationTool } from '../tools/gemini';
+import { createToolPromptDialog } from './components/ToolPromptDialog';
 import { DocumentManager } from '../document/DocumentManager';
 import { setImageCache } from '../../shared/utils/idb';
 import { ToolContext } from '../../shared/types/tool.types';
@@ -13,6 +15,7 @@ import { ToolContext } from '../../shared/types/tool.types';
 // Register built-in tools
 ToolRegistry.register(new InvertColorTool());
 ToolRegistry.register(new GrayscaleTool());
+ToolRegistry.register(new GeminiGenerationTool());
 
 interface SliderDef {
   label: string;
@@ -42,6 +45,12 @@ const controlNets: ControlNetDef[] = [
 export function createAIPanel(): HTMLElement {
   const aside = document.createElement('aside');
   aside.className = 'ai-panel';
+
+  let hiddenLayers = new Set<any>();
+  window.addEventListener('layer:visibility', (e: Event) => {
+    const customEvent = e as CustomEvent<{ hiddenLayers: Set<any> }>;
+    hiddenLayers = customEvent.detail.hiddenLayers;
+  });
 
   // ── Resizer ──
   const resizer = document.createElement('div');
@@ -144,21 +153,24 @@ export function createAIPanel(): HTMLElement {
   const body = document.createElement('div');
   body.className = 'ai-panel__body';
 
-  // Positive Prompt
+  // ── Prompt Section ──
+  const promptSection = document.createElement('div');
+  promptSection.className = 'ai-panel__prompt-section';
+  promptSection.style.display = 'flex';
+  promptSection.style.flexDirection = 'column';
+  promptSection.style.gap = '8px';
+  promptSection.style.marginBottom = '16px';
+  promptSection.style.padding = '0 16px'; // Optional padding
+
+  // Main Prompt
   const posPrompt = createPromptSection(
-    'Positive Prompt',
+    'Prompt',
     'masterpiece, best quality, highly detailed manga page, 1girl, cyberpunk aesthetic, ink lines, screentones, dramatic lighting',
     'ai-prompt__textarea--positive',
   );
-  body.appendChild(posPrompt);
+  promptSection.appendChild(posPrompt);
 
-  // Negative Prompt
-  const negPrompt = createPromptSection(
-    'Negative Prompt',
-    'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality',
-    'ai-prompt__textarea--negative',
-  );
-  body.appendChild(negPrompt);
+  body.appendChild(promptSection);
 
   // Divider
   body.appendChild(createDivider());
@@ -200,14 +212,175 @@ export function createAIPanel(): HTMLElement {
   toolsView.style.padding = '16px';
   toolsView.style.gap = '8px';
 
+  const toolPromptDialog = createToolPromptDialog();
+  document.body.appendChild(toolPromptDialog.overlay);
 
+  let tools = ToolRegistry.getAllTools();
+  const savedOrderStr = localStorage.getItem('toolOrder');
+  if (savedOrderStr) {
+    try {
+      const savedOrder = JSON.parse(savedOrderStr) as string[];
+      tools.sort((a, b) => {
+        const idxA = savedOrder.indexOf(a.name);
+        const idxB = savedOrder.indexOf(b.name);
+        if (idxA === -1 && idxB === -1) return 0;
+        if (idxA === -1) return 1;
+        if (idxB === -1) return -1;
+        return idxA - idxB;
+      });
+    } catch (e) {
+      console.error('Failed to parse tool order', e);
+    }
+  }
 
-  const tools = ToolRegistry.getAllTools();
+  let draggedItem: HTMLElement | null = null;
+
   for (const tool of tools) {
+    const toolWrapper = document.createElement('div');
+    toolWrapper.style.position = 'relative';
+    toolWrapper.style.width = '100%';
+    toolWrapper.style.cursor = 'grab';
+    toolWrapper.draggable = true;
+    toolWrapper.dataset.toolName = tool.name;
+
+    // Drag and Drop Events
+    toolWrapper.addEventListener('dragstart', (e) => {
+      draggedItem = toolWrapper;
+      setTimeout(() => {
+        toolWrapper.style.opacity = '0.5';
+      }, 0);
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', tool.name);
+      }
+    });
+
+    toolWrapper.addEventListener('dragend', () => {
+      setTimeout(() => {
+        if (draggedItem) {
+          draggedItem.style.opacity = '1';
+        }
+        draggedItem = null;
+        // Clean up all borders
+        Array.from(toolsView.children).forEach(child => {
+          (child as HTMLElement).style.borderTop = '';
+          (child as HTMLElement).style.borderBottom = '';
+          (child as HTMLElement).style.transform = '';
+        });
+      }, 0);
+    });
+
+    toolWrapper.addEventListener('dragover', (e) => {
+      e.preventDefault(); 
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      
+      if (draggedItem && draggedItem !== toolWrapper) {
+        const bounding = toolWrapper.getBoundingClientRect();
+        const offset = bounding.y + (bounding.height / 2);
+        
+        // Reset borders
+        toolWrapper.style.borderTop = '';
+        toolWrapper.style.borderBottom = '';
+        toolWrapper.style.transform = '';
+        
+        if (e.clientY > offset) {
+          toolWrapper.style.borderBottom = '2px solid var(--color-primary)';
+          toolWrapper.style.transform = 'translateY(-1px)';
+        } else {
+          toolWrapper.style.borderTop = '2px solid var(--color-primary)';
+          toolWrapper.style.transform = 'translateY(1px)';
+        }
+      }
+    });
+
+    toolWrapper.addEventListener('dragleave', (e) => {
+      // We don't reset borders here because child element hovering can trigger dragleave.
+      // We handle cleanup in dragover of other elements or dragend/drop.
+      // We only reset if we genuinely left the element entirely.
+      const rect = toolWrapper.getBoundingClientRect();
+      if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
+        toolWrapper.style.borderTop = '';
+        toolWrapper.style.borderBottom = '';
+        toolWrapper.style.transform = '';
+      }
+    });
+
+    toolWrapper.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation(); // Prevent toolsView drop from firing
+      
+      toolWrapper.style.borderTop = '';
+      toolWrapper.style.borderBottom = '';
+      toolWrapper.style.transform = '';
+      
+      if (draggedItem && draggedItem !== toolWrapper) {
+        const bounding = toolWrapper.getBoundingClientRect();
+        const offset = bounding.y + (bounding.height / 2);
+        
+        if (e.clientY > offset) {
+          toolWrapper.after(draggedItem);
+        } else {
+          toolWrapper.before(draggedItem);
+        }
+        
+        // Save new order
+        const newOrder = Array.from(toolsView.children)
+          .map(child => (child as HTMLElement).dataset?.toolName)
+          .filter(Boolean) as string[];
+        localStorage.setItem('toolOrder', JSON.stringify(newOrder));
+      }
+    });
+
+
     const btn = document.createElement('button');
     btn.className = 'ai-tool-btn';
+    btn.style.width = '100%';
+    
+    // Only add padding if there's going to be an edit button
+    if (tool.hasSettings) {
+      btn.style.paddingRight = '32px'; 
+    }
+    
     btn.appendChild(icon(tool.icon, 16));
     btn.appendChild(document.createTextNode(tool.name));
+
+    if (tool.hasSettings) {
+      const editBtn = document.createElement('button');
+      editBtn.className = 'ai-tool-btn';
+      // Style as an icon button overlay
+      editBtn.style.position = 'absolute';
+      editBtn.style.right = '4px';
+      editBtn.style.top = '50%';
+      editBtn.style.transform = 'translateY(-50%)';
+      editBtn.style.padding = '4px';
+      editBtn.style.minHeight = 'unset';
+      editBtn.style.height = '24px';
+      editBtn.style.width = '24px';
+      editBtn.style.display = 'flex';
+      editBtn.style.alignItems = 'center';
+      editBtn.style.justifyContent = 'center';
+      editBtn.style.border = 'none';
+      editBtn.style.background = 'transparent';
+      editBtn.title = 'Edit Tool Prompts';
+      // Use 'edit_note' for a notebook and pen icon
+      editBtn.appendChild(icon('edit_note', 18));
+      
+      // Optional hover effect for the edit button
+      editBtn.addEventListener('mouseenter', () => {
+        editBtn.style.backgroundColor = 'var(--color-surface-container-high)';
+        editBtn.style.borderRadius = '4px';
+      });
+      editBtn.addEventListener('mouseleave', () => {
+        editBtn.style.backgroundColor = 'transparent';
+      });
+      
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // 実行ボタンがクリックされるのを防ぐ
+        toolPromptDialog.open(tool.name);
+      });
+      
+      toolWrapper.appendChild(editBtn);
+    }
 
     btn.addEventListener('click', async () => {
       btn.style.transform = 'scale(0.97)';
@@ -231,6 +404,46 @@ export function createAIPanel(): HTMLElement {
           const ctx = canvas.getContext('2d');
           if (ctx) ctx.drawImage(selectedLayer.canvas, 0, 0);
           return canvas;
+        },
+        getCompositeImage: async () => {
+          if (!psd || !psd.width || !psd.height) return null;
+          const canvas = document.createElement('canvas');
+          canvas.width = psd.width;
+          canvas.height = psd.height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return null;
+          
+          const drawNode = (node: any) => {
+            if (hiddenLayers.has(node) || node.hidden) return;
+            if (node.children) {
+              for (let i = node.children.length - 1; i >= 0; i--) {
+                drawNode(node.children[i]);
+              }
+            } else if (node.canvas) {
+              ctx.drawImage(node.canvas, node.left || 0, node.top || 0);
+            }
+          };
+
+          if (psd.children) {
+            for (let i = psd.children.length - 1; i >= 0; i--) {
+              drawNode(psd.children[i]);
+            }
+          }
+          return canvas;
+        },
+        getPrompts: (toolName?: string) => {
+          let pos = '';
+          
+          if (toolName) {
+            pos = localStorage.getItem(`toolPrompt_${toolName}`) || '';
+          }
+          
+          // Fallback to panel prompt if not defined per tool
+          if (!pos) {
+            pos = posPrompt.querySelector('textarea')?.value || '';
+          }
+          
+          return { prompt: pos };
         },
         cacheResult: async (image: HTMLCanvasElement | Blob, toolName: string) => {
           let canvasToAdd: HTMLCanvasElement;
@@ -281,8 +494,56 @@ export function createAIPanel(): HTMLElement {
       }
     });
 
-    toolsView.appendChild(btn);
+    toolWrapper.appendChild(btn);
+    toolsView.appendChild(toolWrapper);
   }
+
+  // Allow dropping on the empty space at the bottom of toolsView
+  toolsView.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    
+    if (draggedItem && (e.target === toolsView || (e.target as HTMLElement).classList.contains('ai-panel__view'))) {
+      const children = Array.from(toolsView.children).filter(c => (c as HTMLElement).dataset?.toolName);
+      if (children.length > 0) {
+        const lastChild = children[children.length - 1] as HTMLElement;
+        if (lastChild !== draggedItem) {
+          lastChild.style.borderBottom = '2px solid var(--color-primary)';
+        }
+      }
+    }
+  });
+
+  toolsView.addEventListener('dragleave', (e) => {
+    // Reset any borderBottom we might have added to the last child
+    const children = Array.from(toolsView.children).filter(c => (c as HTMLElement).dataset?.toolName);
+    if (children.length > 0) {
+      const lastChild = children[children.length - 1] as HTMLElement;
+      lastChild.style.borderBottom = '';
+    }
+  });
+
+  toolsView.addEventListener('drop', (e) => {
+    e.preventDefault();
+    
+    // Reset border
+    const children = Array.from(toolsView.children).filter(c => (c as HTMLElement).dataset?.toolName);
+    if (children.length > 0) {
+      const lastChild = children[children.length - 1] as HTMLElement;
+      lastChild.style.borderBottom = '';
+    }
+    
+    // Only handle if we dropped directly on toolsView (e.g. empty space at the bottom)
+    // and not on a specific toolWrapper which handles its own drop
+    if (draggedItem && (e.target === toolsView || (e.target as HTMLElement).classList.contains('ai-panel__view'))) {
+      toolsView.appendChild(draggedItem);
+      
+      const newOrder = Array.from(toolsView.children)
+        .map(child => (child as HTMLElement).dataset?.toolName)
+        .filter(Boolean) as string[];
+      localStorage.setItem('toolOrder', JSON.stringify(newOrder));
+    }
+  });
 
   viewsContainer.appendChild(toolsView);
 
