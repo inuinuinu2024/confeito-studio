@@ -16,6 +16,7 @@ interface LayerDef {
   badge?: string;
   spaced?: boolean;
   hidden?: boolean;
+  collapsed?: boolean;
   layer?: Layer;
 }
 
@@ -225,9 +226,39 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
 
   const renderLayerTree = (items: LayerDef[]) => {
     tree.innerHTML = '';
+    let skipDepth = -1;
+    let activeGroupDepth = -1;
+
     for (let i = 0; i < items.length; i++) {
       const layerDef = items[i];
+      const currentDepth = layerDef.depth || 0;
+
+      if (skipDepth !== -1) {
+        if (currentDepth > skipDepth) {
+          continue;
+        } else {
+          skipDepth = -1;
+        }
+      }
+
+      if (layerDef.isGroup && layerDef.collapsed && skipDepth === -1) {
+        skipDepth = currentDepth;
+      }
+
+      let inActiveGroup = false;
+      if (activeGroupDepth !== -1) {
+        if (currentDepth > activeGroupDepth) {
+          inActiveGroup = true;
+        } else {
+          activeGroupDepth = -1;
+        }
+      }
+      if (layerDef.active && layerDef.isGroup) {
+        activeGroupDepth = currentDepth;
+      }
+
       const item = document.createElement('div');
+      item.dataset.index = i.toString();
       const classes = ['layer-item'];
       if (layerDef.active) classes.push('layer-item--active');
       if (layerDef.isGroup) classes.push('layer-item--group');
@@ -235,6 +266,13 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
       if (layerDef.spaced) classes.push('layer-item--spaced');
       if (layerDef.hidden) classes.push('layer-item--hidden');
       item.className = classes.join(' ');
+      
+      const indent = currentDepth * 16;
+      item.style.paddingLeft = `${8 + indent}px`;
+      
+      if (inActiveGroup && !layerDef.active) {
+        item.style.backgroundColor = 'var(--color-surface-container-high)';
+      }
 
       // Click to select
       item.addEventListener('click', (e) => {
@@ -246,11 +284,31 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
         
         // Instead of full re-render, update DOM states manually to allow dblclick to fire
         const allItems = tree.querySelectorAll('.layer-item:not(.layer-item--drop-zone)');
-        allItems.forEach((el, index) => {
-          const lDef = items[index];
+        let activeGroupDepth = -1;
+        
+        allItems.forEach((el) => {
+          const htmlEl = el as HTMLElement;
+          const originalIndex = parseInt(htmlEl.dataset.index || '-1', 10);
+          if (originalIndex === -1) return;
+          const lDef = items[originalIndex];
           if (!lDef) return;
+
+          let inActiveGroup = false;
+          const currentDepth = lDef.depth || 0;
+          if (activeGroupDepth !== -1) {
+            if (currentDepth > activeGroupDepth) {
+              inActiveGroup = true;
+            } else {
+              activeGroupDepth = -1;
+            }
+          }
+          if (lDef.active && lDef.isGroup) {
+            activeGroupDepth = currentDepth;
+          }
+
           if (lDef.active) {
             el.classList.add('layer-item--active');
+            htmlEl.style.backgroundColor = '';
             const nameSpan = el.querySelector('.layer-item__name') as HTMLElement;
             if (nameSpan) nameSpan.style.color = 'var(--color-on-surface)';
             const typeIcon = el.querySelector('.layer-item__icon--type');
@@ -260,6 +318,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
             }
           } else {
             el.classList.remove('layer-item--active');
+            htmlEl.style.backgroundColor = inActiveGroup ? 'var(--color-surface-container-high)' : '';
             const nameSpan = el.querySelector('.layer-item__name') as HTMLElement;
             if (nameSpan) nameSpan.style.color = '';
             if (!lDef.isGroup) {
@@ -294,7 +353,10 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
         item.classList.remove('layer-item--dragging');
         draggedIndex = null;
         const allItems = tree.querySelectorAll('.layer-item');
-        allItems.forEach(el => el.classList.remove('layer-item--drag-over'));
+        allItems.forEach(el => {
+          el.classList.remove('layer-item--drag-over');
+          (el as HTMLElement).style.boxShadow = '';
+        });
       });
 
       item.addEventListener('dragover', (e) => {
@@ -314,18 +376,42 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
 
           if (!isChildOfDragged) {
             if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-            item.classList.add('layer-item--drag-over');
+            
+            item.classList.remove('layer-item--drag-over');
+            item.style.boxShadow = '';
+
+            const rect = item.getBoundingClientRect();
+            const y = e.clientY - rect.top;
+            
+            if (layerDef.isGroup) {
+              if (y < rect.height * 0.25) {
+                item.style.boxShadow = 'inset 0 2px 0 var(--color-primary)';
+              } else if (y > rect.height * 0.75) {
+                item.style.boxShadow = 'inset 0 -2px 0 var(--color-primary)';
+              } else {
+                item.style.boxShadow = 'inset 0 0 0 2px var(--color-primary)';
+              }
+            } else {
+              if (y < rect.height / 2) {
+                item.style.boxShadow = 'inset 0 2px 0 var(--color-primary)';
+              } else {
+                item.style.boxShadow = 'inset 0 -2px 0 var(--color-primary)';
+              }
+            }
           }
         }
       });
 
       item.addEventListener('dragleave', () => {
         item.classList.remove('layer-item--drag-over');
+        item.style.boxShadow = '';
       });
 
       item.addEventListener('drop', (e) => {
         e.preventDefault();
         item.classList.remove('layer-item--drag-over');
+        item.style.boxShadow = '';
+        
         if (draggedIndex !== null && draggedIndex !== i) {
           const draggedItem = items[draggedIndex];
           const draggedDepth = draggedItem.depth || 0;
@@ -345,14 +431,50 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
             return; // Dropping inside itself
           }
 
+          const rect = item.getBoundingClientRect();
+          const y = e.clientY - rect.top;
+          let position = 'before';
+
+          if (layerDef.isGroup) {
+            if (y < rect.height * 0.25) position = 'before';
+            else if (y > rect.height * 0.75) position = 'after';
+            else position = 'inside';
+          } else {
+            if (y < rect.height / 2) position = 'before';
+            else position = 'after';
+          }
+
           const movingItems = items.splice(draggedIndex, draggedCount);
           let insertIndex = i;
           if (draggedIndex < i) {
             insertIndex -= draggedCount;
           }
 
-          const targetDepth = items[insertIndex] ? (items[insertIndex].depth || 0) : 0;
-          const depthDiff = targetDepth - draggedDepth;
+          const targetItem = items[insertIndex];
+          const targetDepth = targetItem ? (targetItem.depth || 0) : 0;
+          let newDepth = targetDepth;
+          let finalInsertIndex = insertIndex;
+
+          if (position === 'inside') {
+            newDepth = targetDepth + 1;
+            finalInsertIndex = insertIndex + 1;
+            targetItem.collapsed = false; // Expand folder automatically
+          } else if (position === 'after') {
+            let skipCount = 1;
+            if (targetItem.isGroup) {
+              for (let j = insertIndex + 1; j < items.length; j++) {
+                if ((items[j].depth || 0) > targetDepth) skipCount++;
+                else break;
+              }
+            }
+            finalInsertIndex = insertIndex + skipCount;
+            newDepth = targetDepth;
+          } else {
+            finalInsertIndex = insertIndex;
+            newDepth = targetDepth;
+          }
+
+          const depthDiff = newDepth - draggedDepth;
           if (depthDiff !== 0) {
             for (const movingItem of movingItems) {
               movingItem.depth = (movingItem.depth || 0) + depthDiff;
@@ -360,7 +482,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
             }
           }
 
-          items.splice(insertIndex, 0, ...movingItems);
+          items.splice(finalInsertIndex, 0, ...movingItems);
           
           if (currentPsd) {
             currentPsd.children = rebuildPsdHierarchy(items);
@@ -371,16 +493,63 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
         }
       });
 
-      // Visibility icon
-      const visIconName = layerDef.hidden ? 'visibility_off' : 'visibility';
-      const visIcon = icon(visIconName, 16);
-      visIcon.className = 'material-symbols-outlined layer-item__icon layer-item__icon--vis';
-      if (layerDef.hidden) {
-        visIcon.style.opacity = '0.4';
-        item.style.opacity = '0.6';
+      // Visibility Checkbox
+      const visBox = document.createElement('div');
+      visBox.className = 'layer-item__vis-box';
+      visBox.style.width = '14px';
+      visBox.style.height = '14px';
+      visBox.style.border = '1px solid var(--color-on-surface-variant)';
+      visBox.style.borderRadius = '2px';
+      visBox.style.display = 'flex';
+      visBox.style.alignItems = 'center';
+      visBox.style.justifyContent = 'center';
+      visBox.style.marginRight = '8px';
+      visBox.style.cursor = 'pointer';
+      visBox.style.flexShrink = '0';
+
+      let visState = 'hidden'; // 'visible', 'hidden', 'partial'
+      
+      if (!layerDef.isGroup) {
+        visState = layerDef.hidden ? 'hidden' : 'visible';
+      } else {
+        const groupDepth = layerDef.depth || 0;
+        let visibleCount = 0;
+        let childCount = 0;
+        for (let j = i + 1; j < items.length; j++) {
+          const child = items[j];
+          if ((child.depth || 0) <= groupDepth) break;
+          childCount++;
+          if (!child.hidden) visibleCount++;
+        }
+        if (childCount === 0) {
+          visState = layerDef.hidden ? 'hidden' : 'visible';
+        } else if (visibleCount === 0) {
+          visState = 'hidden';
+        } else if (visibleCount === childCount) {
+          visState = 'visible';
+        } else {
+          visState = 'partial';
+        }
       }
 
-      visIcon.addEventListener('click', (e) => {
+      if (visState === 'visible') {
+        const dot = document.createElement('div');
+        dot.style.width = '8px';
+        dot.style.height = '8px';
+        dot.style.backgroundColor = 'var(--color-on-surface)';
+        dot.style.borderRadius = '50%';
+        visBox.appendChild(dot);
+      } else if (visState === 'partial') {
+        const line = document.createElement('div');
+        line.style.width = '8px';
+        line.style.height = '2px';
+        line.style.backgroundColor = 'var(--color-on-surface)';
+        visBox.appendChild(line);
+      }
+
+      // Opacity change removed to keep icon color same
+
+      visBox.addEventListener('click', (e) => {
         e.stopPropagation();
         const targetHidden = !layerDef.hidden;
         layerDef.hidden = targetHidden;
@@ -449,7 +618,29 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
         window.dispatchEvent(new Event('document:redraw'));
       });
 
-      item.appendChild(visIcon);
+      item.appendChild(visBox);
+
+      // Chevron icon
+      if (layerDef.isGroup) {
+        const chevronName = layerDef.collapsed ? 'chevron_right' : 'expand_more';
+        const chevronIcon = icon(chevronName, 16);
+        chevronIcon.className = 'material-symbols-outlined layer-item__icon layer-item__icon--chevron';
+        chevronIcon.style.cursor = 'pointer';
+        chevronIcon.addEventListener('click', (e) => {
+          e.stopPropagation();
+          layerDef.collapsed = !layerDef.collapsed;
+          renderLayerTree(items);
+        });
+        item.appendChild(chevronIcon);
+      } else {
+        const spacer = document.createElement('span');
+        spacer.style.width = '16px';
+        spacer.style.height = '16px';
+        spacer.style.marginRight = '4px';
+        spacer.style.display = 'inline-block';
+        spacer.style.flexShrink = '0';
+        item.appendChild(spacer);
+      }
 
       // Type icon
       const typeIcon = icon(layerDef.iconName, 16);

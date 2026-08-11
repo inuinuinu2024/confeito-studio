@@ -67,7 +67,8 @@ async def generate_nano_banana_pro(
             api_key=api_key,
         )
         
-        return Response(content=result.image_bytes, media_type="image/png")
+        mime_type = request.response_format.get("mime_type", "image/png")
+        return Response(content=result.image_bytes, media_type=mime_type)
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -53,12 +53,13 @@ export function showToast(message: string, type: ToastType = 'info'): void {
     toast.classList.add('toast--visible');
   });
 
-  // Auto-hide after 2 seconds
+  // Auto-hide after specified duration
+  const duration = resolvedType === 'error' ? 6000 : 2000;
   hideTimer = setTimeout(() => {
     toast.classList.remove('toast--visible');
     toast.addEventListener('transitionend', () => {
       toast.remove();
       if (activeToast === toast) activeToast = null;
     });
-  }, 2000);
+  }, duration);
 }

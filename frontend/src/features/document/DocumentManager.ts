@@ -58,7 +58,7 @@ export class DocumentManager {
     let fileHandle: FileSystemFileHandle | null = isSaveAs ? null : this.currentFileHandle;
 
     // Use File System Access API if available
-    if (isSaveAs && 'showSaveFilePicker' in window) {
+    if ((isSaveAs || !fileHandle) && 'showSaveFilePicker' in window) {
       try {
         const options: any = {
           suggestedName: this.currentFilename,
@@ -138,8 +138,17 @@ export class DocumentManager {
       }
 
       if (fileHandle) {
+        // Request write permission if not already granted
+        const handle = fileHandle as any;
+        if ((await handle.queryPermission({ mode: 'readwrite' })) !== 'granted') {
+          const perm = await handle.requestPermission({ mode: 'readwrite' });
+          if (perm !== 'granted') {
+            throw new Error('Permission to write denied by user.');
+          }
+        }
+        
         // Write directly to the file chosen by the user
-        const writable = await (fileHandle as any).createWritable();
+        const writable = await handle.createWritable();
         await writable.write(resultBlob);
         await writable.close();
       } else {
@@ -169,6 +178,9 @@ export class DocumentManager {
         const psd = readPsd(cache.buffer);
         this.currentPsd = psd;
         this.currentFilename = cache.filename;
+        if (cache.fileHandle) {
+          this.currentFileHandle = cache.fileHandle;
+        }
         window.dispatchEvent(new CustomEvent('document:loaded', { 
           detail: { psd, filename: cache.filename } 
         }));
@@ -226,7 +238,7 @@ export class DocumentManager {
       
       // Save a copy to cache before parsing to avoid any detachment issues
       const bufferCopy = arrayBuffer.slice(0);
-      await setPsdCache(file.name, bufferCopy);
+      await setPsdCache(file.name, bufferCopy, this.currentFileHandle);
 
       // ag-psd expects a Uint8Array or ArrayBuffer
       const psd = readPsd(arrayBuffer);
@@ -275,7 +287,7 @@ export class DocumentManager {
 
     // Write to buffer and update cache
     const arrayBuffer = writePsd(this.currentPsd);
-    await setPsdCache(this.currentFilename, arrayBuffer);
+    await setPsdCache(this.currentFilename, arrayBuffer, this.currentFileHandle);
 
     // Notify others
     window.dispatchEvent(new CustomEvent('document:loaded', {

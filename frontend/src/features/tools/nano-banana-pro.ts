@@ -488,7 +488,8 @@ export class NanoBananaProTool implements Tool {
       option.textContent = opt.label;
       mimeSelect.appendChild(option);
     });
-    mimeSelect.value = this.getSetting('mimeType', 'image/png');
+    const storedMime = this.getSetting('mimeType', 'image/png');
+    mimeSelect.value = storedMime;
     mimeSelect.addEventListener('change', () => this.setSetting('mimeType', mimeSelect.value));
     container.appendChild(createField('保存形式', mimeSelect));
 
