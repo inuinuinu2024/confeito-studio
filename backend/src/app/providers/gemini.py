@@ -95,3 +95,59 @@ class GeminiProvider(ImageGenerationProvider):
 
         except Exception as e:
             raise RuntimeError(f"Gemini API generation failed: {e}")
+
+    async def generate_multimodal(
+        self,
+        contents: list[dict],
+        parameters: dict | None = None,
+        api_key: str | None = None,
+    ) -> GenerationResult:
+        client = genai.Client(api_key=api_key) if api_key else self.client
+        if not client:
+            raise RuntimeError("GEMINI_API_KEY is not set.")
+
+        import asyncio
+        import base64
+
+        formatted_contents = []
+        for c in contents:
+            parts = []
+            for p in c.get("parts", []):
+                if "text" in p and p["text"]:
+                    parts.append(types.Part.from_text(text=p["text"]))
+                elif "inline_data" in p and p["inline_data"]:
+                    mime_type = p["inline_data"]["mime_type"]
+                    data_b64 = p["inline_data"]["data"]
+                    data_bytes = base64.b64decode(data_b64)
+                    parts.append(types.Part.from_bytes(data=data_bytes, mime_type=mime_type))
+            if parts:
+                formatted_contents.append(types.Content(role="user", parts=parts))
+        
+        # Hypothetical future model for Interactions API image generation
+        model_name = "gemini-3-pro-image" 
+        
+        try:
+            def _generate():
+                return client.models.generate_content(
+                    model=model_name,
+                    contents=formatted_contents,
+                )
+            
+            result = await asyncio.to_thread(_generate)
+            
+            # Try to extract image from response parts
+            if result.candidates and result.candidates[0].content.parts:
+                for part in result.candidates[0].content.parts:
+                    if hasattr(part, 'inline_data') and part.inline_data:
+                        # Extract the first image we find
+                        return GenerationResult(
+                            image_bytes=part.inline_data.data,
+                            width=1024,
+                            height=1024,
+                            metadata={"model": model_name}
+                        )
+            
+            raise RuntimeError(f"No image returned by {model_name}.")
+            
+        except Exception as e:
+            raise RuntimeError(f"Gemini API multimodal generation failed: {e}")

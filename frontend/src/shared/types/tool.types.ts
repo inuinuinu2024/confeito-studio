@@ -22,5 +22,6 @@ export interface Tool {
   name: string;
   icon: string; // Material symbols icon name
   hasSettings?: boolean;
+  renderSettings?: (container: HTMLElement) => void;
   execute(context: ToolContext): Promise<void>;
 }

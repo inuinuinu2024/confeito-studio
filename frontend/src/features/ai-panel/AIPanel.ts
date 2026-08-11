@@ -9,6 +9,7 @@ import { InvertColorTool, GrayscaleTool } from '../tools/builtins';
 import { GeminiGenerationTool } from '../tools/gemini';
 import { NanoBananaProTool, NanoBanana2Tool } from '../tools/nano-banana';
 import { createToolPromptDialog } from './components/ToolPromptDialog';
+import { createToolSettingsSidebar } from './components/ToolSettingsSidebar';
 import { DocumentManager } from '../document/DocumentManager';
 import { setImageCache } from '../../shared/utils/idb';
 import { ToolContext } from '../../shared/types/tool.types';
@@ -217,6 +218,9 @@ export function createAIPanel(): HTMLElement {
 
   const toolPromptDialog = createToolPromptDialog();
   document.body.appendChild(toolPromptDialog.overlay);
+  
+  const toolSettingsSidebar = createToolSettingsSidebar();
+  document.body.appendChild(toolSettingsSidebar.overlay);
 
   let tools = ToolRegistry.getAllTools();
   const savedOrderStr = localStorage.getItem('toolOrder');
@@ -339,164 +343,124 @@ export function createAIPanel(): HTMLElement {
     btn.className = 'ai-tool-btn';
     btn.style.width = '100%';
     
-    // Only add padding if there's going to be an edit button
-    if (tool.hasSettings) {
-      btn.style.paddingRight = '32px'; 
-    }
-    
     btn.appendChild(icon(tool.icon, 16));
     btn.appendChild(document.createTextNode(tool.name));
-
-    if (tool.hasSettings) {
-      const editBtn = document.createElement('button');
-      editBtn.className = 'ai-tool-btn';
-      // Style as an icon button overlay
-      editBtn.style.position = 'absolute';
-      editBtn.style.right = '4px';
-      editBtn.style.top = '50%';
-      editBtn.style.transform = 'translateY(-50%)';
-      editBtn.style.padding = '4px';
-      editBtn.style.minHeight = 'unset';
-      editBtn.style.height = '24px';
-      editBtn.style.width = '24px';
-      editBtn.style.display = 'flex';
-      editBtn.style.alignItems = 'center';
-      editBtn.style.justifyContent = 'center';
-      editBtn.style.border = 'none';
-      editBtn.style.background = 'transparent';
-      editBtn.title = 'Edit Tool Prompts';
-      // Use 'edit_note' for a notebook and pen icon
-      editBtn.appendChild(icon('edit_note', 18));
-      
-      // Optional hover effect for the edit button
-      editBtn.addEventListener('mouseenter', () => {
-        editBtn.style.backgroundColor = 'var(--color-surface-container-high)';
-        editBtn.style.borderRadius = '4px';
-      });
-      editBtn.addEventListener('mouseleave', () => {
-        editBtn.style.backgroundColor = 'transparent';
-      });
-      
-      editBtn.addEventListener('click', (e) => {
-        e.stopPropagation(); // 実行ボタンがクリックされるのを防ぐ
-        toolPromptDialog.open(tool.name);
-      });
-      
-      toolWrapper.appendChild(editBtn);
-    }
 
     btn.addEventListener('click', async () => {
       btn.style.transform = 'scale(0.97)';
       setTimeout(() => btn.style.transform = '', 120);
 
-      const docManager = DocumentManager.getInstance();
-      const psd = docManager.getCurrentPsd();
-      const selectedLayer = docManager.getCurrentSelectedLayer();
+      const executeTool = async () => {
+        const docManager = DocumentManager.getInstance();
+        const psd = docManager.getCurrentPsd();
+        const selectedLayer = docManager.getCurrentSelectedLayer();
 
-      const context: ToolContext = {
-        psd,
-        selectedLayer,
-        getSelectedImage: async () => {
-          if (!selectedLayer || !selectedLayer.canvas) {
-            return null;
-          }
-          // Clone the canvas to avoid modifying the original layer preview immediately
-          const canvas = document.createElement('canvas');
-          canvas.width = selectedLayer.canvas.width;
-          canvas.height = selectedLayer.canvas.height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) ctx.drawImage(selectedLayer.canvas, 0, 0);
-          return canvas;
-        },
-        getCompositeImage: async () => {
-          if (!psd || !psd.width || !psd.height) return null;
-          const canvas = document.createElement('canvas');
-          canvas.width = psd.width;
-          canvas.height = psd.height;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) return null;
-          
-          const drawNode = (node: any) => {
-            if (hiddenLayers.has(node) || node.hidden) return;
-            if (node.children) {
-              for (let i = node.children.length - 1; i >= 0; i--) {
-                drawNode(node.children[i]);
+        const context: ToolContext = {
+          psd,
+          selectedLayer,
+          getSelectedImage: async () => {
+            if (!selectedLayer || !selectedLayer.canvas) {
+              return null;
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = selectedLayer.canvas.width;
+            canvas.height = selectedLayer.canvas.height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) ctx.drawImage(selectedLayer.canvas, 0, 0);
+            return canvas;
+          },
+          getCompositeImage: async () => {
+            if (!psd || !psd.width || !psd.height) return null;
+            const canvas = document.createElement('canvas');
+            canvas.width = psd.width;
+            canvas.height = psd.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return null;
+            
+            const drawNode = (node: any) => {
+              if (hiddenLayers.has(node) || node.hidden) return;
+              if (node.children) {
+                for (let i = node.children.length - 1; i >= 0; i--) {
+                  drawNode(node.children[i]);
+                }
+              } else if (node.canvas) {
+                ctx.drawImage(node.canvas, node.left || 0, node.top || 0);
               }
-            } else if (node.canvas) {
-              ctx.drawImage(node.canvas, node.left || 0, node.top || 0);
+            };
+
+            if (psd.children) {
+              for (let i = psd.children.length - 1; i >= 0; i--) {
+                drawNode(psd.children[i]);
+              }
             }
-          };
-
-          if (psd.children) {
-            for (let i = psd.children.length - 1; i >= 0; i--) {
-              drawNode(psd.children[i]);
+            return canvas;
+          },
+          getPrompts: (toolName?: string) => {
+            let pos = '';
+            if (toolName) {
+              pos = localStorage.getItem(`toolPrompt_${toolName}`) || '';
             }
-          }
-          return canvas;
-        },
-        getPrompts: (toolName?: string) => {
-          let pos = '';
-          
-          if (toolName) {
-            pos = localStorage.getItem(`toolPrompt_${toolName}`) || '';
-          }
-          
-          // Fallback to panel prompt if not defined per tool
-          if (!pos) {
-            pos = posPrompt.querySelector('textarea')?.value || '';
-          }
-          
-          return { prompt: pos };
-        },
-        cacheResult: async (image: HTMLCanvasElement | Blob, toolName: string) => {
-          let canvasToAdd: HTMLCanvasElement;
-          let blob: Blob;
+            if (!pos) {
+              pos = posPrompt.querySelector('textarea')?.value || '';
+            }
+            return { prompt: pos };
+          },
+          cacheResult: async (image: HTMLCanvasElement | Blob, toolName: string) => {
+            let canvasToAdd: HTMLCanvasElement;
+            let blob: Blob;
 
-          if (image instanceof HTMLCanvasElement) {
-            canvasToAdd = image;
-            blob = await new Promise<Blob | null>(res => image.toBlob(res)) as Blob;
-          } else {
-            blob = image;
-            canvasToAdd = await new Promise((resolve, reject) => {
-              const img = new Image();
-              img.onload = () => {
-                const cvs = document.createElement('canvas');
-                cvs.width = img.width;
-                cvs.height = img.height;
-                cvs.getContext('2d')?.drawImage(img, 0, 0);
-                resolve(cvs);
-              };
-              img.onerror = reject;
-              img.src = URL.createObjectURL(blob);
-            });
-          }
+            if (image instanceof HTMLCanvasElement) {
+              canvasToAdd = image;
+              blob = await new Promise<Blob | null>(res => image.toBlob(res)) as Blob;
+            } else {
+              blob = image;
+              canvasToAdd = await new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                  const cvs = document.createElement('canvas');
+                  cvs.width = img.width;
+                  cvs.height = img.height;
+                  cvs.getContext('2d')?.drawImage(img, 0, 0);
+                  resolve(cvs);
+                };
+                img.onerror = reject;
+                img.src = URL.createObjectURL(blob);
+              });
+            }
 
-          if (!blob) throw new Error('Failed to create blob from canvas');
-          
-          const date = new Date();
-          const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
-          const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
-          const displayName = `${dateStr}_${timeStr}_${toolName}`;
-          
-          const key = `ToolResult_${Date.now()}`;
-          await setImageCache(key, blob, displayName);
-          
-          // Dispatch event for Canvas and LayerPanel to update
-          window.dispatchEvent(new CustomEvent('tool:result-ready', { detail: { key, toolName: displayName } }));
-          window.dispatchEvent(new CustomEvent('tool:cache-updated', { detail: { autoSelectKey: key } }));
-          return key;
+            if (!blob) throw new Error('Failed to create blob from canvas');
+            
+            const date = new Date();
+            const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+            const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
+            const displayName = `${dateStr}_${timeStr}_${toolName}`;
+            
+            const key = `ToolResult_${Date.now()}`;
+            await setImageCache(key, blob, displayName);
+            
+            window.dispatchEvent(new CustomEvent('tool:result-ready', { detail: { key, toolName: displayName } }));
+            window.dispatchEvent(new CustomEvent('tool:cache-updated', { detail: { autoSelectKey: key } }));
+            return key;
+          }
+        };
+
+        try {
+          window.dispatchEvent(new CustomEvent('tool:start', { detail: { toolName: tool.name } }));
+          await tool.execute(context);
+          showToast(`${tool.name} completed.`, 'success');
+          toolSettingsSidebar.close();
+        } catch (err: any) {
+          console.error(err);
+          showToast(`${tool.name} failed: ${err.message || 'Unknown error'}`, 'error');
+        } finally {
+          window.dispatchEvent(new Event('tool:end'));
         }
       };
 
-      try {
-        window.dispatchEvent(new CustomEvent('tool:start', { detail: { toolName: tool.name } }));
-        await tool.execute(context);
-        showToast(`${tool.name} completed.`, 'success');
-      } catch (err: any) {
-        console.error(err);
-        showToast(`${tool.name} failed: ${err.message || 'Unknown error'}`, 'error');
-      } finally {
-        window.dispatchEvent(new Event('tool:end'));
+      if (tool.renderSettings) {
+        toolSettingsSidebar.open(tool.name, tool.renderSettings.bind(tool), executeTool);
+      } else {
+        await executeTool();
       }
     });
 
