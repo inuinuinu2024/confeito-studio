@@ -7,6 +7,7 @@ import { showToast } from '../../shared/utils/toast';
 import { ToolRegistry } from '../../shared/utils/ToolRegistry';
 import { InvertColorTool, GrayscaleTool } from '../tools/builtins';
 import { GeminiGenerationTool } from '../tools/gemini';
+import { NanoBananaProTool, NanoBanana2Tool } from '../tools/nano-banana';
 import { createToolPromptDialog } from './components/ToolPromptDialog';
 import { DocumentManager } from '../document/DocumentManager';
 import { setImageCache } from '../../shared/utils/idb';
@@ -16,6 +17,8 @@ import { ToolContext } from '../../shared/types/tool.types';
 ToolRegistry.register(new InvertColorTool());
 ToolRegistry.register(new GrayscaleTool());
 ToolRegistry.register(new GeminiGenerationTool());
+ToolRegistry.register(new NanoBananaProTool());
+ToolRegistry.register(new NanoBanana2Tool());
 
 interface SliderDef {
   label: string;
