@@ -195,7 +195,6 @@
   opacity: 0.3;
 }
 
-/* ── Layer Panel (Left Sidebar) ───────────────────────────── */
 .layer-panel {
   grid-column: 1 / 2;
   background: var(--color-surface-container-low);
@@ -203,6 +202,10 @@
   flex-direction: column;
   overflow: hidden;
   position: relative;
+}
+
+.layer-panel--right {
+  grid-column: 3 / 4;
 }
 
 .layer-panel__resizer {
@@ -269,8 +272,14 @@
   transition: background-color 150ms ease;
 }
 
-.layer-panel__action-btn:hover {
+.layer-panel__action-btn:hover:not(:disabled) {
   background: var(--color-surface-container-highest);
+}
+
+.layer-panel__action-btn:disabled {
+  opacity: 0.3;
+  pointer-events: none;
+  cursor: not-allowed;
 }
 
 /* Layer Tree */

@@ -33,14 +33,16 @@ export function createCanvas(): HTMLElement {
   compareGroup.appendChild(compareModeLabel);
 
   const compareModeToggle = document.createElement('div');
-  compareModeToggle.className = 'toggle toggle--on';
+  compareModeToggle.className = 'toggle toggle--off';
   const compareModeKnob = document.createElement('div');
   compareModeKnob.className = 'toggle__knob';
   compareModeToggle.appendChild(compareModeKnob);
   
   compareModeToggle.addEventListener('click', () => {
+    const wasOn = compareModeToggle.classList.contains('toggle--on');
     compareModeToggle.classList.toggle('toggle--on');
     compareModeToggle.classList.toggle('toggle--off');
+    window.dispatchEvent(new CustomEvent('compare-mode:toggle', { detail: { enabled: !wasOn } }));
   });
   
   compareGroup.appendChild(compareModeToggle);
@@ -226,6 +228,23 @@ export function createCanvas(): HTMLElement {
     updateCanvasLayout();
   });
   
+  function checkSliderAutoOff() {
+    const isGlobalCompareMode = compareModeToggle.classList.contains('toggle--on');
+    if (!isGlobalCompareMode && !isCacheSelected && compareMode) {
+      compareMode = false;
+      toggle.classList.toggle('toggle--on', compareMode);
+      toggle.classList.toggle('toggle--off', !compareMode);
+      // updateCanvasLayout() will be called by the caller if needed, 
+      // but let's call it here just in case, or rely on caller.
+      // Calling it here is safe.
+      updateCanvasLayout();
+    }
+  }
+
+  window.addEventListener('compare-mode:toggle', () => {
+    checkSliderAutoOff();
+  });
+  
   // Initial layout state
   updateCanvasLayout();
 
@@ -357,6 +376,37 @@ export function createCanvas(): HTMLElement {
     }
     
     isCacheSelected = false;
+    checkSliderAutoOff();
+    updateCanvasLayout();
+  });
+
+  window.addEventListener('tool:result-ready:right', async (e: Event) => {
+    const customEvent = e as CustomEvent<{ key: string, toolName: string }>;
+    const blob = await getImageCache(customEvent.detail.key);
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      resultPanel.style.backgroundImage = `url('${url}')`;
+      
+      if (currentResultCanvas) {
+        currentResultCanvas.style.display = 'none';
+      }
+      
+      isCacheSelected = true;
+      updateCanvasLayout();
+    }
+  });
+
+  window.addEventListener('tool:result-cleared:right', () => {
+    resultPanel.style.backgroundImage = 'none';
+    if (currentResultCanvas) {
+      currentResultCanvas.style.display = 'block';
+    }
+    
+    // If left sidebar still has a cache selected, we might want to preserve isCacheSelected, 
+    // but typically right sidebar controls the result panel in compare mode.
+    // We will just clear it.
+    isCacheSelected = false;
+    checkSliderAutoOff();
     updateCanvasLayout();
   });
 

@@ -28,15 +28,29 @@ const layers: LayerDef[] = [
   { name: 'Paper_Base',        iconName: 'layers',      isGroup: true, depth: 0 },
 ];
 
-export function createLayerPanel(): HTMLElement {
-  let currentLayerDefs: LayerDef[] = [...layers];
+export interface LayerPanelOptions {
+  panelType?: 'left' | 'right';
+  isCompareMode?: boolean;
+  initialState?: {
+    layerDefs: any[];
+    activeCacheIndices: number[];
+    lastCacheIndex: number | null;
+    psd: any;
+  };
+}
+
+export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
+  let currentLayerDefs: LayerDef[] = options.initialState 
+    ? options.initialState.layerDefs.map((l: any) => ({...l})) 
+    : [...layers];
+
 
   const aside = document.createElement('aside');
-  aside.className = 'layer-panel';
+  aside.className = options.panelType === 'right' ? 'layer-panel layer-panel--right' : 'layer-panel';
   
   // ── Resizer ──
   const resizer = document.createElement('div');
-  resizer.className = 'layer-panel__resizer';
+  resizer.className = options.panelType === 'right' ? 'ai-panel__resizer' : 'layer-panel__resizer';
   
   let isResizing = false;
   let startX = 0;
@@ -52,10 +66,19 @@ export function createLayerPanel(): HTMLElement {
 
   document.addEventListener('mousemove', (e) => {
     if (!isResizing) return;
-    const newWidth = startWidth + (e.clientX - startX);
+    let newWidth;
+    if (options.panelType === 'right') {
+      newWidth = startWidth - (e.clientX - startX);
+    } else {
+      newWidth = startWidth + (e.clientX - startX);
+    }
     // Add constraints
     if (newWidth > 150 && newWidth < 600) {
-      document.documentElement.style.setProperty('--left-sidebar-width', `${newWidth}px`);
+      if (options.panelType === 'right') {
+        document.documentElement.style.setProperty('--right-sidebar-width', `${newWidth}px`);
+      } else {
+        document.documentElement.style.setProperty('--left-sidebar-width', `${newWidth}px`);
+      }
     }
   });
 
@@ -236,7 +259,8 @@ export function createLayerPanel(): HTMLElement {
           }
         });
         
-        window.dispatchEvent(new CustomEvent('layer:selected', {
+        const eventName = options.panelType === 'right' ? 'layer:selected:right' : 'layer:selected';
+        window.dispatchEvent(new CustomEvent(eventName, {
           detail: { layer: layerDef.active ? layerDef.layer : null }
         }));
       });
@@ -531,7 +555,7 @@ export function createLayerPanel(): HTMLElement {
   // Initial render with dummy data
   renderLayerTree(currentLayerDefs);
 
-  let currentPsd: Psd | null = null;
+  let currentPsd: Psd | null = options.initialState ? options.initialState.psd : null;
 
   // Listen for PSD loaded event
   window.addEventListener('document:loaded', (e: Event) => {
@@ -604,6 +628,20 @@ export function createLayerPanel(): HTMLElement {
   deleteBtn.title = 'キャッシュ削除';
   deleteBtn.appendChild(icon('delete', 16));
 
+  let isCompareMode = options.isCompareMode || false;
+  const updateButtonsState = () => {
+    createGroupBtn.disabled = isCompareMode;
+    deleteLayerBtn.disabled = isCompareMode;
+    promoteBtn.disabled = isCompareMode;
+    deleteBtn.disabled = isCompareMode;
+  };
+  updateButtonsState();
+
+  window.addEventListener('compare-mode:toggle', (e: Event) => {
+    isCompareMode = (e as CustomEvent).detail.enabled;
+    updateButtonsState();
+  });
+
   const cacheActions = document.createElement('div');
   cacheActions.style.display = 'flex';
   cacheActions.style.gap = '4px';
@@ -618,8 +656,8 @@ export function createLayerPanel(): HTMLElement {
   cacheList.className = 'layer-cache__list';
 
   // State for active cache item
-  let activeCacheItemIndices: Set<number> = new Set();
-  let lastSelectedCacheIndex: number | null = null;
+  let activeCacheItemIndices: Set<number> = new Set(options.initialState ? options.initialState.activeCacheIndices : []);
+  let lastSelectedCacheIndex: number | null = options.initialState ? options.initialState.lastCacheIndex : null;
   const cacheItemElements: HTMLElement[] = [];
   let currentCaches: CachedImage[] = [];
 
@@ -670,7 +708,7 @@ export function createLayerPanel(): HTMLElement {
           const ctx = canvas.getContext('2d');
           if (ctx) ctx.drawImage(bmp, 0, 0);
 
-          const newLayer = {
+          const newLayer: Layer = {
             name: cache.name,
             canvas: canvas,
             hidden: false,
@@ -728,8 +766,15 @@ export function createLayerPanel(): HTMLElement {
   async function loadCacheList(autoSelectKey?: string) {
     cacheList.innerHTML = '';
     cacheItemElements.length = 0;
-    activeCacheItemIndices.clear();
-    lastSelectedCacheIndex = null;
+    
+    // Only clear selection if we're not initializing from state and there's no autoSelectKey
+    // Wait, loadCacheList is called initially, which would wipe the restored selection.
+    if (!options.initialState || currentCaches.length > 0) { // If it's already loaded once, we can clear
+      if (!autoSelectKey) {
+        activeCacheItemIndices.clear();
+        lastSelectedCacheIndex = null;
+      }
+    }
     currentCaches = [];
 
     try {
@@ -832,9 +877,11 @@ export function createLayerPanel(): HTMLElement {
               if (activeCacheItemIndices.size === 1) {
                  const selectedIdx = Array.from(activeCacheItemIndices)[0];
                  const cCache = currentCaches[selectedIdx];
-                 window.dispatchEvent(new CustomEvent('tool:result-ready', { detail: { key: cCache.key, toolName: cCache.name } }));
+                 const eventName = options.panelType === 'right' ? 'tool:result-ready:right' : 'tool:result-ready';
+                 window.dispatchEvent(new CustomEvent(eventName, { detail: { key: cCache.key, toolName: cCache.name } }));
               } else {
-                 window.dispatchEvent(new CustomEvent('tool:result-cleared'));
+                 const eventName = options.panelType === 'right' ? 'tool:result-cleared:right' : 'tool:result-cleared';
+                 window.dispatchEvent(new CustomEvent(eventName));
               }
            };
 
@@ -888,6 +935,15 @@ export function createLayerPanel(): HTMLElement {
 
   cachePanel.appendChild(cacheList);
   aside.appendChild(cachePanel);
+
+  (aside as any).getUIState = () => {
+    return {
+      layerDefs: currentLayerDefs,
+      activeCacheIndices: Array.from(activeCacheItemIndices),
+      lastCacheIndex: lastSelectedCacheIndex,
+      psd: currentPsd
+    };
+  };
 
   return aside;
 }
