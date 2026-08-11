@@ -611,15 +611,7 @@ export class NanoBananaProTool implements Tool {
       const blob = await response.blob();
       const arrayBuffer = await blob.arrayBuffer();
       
-      await context.saveToCache({
-        toolId: this.id,
-        timestamp: Date.now(),
-        image: new Uint8Array(arrayBuffer),
-        prompt: payload.contents[0].parts.find((p:any) => p.text?.startsWith('プロンプト'))?.text || '',
-        settings: payload.parameters,
-        width: 1024,
-        height: 1024
-      });
+      await context.cacheResult(blob, this.id);
       
     } catch (e: any) {
       console.error(e);
