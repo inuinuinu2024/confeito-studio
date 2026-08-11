@@ -222,21 +222,7 @@ export function createAIPanel(): HTMLElement {
         selectedLayer,
         getSelectedImage: async () => {
           if (!selectedLayer || !selectedLayer.canvas) {
-            // Provide a dummy canvas for prototyping purposes if no valid layer/image exists
-            const dummyCanvas = document.createElement('canvas');
-            dummyCanvas.width = 512;
-            dummyCanvas.height = 512;
-            const ctx = dummyCanvas.getContext('2d');
-            if (ctx) {
-               ctx.fillStyle = '#cccccc';
-               ctx.fillRect(0, 0, 512, 512);
-               ctx.fillStyle = '#333333';
-               ctx.font = '24px sans-serif';
-               ctx.textAlign = 'center';
-               ctx.textBaseline = 'middle';
-               ctx.fillText(selectedLayer ? (selectedLayer.name || 'Folder') : 'Dummy Layer', 256, 256);
-            }
-            return dummyCanvas;
+            return null;
           }
           // Clone the canvas to avoid modifying the original layer preview immediately
           const canvas = document.createElement('canvas');

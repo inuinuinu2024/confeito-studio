@@ -3,6 +3,7 @@
  */
 import { icon } from '../../shared/utils/dom';
 import { getImageCache } from '../../shared/utils/idb';
+import { showToast } from '../../shared/utils/toast';
 
 const SOURCE_IMAGE =
   'https://lh3.googleusercontent.com/aida-public/AB6AXuBOjBDI-NCafz1QuAcWVa7bAxd-XGA8SIyL1BXWHpoLE7uIzC5sQIVAGG6AcV3db4D-kwCIPM_sKETNx5UTvSyw6Wi6GSRsFzqHaEnBvdxe6r_7yPP2MCoh0fwwJXs5S3VFMhP3sogaFVTpEMVFCUusjbRGMr9_X8sRV89K351R5XVcA08yPFPUWoU6B5gOqAvWPCPSbx_9qH6ArYrbFc22JpW9ooxDInwMim-MP8JbeYtcpY2VlQmIrDJ9YMoeHoS5dHVxlux57kVA';
@@ -21,9 +22,38 @@ export function createCanvas(): HTMLElement {
   const compareGroup = document.createElement('div');
   compareGroup.className = 'canvas-toolbar__compare';
 
-  const compareIcon = icon('compare', 18);
-  compareIcon.classList.add('canvas-toolbar__compare-icon');
-  compareGroup.appendChild(compareIcon);
+  // Compare Mode Toggle (Dummy)
+  const compareModeIcon = icon('vertical_split', 18);
+  compareModeIcon.classList.add('canvas-toolbar__compare-icon');
+  compareGroup.appendChild(compareModeIcon);
+
+  const compareModeLabel = document.createElement('span');
+  compareModeLabel.className = 'canvas-toolbar__compare-label';
+  compareModeLabel.textContent = 'Compare Mode';
+  compareGroup.appendChild(compareModeLabel);
+
+  const compareModeToggle = document.createElement('div');
+  compareModeToggle.className = 'toggle toggle--on';
+  const compareModeKnob = document.createElement('div');
+  compareModeKnob.className = 'toggle__knob';
+  compareModeToggle.appendChild(compareModeKnob);
+  
+  compareModeToggle.addEventListener('click', () => {
+    compareModeToggle.classList.toggle('toggle--on');
+    compareModeToggle.classList.toggle('toggle--off');
+  });
+  
+  compareGroup.appendChild(compareModeToggle);
+
+  // Spacer
+  const spacer = document.createElement('div');
+  spacer.style.width = '16px';
+  compareGroup.appendChild(spacer);
+
+  // Slider Toggle (Functional)
+  const sliderIcon = icon('compare', 18);
+  sliderIcon.classList.add('canvas-toolbar__compare-icon');
+  compareGroup.appendChild(sliderIcon);
 
   const compareLabel = document.createElement('span');
   compareLabel.className = 'canvas-toolbar__compare-label';
@@ -36,9 +66,8 @@ export function createCanvas(): HTMLElement {
   knob.className = 'toggle__knob';
   toggle.appendChild(knob);
 
-
-
   compareGroup.appendChild(toggle);
+
   toolbar.appendChild(compareGroup);
   main.appendChild(toolbar);
 
@@ -115,9 +144,8 @@ export function createCanvas(): HTMLElement {
   let splitPct = 50;
 
   function updateCanvasLayout() {
+    compareGroup.style.display = 'flex';
     if (isCacheSelected) {
-      compareGroup.style.display = 'flex';
-      
       if (compareMode) {
         resultPanel.style.display = '';
         splitDivider.style.display = 'flex';
@@ -172,7 +200,6 @@ export function createCanvas(): HTMLElement {
         resultPanel.style.clipPath = 'none';
       }
     } else {
-      compareGroup.style.display = 'none';
       resultPanel.style.display = 'none';
       splitDivider.style.display = 'none';
       
@@ -189,6 +216,10 @@ export function createCanvas(): HTMLElement {
   }
 
   toggle.addEventListener('click', () => {
+    if (!compareMode && !compareModeToggle.classList.contains('toggle--on') && !isCacheSelected) {
+      showToast('Cannot enable Slider when Compare Mode is OFF and no cache is selected.', 'error');
+      return;
+    }
     compareMode = !compareMode;
     toggle.classList.toggle('toggle--on', compareMode);
     toggle.classList.toggle('toggle--off', !compareMode);
