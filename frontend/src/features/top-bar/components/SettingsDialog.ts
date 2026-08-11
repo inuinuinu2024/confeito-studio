@@ -86,8 +86,21 @@ export function createSettingsDialog(): { overlay: HTMLElement; open: () => void
   dialog.appendChild(buttonGroup);
   overlay.appendChild(dialog);
 
-  const open = () => {
-    input.value = localStorage.getItem('geminiApiKey') || '';
+  const open = async () => {
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/settings/gemini');
+      const data = await res.json();
+      if (data.has_key) {
+        input.placeholder = '******** (Saved in .env)';
+        input.value = '';
+      } else {
+        input.placeholder = 'Enter Gemini API Key';
+        input.value = '';
+      }
+    } catch (e) {
+      console.error(e);
+      input.placeholder = 'Failed to fetch status';
+    }
     overlay.style.display = 'flex';
   };
 
@@ -100,15 +113,22 @@ export function createSettingsDialog(): { overlay: HTMLElement; open: () => void
     if (e.target === overlay) close();
   });
 
-  saveBtn.addEventListener('click', () => {
+  saveBtn.addEventListener('click', async () => {
     const val = input.value.trim();
     if (val) {
-      localStorage.setItem('geminiApiKey', val);
-    } else {
-      localStorage.removeItem('geminiApiKey');
+      try {
+        await fetch('http://127.0.0.1:8000/api/settings/gemini', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_key: val })
+        });
+        showToast('Settings saved to .env', 'success');
+      } catch (e) {
+        showToast('Failed to save settings', 'error');
+        console.error(e);
+      }
     }
     window.dispatchEvent(new Event('settings:updated'));
-    showToast('Settings saved', 'success');
     close();
   });
 

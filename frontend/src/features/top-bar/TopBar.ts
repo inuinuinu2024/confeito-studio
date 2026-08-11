@@ -17,37 +17,11 @@ const fileMenuItems: MenuItemDef[] = [
   { type: 'item', label: 'Save As...', action: () => window.dispatchEvent(new Event('file:save-as')) },
 ];
 
-const viewMenuItems: MenuItemDef[] = [
-  { type: 'item', label: 'Command Palette...', shortcut: 'Ctrl+Shift+P' },
-  { type: 'item', label: 'Open View...' },
-  { type: 'separator' },
-  { type: 'submenu', label: 'Appearance', items: [
-      { type: 'item', label: 'Full Screen' },
-      { type: 'item', label: 'Zen Mode' },
-      { type: 'item', label: 'Centered Layout' },
-      { type: 'separator' },
-      { type: 'item', label: 'Menu Bar', checked: true },
-      { type: 'item', label: 'Primary Side Bar', checked: true },
-      { type: 'item', label: 'Secondary Side Bar', checked: true },
-      { type: 'item', label: 'Status Bar', checked: true },
-      { type: 'item', label: 'Panel', checked: true },
-  ] },
-  { type: 'submenu', label: 'Editor Layout', items: [] },
-  { type: 'separator' },
-  { type: 'item', label: 'Explorer', shortcut: 'Ctrl+Shift+E' },
-  { type: 'item', label: 'Search', shortcut: 'Ctrl+Shift+F' },
-  { type: 'item', label: 'Source Control', shortcut: 'Ctrl+Shift+G G' },
-  { type: 'item', label: 'Run', shortcut: 'Ctrl+Shift+D' },
-  { type: 'item', label: 'Extensions', shortcut: 'Ctrl+Shift+X' },
-  { type: 'item', label: 'Testing' },
-];
+const viewMenuItems: MenuItemDef[] = [];
 
 const topMenuDefs: { label: string; items?: MenuItemDef[] }[] = [
   { label: 'File', items: fileMenuItems },
-  { label: 'Edit' },
   { label: 'View', items: viewMenuItems },
-  { label: 'Layer' },
-  { label: 'Window' },
   { label: 'Help' },
 ];
 

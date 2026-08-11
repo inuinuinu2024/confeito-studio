@@ -8,16 +8,10 @@ from ..providers import provider_factory
 
 router = APIRouter()
 
-class PartModel(BaseModel):
-    text: Optional[str] = None
-    inline_data: Optional[Dict[str, str]] = None
-
-class ContentModel(BaseModel):
-    parts: List[PartModel]
-
 class NanoBananaProRequest(BaseModel):
-    contents: List[ContentModel]
-    parameters: Optional[Dict[str, Any]] = None
+    model: str
+    input: List[Dict[str, Any]]
+    response_format: Dict[str, Any]
 
 @router.post("")
 async def generate_image(
@@ -68,12 +62,8 @@ async def generate_nano_banana_pro(
         if not hasattr(gen_provider, "generate_multimodal"):
             raise RuntimeError(f"Provider {provider} does not support multimodal generation.")
             
-        # Convert pydantic models to dicts to pass to provider
-        contents_dict = [c.dict(exclude_none=True) for c in request.contents]
-        
         result = await gen_provider.generate_multimodal(
-            contents=contents_dict,
-            parameters=request.parameters,
+            payload=request.dict(exclude_none=True),
             api_key=api_key,
         )
         

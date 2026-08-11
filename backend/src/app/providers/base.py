@@ -61,15 +61,7 @@ class ImageGenerationProvider(ABC):
         """
         ...
 
-    @abstractmethod
-    async def get_status(self) -> dict:
-        """
-        プロバイダーの接続状態を返す。
 
-        Returns:
-            {"connected": bool, "provider": str, ...}
-        """
-        ...
 
     @property
     @abstractmethod

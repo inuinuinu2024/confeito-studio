@@ -75,16 +75,23 @@ export function createStatusBar(): HTMLElement {
   geminiStatus.appendChild(geminiText);
   right.appendChild(geminiStatus);
 
-  const updateGeminiStatus = () => {
-    const hasKey = !!localStorage.getItem('geminiApiKey');
-    if (hasKey) {
-      geminiDot.style.backgroundColor = 'var(--color-success, #4ade80)';
-      geminiDot.style.boxShadow = '0 0 8px var(--color-success, #4ade80)';
-      geminiText.textContent = 'Gemini: Ready';
-    } else {
+  const updateGeminiStatus = async () => {
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/settings/gemini');
+      const data = await res.json();
+      if (data.has_key) {
+        geminiDot.style.backgroundColor = 'var(--color-success, #4ade80)';
+        geminiDot.style.boxShadow = '0 0 8px var(--color-success, #4ade80)';
+        geminiText.textContent = 'Gemini: Ready';
+      } else {
+        geminiDot.style.backgroundColor = 'var(--color-error, #f87171)';
+        geminiDot.style.boxShadow = '0 0 8px var(--color-error, #f87171)';
+        geminiText.textContent = 'Gemini: Missing Key';
+      }
+    } catch (e) {
       geminiDot.style.backgroundColor = 'var(--color-error, #f87171)';
       geminiDot.style.boxShadow = '0 0 8px var(--color-error, #f87171)';
-      geminiText.textContent = 'Gemini: Missing Key';
+      geminiText.textContent = 'Gemini: Backend Error';
     }
   };
 

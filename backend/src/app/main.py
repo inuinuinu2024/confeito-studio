@@ -3,7 +3,20 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import health, psd, generate
+import os
+from pathlib import Path
+
+# Load project root .env
+root_env = Path(__file__).parent.parent.parent.parent.parent / ".env"
+if root_env.exists():
+    with open(root_env, "r", encoding="utf-8") as f:
+        for line in f:
+            if "=" in line and not line.strip().startswith("#"):
+                k, v = line.strip().split("=", 1)
+                if k.strip() not in os.environ:
+                    os.environ[k.strip()] = v.strip()
+
+from .routers import health, psd, generate, settings
 
 app = FastAPI(
     title="Confeito-Studio Backend",
@@ -27,4 +40,5 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api")
 app.include_router(psd.router, prefix="/api")
 app.include_router(generate.router, prefix="/api")
+app.include_router(settings.router, prefix="/api")
 

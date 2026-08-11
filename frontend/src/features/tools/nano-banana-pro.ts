@@ -505,34 +505,40 @@ export class NanoBananaProTool implements Tool {
 
     // --- JSON Preview & Payload Builder ---
     this.buildPayloadFn = async () => {
-      const parts: any[] = [];
+      const input: any[] = [];
+      let textPrompt = '';
       
-      let globalIndex = 1;
+      this.globalImages.forEach((item, index) => {
+        const cleanTitle = item.zoneTitle.split(' (')[0];
+        textPrompt += `# Image ${index + 1}\nこの画像を${cleanTitle}画像とする。\n\n`;
+      });
+      
       for (const item of this.globalImages) {
         const base64 = await this.fileToBase64(item.file);
-        parts.push({ text: `【${item.zoneTitle}】(画像${globalIndex})` });
-        parts.push({
-          inline_data: {
-            mime_type: item.file.type || 'image/png',
-            data: base64
-          }
+        input.push({
+          type: 'image',
+          mime_type: item.file.type || 'image/png',
+          data: base64
         });
-        globalIndex++;
       }
       
-      const prompt = this.getSetting('prompt', '');
-      parts.push({ text: `プロンプト: ${prompt}` });
+      const userPrompt = this.getSetting('prompt', '');
+      const finalPrompt = userPrompt || 'この画像を元に、形状・構造・線画をできるだけ正確に維持したまま着彩して。線や輪郭、構図は一切変更せず、色のみを追加すること。';
+      textPrompt += `# User prompt\n${finalPrompt}`;
+      
+      input.push({
+        type: 'text',
+        text: textPrompt
+      });
       
       return {
-        contents: [
-          {
-            parts: parts
-          }
-        ],
-        parameters: {
-          aspectRatio: this.getSetting('aspectRatio', '1:1'),
-          imageSize: this.getSetting('imageSize', '1K'),
-          mimeType: this.getSetting('mimeType', 'image/png')
+        model: 'gemini-3-pro-image',
+        input: input,
+        response_format: {
+          type: 'image',
+          mime_type: this.getSetting('mimeType', 'image/png'),
+          aspect_ratio: this.getSetting('aspectRatio', '1:1'),
+          image_size: this.getSetting('imageSize', '1K')
         }
       };
     };
@@ -554,10 +560,10 @@ export class NanoBananaProTool implements Tool {
          const payload = await this.buildPayloadFn();
          // Truncate base64 for display
          const displayPayload = JSON.parse(JSON.stringify(payload));
-         if (displayPayload.contents && displayPayload.contents.length > 0) {
-           displayPayload.contents[0].parts.forEach((p: any) => {
-              if (p.inline_data && p.inline_data.data) {
-                  p.inline_data.data = `<Base64... (${p.inline_data.data.length} chars)>`;
+         if (displayPayload.input && displayPayload.input.length > 0) {
+           displayPayload.input.forEach((p: any) => {
+              if (p.type === 'image' && p.data) {
+                  p.data = "BASE64_IMAGE_DATA";
               }
            });
          }
@@ -594,23 +600,25 @@ export class NanoBananaProTool implements Tool {
     try {
       const payload = await this.buildPayloadFn();
       
-      const apiKey = localStorage.getItem('geminiApiKey');
-      if (!apiKey) {
-        throw new Error('Gemini API Key が設定されていません。右上の設定アイコンから設定してください。');
-      }
-      
       const response = await fetch('http://127.0.0.1:8000/api/nano-banana-pro', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': apiKey,
           'X-Provider': 'gemini'
         },
         body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
+        let errorText = await response.text();
+        try {
+          const json = JSON.parse(errorText);
+          if (json.detail) errorText = json.detail;
+        } catch (e) {}
+        
+        if (errorText.includes('GEMINI_API_KEY is not set')) {
+          errorText = 'Gemini API Key が設定されていません。右上の設定アイコンから設定してください。';
+        }
         throw new Error(errorText);
       }
 

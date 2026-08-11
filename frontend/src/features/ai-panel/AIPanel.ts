@@ -105,16 +105,12 @@ export function createAIPanel(): HTMLElement {
   toolsTab.className = 'ai-panel__tab ai-panel__tab--active';
   toolsTab.textContent = 'Tools';
 
-  const chatTab = document.createElement('button');
-  chatTab.className = 'ai-panel__tab';
-  chatTab.textContent = 'Chat';
 
   const comfyTab = document.createElement('button');
   comfyTab.className = 'ai-panel__tab';
   comfyTab.textContent = 'ComfyUI';
 
   tabsContainer.appendChild(toolsTab);
-  tabsContainer.appendChild(chatTab);
   tabsContainer.appendChild(comfyTab);
   aside.appendChild(tabsContainer);
 
@@ -517,20 +513,12 @@ export function createAIPanel(): HTMLElement {
 
   viewsContainer.appendChild(toolsView);
 
-  // ── Chatbot View (Placeholder) ──
-  const chatView = document.createElement('div');
-  chatView.className = 'ai-panel__view';
-  chatView.style.display = 'none';
-  chatView.style.padding = '16px';
-  chatView.style.color = 'var(--color-on-surface-variant)';
-  chatView.textContent = 'Chat interface goes here.';
-  viewsContainer.appendChild(chatView);
 
   aside.appendChild(viewsContainer);
 
   // Tab switching logic
-  const tabs = [toolsTab, chatTab, comfyTab];
-  const views = [toolsView, chatView, comfyView];
+  const tabs = [toolsTab, comfyTab];
+  const views = [toolsView, comfyView];
 
   tabs.forEach((tab, index) => {
     tab.addEventListener('click', () => {
