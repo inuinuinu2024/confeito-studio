@@ -486,11 +486,14 @@ export function createAIPanel(): HTMLElement {
       };
 
       try {
+        window.dispatchEvent(new CustomEvent('tool:start', { detail: { toolName: tool.name } }));
         await tool.execute(context);
         showToast(`${tool.name} completed.`, 'success');
       } catch (err: any) {
         console.error(err);
         showToast(`${tool.name} failed: ${err.message || 'Unknown error'}`, 'error');
+      } finally {
+        window.dispatchEvent(new Event('tool:end'));
       }
     });
 

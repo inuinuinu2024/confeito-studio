@@ -107,6 +107,7 @@ export function createSettingsDialog(): { overlay: HTMLElement; open: () => void
     } else {
       localStorage.removeItem('geminiApiKey');
     }
+    window.dispatchEvent(new Event('settings:updated'));
     showToast('Settings saved', 'success');
     close();
   });

@@ -6,14 +6,115 @@ import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
 import { createSettingsDialog } from './components/SettingsDialog';
 
-const menuItems = [
-  { label: 'File' },
+type MenuItemDef = 
+  | { type: 'item'; label: string; checked?: boolean; shortcut?: string; action?: () => void }
+  | { type: 'separator' }
+  | { type: 'submenu'; label: string; items: MenuItemDef[] };
+
+const fileMenuItems: MenuItemDef[] = [
+  { type: 'item', label: 'Open PSD', action: () => window.dispatchEvent(new Event('file:open')) },
+  { type: 'item', label: 'Save', action: () => window.dispatchEvent(new Event('file:save')) },
+  { type: 'item', label: 'Save As...', action: () => window.dispatchEvent(new Event('file:save-as')) },
+];
+
+const viewMenuItems: MenuItemDef[] = [
+  { type: 'item', label: 'Command Palette...', shortcut: 'Ctrl+Shift+P' },
+  { type: 'item', label: 'Open View...' },
+  { type: 'separator' },
+  { type: 'submenu', label: 'Appearance', items: [
+      { type: 'item', label: 'Full Screen' },
+      { type: 'item', label: 'Zen Mode' },
+      { type: 'item', label: 'Centered Layout' },
+      { type: 'separator' },
+      { type: 'item', label: 'Menu Bar', checked: true },
+      { type: 'item', label: 'Primary Side Bar', checked: true },
+      { type: 'item', label: 'Secondary Side Bar', checked: true },
+      { type: 'item', label: 'Status Bar', checked: true },
+      { type: 'item', label: 'Panel', checked: true },
+  ] },
+  { type: 'submenu', label: 'Editor Layout', items: [] },
+  { type: 'separator' },
+  { type: 'item', label: 'Explorer', shortcut: 'Ctrl+Shift+E' },
+  { type: 'item', label: 'Search', shortcut: 'Ctrl+Shift+F' },
+  { type: 'item', label: 'Source Control', shortcut: 'Ctrl+Shift+G G' },
+  { type: 'item', label: 'Run', shortcut: 'Ctrl+Shift+D' },
+  { type: 'item', label: 'Extensions', shortcut: 'Ctrl+Shift+X' },
+  { type: 'item', label: 'Testing' },
+];
+
+const topMenuDefs: { label: string; items?: MenuItemDef[] }[] = [
+  { label: 'File', items: fileMenuItems },
   { label: 'Edit' },
-  { label: 'View' },
+  { label: 'View', items: viewMenuItems },
   { label: 'Layer' },
   { label: 'Window' },
   { label: 'Help' },
 ];
+
+function buildMenuDOM(items: MenuItemDef[]): HTMLElement {
+  const container = document.createElement('div');
+  
+  for (const item of items) {
+    if (item.type === 'separator') {
+      const sep = document.createElement('div');
+      sep.className = 'topbar__dropdown-separator';
+      container.appendChild(sep);
+      continue;
+    }
+
+    const a = document.createElement('a');
+    a.className = 'topbar__dropdown-item';
+    a.href = '#';
+    
+    // Checkmark
+    const check = document.createElement('div');
+    check.className = 'topbar__dropdown-item-check';
+    if (item.type === 'item' && item.checked) {
+      check.appendChild(icon('check', 14));
+    }
+    a.appendChild(check);
+
+    // Label
+    const label = document.createElement('div');
+    label.className = 'topbar__dropdown-item-label';
+    label.textContent = item.label;
+    a.appendChild(label);
+
+    if (item.type === 'item') {
+      if (item.shortcut) {
+        const shortcut = document.createElement('div');
+        shortcut.className = 'topbar__dropdown-item-shortcut';
+        shortcut.textContent = item.shortcut;
+        a.appendChild(shortcut);
+      }
+      
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (item.action) {
+           item.action();
+        } else {
+           showToast(`${item.label} clicked`, true);
+        }
+      });
+    } else if (item.type === 'submenu') {
+      const chevron = document.createElement('div');
+      chevron.className = 'topbar__dropdown-item-chevron';
+      chevron.appendChild(icon('chevron_right', 16));
+      a.appendChild(chevron);
+      
+      a.addEventListener('click', (e) => e.preventDefault());
+
+      const submenu = buildMenuDOM(item.items);
+      submenu.className = 'topbar__submenu';
+      a.appendChild(submenu);
+      a.classList.add('topbar__submenu-wrapper');
+    }
+    
+    container.appendChild(a);
+  }
+  
+  return container;
+}
 
 export function createTopBar(): HTMLElement {
   const header = document.createElement('header');
@@ -30,69 +131,31 @@ export function createTopBar(): HTMLElement {
 
   const nav = document.createElement('nav');
   nav.className = 'topbar__nav';
-  for (const item of menuItems) {
-    if (item.label === 'File') {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'topbar__nav-item-wrapper';
+  for (const menuDef of topMenuDefs) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'topbar__nav-item-wrapper';
 
-      const a = document.createElement('a');
-      a.className = 'topbar__nav-item';
-      a.href = '#';
-      a.textContent = item.label;
+    const a = document.createElement('a');
+    a.className = 'topbar__nav-item';
+    a.href = '#';
+    a.textContent = menuDef.label;
 
-      const dropdown = document.createElement('div');
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (!menuDef.items) {
+        showToast(`${menuDef.label} メニュー`, true);
+      }
+    });
+
+    wrapper.appendChild(a);
+
+    if (menuDef.items) {
+      const dropdown = buildMenuDOM(menuDef.items);
       dropdown.className = 'topbar__dropdown';
-
-      const openOption = document.createElement('a');
-      openOption.className = 'topbar__dropdown-item';
-      openOption.href = '#';
-      openOption.textContent = 'Open PSD';
-      openOption.addEventListener('click', (e) => {
-        e.preventDefault();
-        window.dispatchEvent(new Event('file:open'));
-      });
-      dropdown.appendChild(openOption);
-
-      const saveOption = document.createElement('a');
-      saveOption.className = 'topbar__dropdown-item';
-      saveOption.href = '#';
-      saveOption.textContent = 'Save';
-      saveOption.addEventListener('click', (e) => {
-        e.preventDefault();
-        window.dispatchEvent(new Event('file:save'));
-      });
-      dropdown.appendChild(saveOption);
-
-      const saveAsOption = document.createElement('a');
-      saveAsOption.className = 'topbar__dropdown-item';
-      saveAsOption.href = '#';
-      saveAsOption.textContent = 'Save As...';
-      saveAsOption.addEventListener('click', (e) => {
-        e.preventDefault();
-        window.dispatchEvent(new Event('file:save-as'));
-      });
-      dropdown.appendChild(saveAsOption);
-
-      a.addEventListener('click', (e) => {
-        e.preventDefault();
-      });
-
-      wrapper.appendChild(a);
       wrapper.appendChild(dropdown);
-      nav.appendChild(wrapper);
-    } else {
-      const a = document.createElement('a');
-      a.className = 'topbar__nav-item';
-      a.href = '#';
-      a.textContent = item.label;
-
-      a.addEventListener('click', (e) => {
-        e.preventDefault();
-        showToast(`${item.label} メニュー`, true);
-      });
-
-      nav.appendChild(a);
     }
+    
+    nav.appendChild(wrapper);
   }
   left.appendChild(nav);
   header.appendChild(left);
@@ -100,15 +163,6 @@ export function createTopBar(): HTMLElement {
   // ── Right side: Status + Action buttons ──
   const right = document.createElement('div');
   right.className = 'topbar__right';
-
-  // ComfyUI status badge
-  const status = document.createElement('div');
-  status.className = 'topbar__status';
-  const dot = document.createElement('span');
-  dot.className = 'topbar__status-dot';
-  status.appendChild(dot);
-  status.appendChild(document.createTextNode('ComfyUI: Connected'));
-  right.appendChild(status);
 
   // Action icons
   const actionButtons: { iconName: string; label: string; action?: () => void }[] = [

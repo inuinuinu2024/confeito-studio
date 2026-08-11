@@ -862,9 +862,12 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
            input.select();
         });
 
-        if (autoSelectKey && c.key === autoSelectKey) {
-           activeCacheItemIndices.add(i);
-           lastSelectedCacheIndex = i;
+        const isAutoSelected = autoSelectKey && c.key === autoSelectKey;
+        if (isAutoSelected || activeCacheItemIndices.has(i)) {
+           if (isAutoSelected) {
+              activeCacheItemIndices.add(i);
+              lastSelectedCacheIndex = i;
+           }
            item.classList.add('layer-item--active');
            typeIcon.classList.remove('layer-item__icon--type');
            typeIcon.classList.add('layer-item__icon--type-active');
