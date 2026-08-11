@@ -219,6 +219,23 @@ export function createAIPanel(): HTMLElement {
     }
     btn.appendChild(document.createTextNode(tool.name));
 
+    if (tool.name === 'Nano Banana Pro') {
+      const helpIcon = document.createElement('span');
+      helpIcon.className = 'material-symbols-outlined';
+      helpIcon.textContent = 'help';
+      helpIcon.style.fontSize = '14px';
+      helpIcon.style.color = 'var(--color-on-surface-variant)';
+      helpIcon.style.marginLeft = 'auto';
+      helpIcon.style.cursor = 'help';
+      helpIcon.title = '高品質な画像生成を行う汎用ツールです';
+      
+      helpIcon.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+      
+      btn.appendChild(helpIcon);
+    }
+
     btn.addEventListener('click', async () => {
       btn.style.transform = 'scale(0.97)';
       setTimeout(() => btn.style.transform = '', 120);

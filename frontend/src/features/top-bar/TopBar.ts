@@ -48,7 +48,6 @@ function buildMenuDOM(items: MenuItemDef[]): HTMLElement {
 
     const a = document.createElement('a');
     a.className = 'topbar__dropdown-item';
-    a.href = '#';
     
     // Checkmark
     const check = document.createElement('div');
@@ -121,7 +120,6 @@ export function createTopBar(): HTMLElement {
 
     const a = document.createElement('a');
     a.className = 'topbar__nav-item';
-    a.href = '#';
     a.textContent = menuDef.label;
 
     a.addEventListener('click', (e) => {

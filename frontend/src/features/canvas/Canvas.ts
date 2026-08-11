@@ -309,13 +309,9 @@ export function createCanvas(): HTMLElement {
     if (!currentPsd) return;
     ctx.clearRect(0, 0, psdWidth, psdHeight);
 
-    if (selectedLayer) {
-      drawNode(ctx, selectedLayer, hiddenLayers);
-    } else {
-      if (currentPsd.children) {
-        for (let i = currentPsd.children.length - 1; i >= 0; i--) {
-          drawNode(ctx, currentPsd.children[i], hiddenLayers);
-        }
+    if (currentPsd.children) {
+      for (let i = currentPsd.children.length - 1; i >= 0; i--) {
+        drawNode(ctx, currentPsd.children[i], hiddenLayers);
       }
     }
   }

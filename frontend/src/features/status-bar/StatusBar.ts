@@ -39,6 +39,41 @@ export function createStatusBar(): HTMLElement {
   const right = document.createElement('div');
   right.className = 'statusbar__right';
 
+  // Backend Status
+  const backendStatus = document.createElement('div');
+  backendStatus.className = 'statusbar__status-item';
+  
+  const backendDot = document.createElement('span');
+  backendDot.className = 'statusbar__status-dot';
+  const backendText = document.createTextNode('Backend: Checking...');
+  
+  backendStatus.appendChild(backendDot);
+  backendStatus.appendChild(backendText);
+  right.appendChild(backendStatus);
+
+  const backendUrl = 'http://127.0.0.1:8000';
+
+  const updateBackendStatus = async () => {
+    try {
+      const res = await fetch(`${backendUrl}/api/health`, { method: 'GET' });
+      if (res.ok) {
+        backendDot.style.backgroundColor = 'var(--color-success, #4ade80)';
+        backendDot.style.boxShadow = '0 0 8px var(--color-success, #4ade80)';
+        backendText.textContent = `Backend: ${backendUrl}`;
+      } else {
+        throw new Error('Not OK');
+      }
+    } catch (e) {
+      backendDot.style.backgroundColor = 'var(--color-error, #f87171)';
+      backendDot.style.boxShadow = '0 0 8px var(--color-error, #f87171)';
+      backendText.textContent = 'Backend: Offline';
+    }
+  };
+
+  // Check periodically every 10 seconds
+  setInterval(updateBackendStatus, 10000);
+  updateBackendStatus();
+
   // Internet Status
   const internetStatus = document.createElement('div');
   internetStatus.className = 'statusbar__status-item';

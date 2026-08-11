@@ -15,6 +15,7 @@ export function createToolSettingsSidebar(): {
   overlay.style.backgroundColor = 'transparent';
   overlay.style.display = 'none';
   overlay.style.zIndex = '9998';
+  overlay.style.pointerEvents = 'none';
 
   const sidebar = document.createElement('div');
   sidebar.className = 'tool-settings-sidebar';
@@ -132,7 +133,7 @@ export function createToolSettingsSidebar(): {
   };
 
   closeBtn.addEventListener('click', close);
-  overlay.addEventListener('click', close);
+  // overlay.addEventListener('click', close); // Disable closing on outside click
 
   return { overlay, open, close };
 }

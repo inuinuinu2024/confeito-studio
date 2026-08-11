@@ -94,16 +94,13 @@ export class NanoBananaProTool implements Tool {
       lbl.style.color = 'var(--color-on-surface-variant)';
 
       const helpIcon = document.createElement('span');
-      helpIcon.textContent = '?';
+      helpIcon.className = 'material-symbols-outlined';
+      helpIcon.textContent = 'help';
       helpIcon.style.display = 'inline-flex';
       helpIcon.style.alignItems = 'center';
       helpIcon.style.justifyContent = 'center';
-      helpIcon.style.width = '14px';
-      helpIcon.style.height = '14px';
-      helpIcon.style.borderRadius = '50%';
-      helpIcon.style.background = 'var(--color-surface-container-highest)';
+      helpIcon.style.fontSize = '14px';
       helpIcon.style.color = 'var(--color-on-surface-variant)';
-      helpIcon.style.fontSize = '10px';
       helpIcon.style.cursor = 'help';
       
       let helpText = '';
@@ -481,11 +478,14 @@ export class NanoBananaProTool implements Tool {
     mimeSelect.style.backgroundColor = 'var(--color-surface-container-lowest)';
     mimeSelect.style.color = 'var(--color-on-surface)';
     
-    const mimeOptions = ['image/png', 'image/jpeg'];
+    const mimeOptions = [
+      { value: 'image/png', label: 'PNG' },
+      { value: 'image/jpeg', label: 'JPEG' }
+    ];
     mimeOptions.forEach(opt => {
       const option = document.createElement('option');
-      option.value = opt;
-      option.textContent = opt;
+      option.value = opt.value;
+      option.textContent = opt.label;
       mimeSelect.appendChild(option);
     });
     mimeSelect.value = this.getSetting('mimeType', 'image/png');

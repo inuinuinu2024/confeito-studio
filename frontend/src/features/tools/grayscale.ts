@@ -5,9 +5,9 @@ export class GrayscaleTool implements Tool {
   name = 'Grayscale';
 
   async execute(context: ToolContext): Promise<void> {
-    const canvas = await context.getSelectedImage();
+    const canvas = await context.getCompositeImage();
     if (!canvas) {
-      throw new Error('No layer selected or layer has no image data.');
+      throw new Error('No composite image available.');
     }
 
     const ctx = canvas.getContext('2d');
