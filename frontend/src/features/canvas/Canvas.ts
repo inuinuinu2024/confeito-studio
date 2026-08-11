@@ -32,6 +32,8 @@ export function createCanvas(): HTMLElement {
   compareModeLabel.textContent = 'Compare Mode';
   compareGroup.appendChild(compareModeLabel);
 
+  let isGlobalCompareMode = false;
+
   const compareModeToggle = document.createElement('div');
   compareModeToggle.className = 'toggle toggle--off';
   const compareModeKnob = document.createElement('div');
@@ -39,10 +41,23 @@ export function createCanvas(): HTMLElement {
   compareModeToggle.appendChild(compareModeKnob);
   
   compareModeToggle.addEventListener('click', () => {
-    const wasOn = compareModeToggle.classList.contains('toggle--on');
-    compareModeToggle.classList.toggle('toggle--on');
-    compareModeToggle.classList.toggle('toggle--off');
-    window.dispatchEvent(new CustomEvent('compare-mode:toggle', { detail: { enabled: !wasOn } }));
+    isGlobalCompareMode = !isGlobalCompareMode;
+    compareModeToggle.classList.toggle('toggle--on', isGlobalCompareMode);
+    compareModeToggle.classList.toggle('toggle--off', !isGlobalCompareMode);
+    
+    if (isGlobalCompareMode) {
+      rightSelectedLayer = leftSelectedLayer;
+      rightHiddenLayers = new Set(leftHiddenLayers);
+      rightCacheOverlay.style.backgroundImage = leftCacheOverlay.style.backgroundImage;
+      
+      if (currentResultCanvas) {
+        const ctx = currentResultCanvas.getContext('2d');
+        if (ctx) renderSideContext(ctx, rightSelectedLayer, rightHiddenLayers);
+      }
+    }
+
+    window.dispatchEvent(new CustomEvent('compare-mode:toggle', { detail: { enabled: isGlobalCompareMode } }));
+    updateCanvasLayout();
   });
   
   compareGroup.appendChild(compareModeToggle);
@@ -63,7 +78,7 @@ export function createCanvas(): HTMLElement {
   compareGroup.appendChild(compareLabel);
 
   const toggle = document.createElement('div');
-  toggle.className = 'toggle toggle--on';
+  toggle.className = 'toggle toggle--off';
   const knob = document.createElement('div');
   knob.className = 'toggle__knob';
   toggle.appendChild(knob);
@@ -141,15 +156,15 @@ export function createCanvas(): HTMLElement {
 
   splitView.appendChild(splitViewInner);
 
-  let compareMode = true;
-  let isCacheSelected = false;
+  let isSliderMode = false;
   let splitPct = 50;
 
   function updateCanvasLayout() {
     compareGroup.style.display = 'flex';
-    if (isCacheSelected) {
-      if (compareMode) {
-        resultPanel.style.display = '';
+    if (isGlobalCompareMode) {
+      resultPanel.style.display = '';
+      
+      if (isSliderMode) {
         splitDivider.style.display = 'flex';
         
         // OVERLAY Layout
@@ -181,7 +196,6 @@ export function createCanvas(): HTMLElement {
         splitDivider.style.zIndex = '3';
         
       } else {
-        resultPanel.style.display = '';
         splitDivider.style.display = 'none';
         
         // SIDE BY SIDE Layout
@@ -218,31 +232,10 @@ export function createCanvas(): HTMLElement {
   }
 
   toggle.addEventListener('click', () => {
-    if (!compareMode && !compareModeToggle.classList.contains('toggle--on') && !isCacheSelected) {
-      showToast('Cannot enable Slider when Compare Mode is OFF and no cache is selected.', 'error');
-      return;
-    }
-    compareMode = !compareMode;
-    toggle.classList.toggle('toggle--on', compareMode);
-    toggle.classList.toggle('toggle--off', !compareMode);
+    isSliderMode = !isSliderMode;
+    toggle.classList.toggle('toggle--on', isSliderMode);
+    toggle.classList.toggle('toggle--off', !isSliderMode);
     updateCanvasLayout();
-  });
-  
-  function checkSliderAutoOff() {
-    const isGlobalCompareMode = compareModeToggle.classList.contains('toggle--on');
-    if (!isGlobalCompareMode && !isCacheSelected && compareMode) {
-      compareMode = false;
-      toggle.classList.toggle('toggle--on', compareMode);
-      toggle.classList.toggle('toggle--off', !compareMode);
-      // updateCanvasLayout() will be called by the caller if needed, 
-      // but let's call it here just in case, or rely on caller.
-      // Calling it here is safe.
-      updateCanvasLayout();
-    }
-  }
-
-  window.addEventListener('compare-mode:toggle', () => {
-    checkSliderAutoOff();
   });
   
   // Initial layout state
@@ -257,29 +250,54 @@ export function createCanvas(): HTMLElement {
   let psdHeight = 0;
   let currentPsd: any = null;
 
-  function renderComposite(ctx: CanvasRenderingContext2D) {
+  let leftSelectedLayer: any = null;
+  let rightSelectedLayer: any = null;
+
+  let leftHiddenLayers = new Set<any>();
+  let rightHiddenLayers = new Set<any>();
+
+  const leftCacheOverlay = document.createElement('div');
+  const rightCacheOverlay = document.createElement('div');
+
+  function styleOverlay(overlay: HTMLDivElement) {
+    overlay.style.position = 'absolute';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.backgroundSize = 'contain';
+    overlay.style.backgroundPosition = 'center';
+    overlay.style.backgroundRepeat = 'no-repeat';
+    overlay.style.zIndex = '1';
+    overlay.style.pointerEvents = 'none';
+  }
+  
+  styleOverlay(leftCacheOverlay);
+  styleOverlay(rightCacheOverlay);
+
+  function drawNode(ctx: CanvasRenderingContext2D, node: any, hiddenLayers: Set<any>) {
+    if (hiddenLayers.has(node)) return;
+    if (node.children) {
+      for (let i = node.children.length - 1; i >= 0; i--) {
+        drawNode(ctx, node.children[i], hiddenLayers);
+      }
+    } else if (node.canvas) {
+      ctx.drawImage(node.canvas, node.left || 0, node.top || 0);
+    }
+  }
+
+  function renderSideContext(ctx: CanvasRenderingContext2D, selectedLayer: any, hiddenLayers: Set<any>) {
     if (!currentPsd) return;
-    
-    // Clear the canvas to transparent before drawing
     ctx.clearRect(0, 0, psdWidth, psdHeight);
 
-    function drawLayers(layers: any[]) {
-      // ag-psd returns layers from top to bottom, so we iterate backwards to draw bottom-up
-      for (let i = layers.length - 1; i >= 0; i--) {
-        const layer = layers[i];
-        if (layer.hidden) continue;
-
-        if (layer.children) {
-          drawLayers(layer.children);
-        } else if (layer.canvas) {
-          // Simply draw the layer at its original coordinates
-          ctx.drawImage(layer.canvas, layer.left || 0, layer.top || 0);
+    if (selectedLayer) {
+      drawNode(ctx, selectedLayer, hiddenLayers);
+    } else {
+      if (currentPsd.children) {
+        for (let i = currentPsd.children.length - 1; i >= 0; i--) {
+          drawNode(ctx, currentPsd.children[i], hiddenLayers);
         }
       }
-    }
-
-    if (currentPsd.children) {
-      drawLayers(currentPsd.children);
     }
   }
 
@@ -288,15 +306,15 @@ export function createCanvas(): HTMLElement {
     const customEvent = e as CustomEvent<{ psd: any; filename: string }>;
     const psd = customEvent.detail.psd;
     currentPsd = psd;
+    leftSelectedLayer = null;
+    rightSelectedLayer = null;
 
     if (psd.width && psd.height) {
-      // Clear dummy backgrounds
       sourcePanel.style.backgroundImage = 'none';
       resultPanel.style.backgroundImage = 'none';
 
-      // Remove any previously appended canvas elements
-      sourcePanel.querySelectorAll('canvas').forEach(c => c.remove());
-      resultPanel.querySelectorAll('canvas').forEach(c => c.remove());
+      sourcePanel.innerHTML = '';
+      resultPanel.innerHTML = '';
 
       psdWidth = psd.width;
       psdHeight = psd.height;
@@ -305,20 +323,18 @@ export function createCanvas(): HTMLElement {
       currentSourceCanvas.width = psdWidth;
       currentSourceCanvas.height = psdHeight;
       const ctxSource = currentSourceCanvas.getContext('2d');
-      if (ctxSource) renderComposite(ctxSource);
+      if (ctxSource) renderSideContext(ctxSource, leftSelectedLayer, leftHiddenLayers);
 
       currentResultCanvas = document.createElement('canvas');
       currentResultCanvas.width = psdWidth;
       currentResultCanvas.height = psdHeight;
       const ctxResult = currentResultCanvas.getContext('2d');
-      if (ctxResult) renderComposite(ctxResult);
+      if (ctxResult) renderSideContext(ctxResult, rightSelectedLayer, rightHiddenLayers);
 
-      // Style both canvases
       const styleCanvas = (c: HTMLCanvasElement) => {
         c.style.width = '100%';
         c.style.height = '100%';
         c.style.objectFit = 'contain';
-        // Make sure it sits behind the labels
         c.style.position = 'absolute';
         c.style.top = '0';
         c.style.left = '0';
@@ -328,29 +344,54 @@ export function createCanvas(): HTMLElement {
       styleCanvas(currentSourceCanvas);
       styleCanvas(currentResultCanvas);
       
-      // The panels need to be relative for absolute positioning of children
       sourcePanel.style.position = 'relative';
       resultPanel.style.position = 'relative';
 
       sourcePanel.appendChild(currentSourceCanvas);
+      sourcePanel.appendChild(leftCacheOverlay);
+      
       resultPanel.appendChild(currentResultCanvas);
+      resultPanel.appendChild(rightCacheOverlay);
     }
   });
 
   window.addEventListener('document:redraw', () => {
-    if (!currentSourceCanvas || !currentResultCanvas) return;
-    
-    const ctxSource = currentSourceCanvas.getContext('2d');
-    if (ctxSource) renderComposite(ctxSource);
-
-    const ctxResult = currentResultCanvas.getContext('2d');
-    if (ctxResult) renderComposite(ctxResult);
+    if (currentSourceCanvas) {
+      const ctx = currentSourceCanvas.getContext('2d');
+      if (ctx) renderSideContext(ctx, leftSelectedLayer, leftHiddenLayers);
+    }
+    if (currentResultCanvas) {
+      const ctx = currentResultCanvas.getContext('2d');
+      if (ctx) renderSideContext(ctx, rightSelectedLayer, rightHiddenLayers);
+    }
   });
 
-  // Keep layer:selected listener just in case other features want to use it
   window.addEventListener('layer:selected', (e: Event) => {
-    // Currently doing nothing on the canvas itself, 
-    // as we want to always show the composite view.
+    const customEvent = e as CustomEvent<{ layer: any }>;
+    leftSelectedLayer = customEvent.detail.layer;
+    if (currentSourceCanvas) {
+      const ctx = currentSourceCanvas.getContext('2d');
+      if (ctx) renderSideContext(ctx, leftSelectedLayer, leftHiddenLayers);
+    }
+  });
+  
+  window.addEventListener('layer:selected:right', (e: Event) => {
+    const customEvent = e as CustomEvent<{ layer: any }>;
+    rightSelectedLayer = customEvent.detail.layer;
+    if (currentResultCanvas) {
+      const ctx = currentResultCanvas.getContext('2d');
+      if (ctx) renderSideContext(ctx, rightSelectedLayer, rightHiddenLayers);
+    }
+  });
+
+  window.addEventListener('layer:visibility', (e: Event) => {
+    const customEvent = e as CustomEvent<{ hiddenLayers: Set<any> }>;
+    leftHiddenLayers = customEvent.detail.hiddenLayers;
+  });
+
+  window.addEventListener('layer:visibility:right', (e: Event) => {
+    const customEvent = e as CustomEvent<{ hiddenLayers: Set<any> }>;
+    rightHiddenLayers = customEvent.detail.hiddenLayers;
   });
 
   window.addEventListener('tool:result-ready', async (e: Event) => {
@@ -358,26 +399,12 @@ export function createCanvas(): HTMLElement {
     const blob = await getImageCache(customEvent.detail.key);
     if (blob) {
       const url = URL.createObjectURL(blob);
-      resultPanel.style.backgroundImage = `url('${url}')`;
-      
-      if (currentResultCanvas) {
-        currentResultCanvas.style.display = 'none';
-      }
-      
-      isCacheSelected = true;
-      updateCanvasLayout();
+      leftCacheOverlay.style.backgroundImage = `url('${url}')`;
     }
   });
 
   window.addEventListener('tool:result-cleared', () => {
-    resultPanel.style.backgroundImage = 'none';
-    if (currentResultCanvas) {
-      currentResultCanvas.style.display = 'block';
-    }
-    
-    isCacheSelected = false;
-    checkSliderAutoOff();
-    updateCanvasLayout();
+    leftCacheOverlay.style.backgroundImage = 'none';
   });
 
   window.addEventListener('tool:result-ready:right', async (e: Event) => {
@@ -385,29 +412,12 @@ export function createCanvas(): HTMLElement {
     const blob = await getImageCache(customEvent.detail.key);
     if (blob) {
       const url = URL.createObjectURL(blob);
-      resultPanel.style.backgroundImage = `url('${url}')`;
-      
-      if (currentResultCanvas) {
-        currentResultCanvas.style.display = 'none';
-      }
-      
-      isCacheSelected = true;
-      updateCanvasLayout();
+      rightCacheOverlay.style.backgroundImage = `url('${url}')`;
     }
   });
 
   window.addEventListener('tool:result-cleared:right', () => {
-    resultPanel.style.backgroundImage = 'none';
-    if (currentResultCanvas) {
-      currentResultCanvas.style.display = 'block';
-    }
-    
-    // If left sidebar still has a cache selected, we might want to preserve isCacheSelected, 
-    // but typically right sidebar controls the result panel in compare mode.
-    // We will just clear it.
-    isCacheSelected = false;
-    checkSliderAutoOff();
-    updateCanvasLayout();
+    rightCacheOverlay.style.backgroundImage = 'none';
   });
 
   return main;

@@ -91,6 +91,19 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
 
   aside.appendChild(resizer);
 
+  const dispatchVisibilityChange = (items: LayerDef[]) => {
+    const hiddenLayers = new Set<any>();
+    items.forEach(l => {
+      if (l.hidden && l.layer) hiddenLayers.add(l.layer);
+      // Keep PSD global state in sync with left panel only
+      if (options.panelType !== 'right' && l.layer) {
+        l.layer.hidden = l.hidden;
+      }
+    });
+    const eventName = options.panelType === 'right' ? 'layer:visibility:right' : 'layer:visibility';
+    window.dispatchEvent(new CustomEvent(eventName, { detail: { hiddenLayers } }));
+  };
+
   // ── Header ──
   const header = document.createElement('div');
   header.className = 'layer-panel__header';
@@ -109,12 +122,12 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   showAllBtn.addEventListener('click', () => {
     currentLayerDefs.forEach(l => {
       l.hidden = false;
-      if (l.layer) l.layer.hidden = false;
     });
     if (currentPsd) {
       currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
     }
     renderLayerTree(currentLayerDefs);
+    dispatchVisibilityChange(currentLayerDefs);
     window.dispatchEvent(new Event('document:redraw'));
     showToast('全て表示しました', 'success');
   });
@@ -127,12 +140,12 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   hideAllBtn.addEventListener('click', () => {
     currentLayerDefs.forEach(l => {
       l.hidden = true;
-      if (l.layer) l.layer.hidden = true;
     });
     if (currentPsd) {
       currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
     }
     renderLayerTree(currentLayerDefs);
+    dispatchVisibilityChange(currentLayerDefs);
     window.dispatchEvent(new Event('document:redraw'));
     showToast('全て非表示にしました', 'success');
   });
@@ -371,7 +384,6 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
         e.stopPropagation();
         const targetHidden = !layerDef.hidden;
         layerDef.hidden = targetHidden;
-        if (layerDef.layer) layerDef.layer.hidden = targetHidden;
 
         // Toggle children if it's a group
         if (layerDef.isGroup) {
@@ -381,7 +393,6 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
             const childDepth = childDef.depth ?? (childDef.isChild ? 1 : 0);
             if (childDepth > targetDepth) {
               childDef.hidden = targetHidden;
-              if (childDef.layer) childDef.layer.hidden = targetHidden;
             } else {
               break;
             }
@@ -427,7 +438,6 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
           const shouldHideParent = !anyChildVisible;
           if (!!parentDef.hidden !== shouldHideParent) {
             parentDef.hidden = shouldHideParent;
-            if (parentDef.layer) parentDef.layer.hidden = shouldHideParent;
             currentItemIndex = parentIndex; // Bubble up to parent
           } else {
             break; // Stop bubbling if parent state didn't change
@@ -435,6 +445,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
         }
 
         renderLayerTree(items);
+        dispatchVisibilityChange(items);
         window.dispatchEvent(new Event('document:redraw'));
       });
 
@@ -554,6 +565,11 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
 
   // Initial render with dummy data
   renderLayerTree(currentLayerDefs);
+  if (options.initialState) {
+    setTimeout(() => {
+      dispatchVisibilityChange(currentLayerDefs);
+    }, 0);
+  }
 
   let currentPsd: Psd | null = options.initialState ? options.initialState.psd : null;
 
@@ -569,6 +585,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
     if (psd.children) {
       currentLayerDefs = mapPsdLayers(psd.children);
       renderLayerTree(currentLayerDefs);
+      dispatchVisibilityChange(currentLayerDefs);
     }
   });
   aside.appendChild(tree);
@@ -731,6 +748,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
 
         currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
         renderLayerTree(currentLayerDefs);
+        dispatchVisibilityChange(currentLayerDefs);
         window.dispatchEvent(new Event('document:redraw'));
 
         showToast(`${sortedIndices.length}件のキャッシュをレイヤーに昇格しました`, 'success');
