@@ -519,7 +519,7 @@
 
 /* ── Canvas Area ──────────────────────────────────────────── */
 .canvas-area {
-  background: var(--color-surface-container-lowest);
+  background: #404040;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -636,7 +636,6 @@
   background-size: contain;
   background-position: center;
   background-repeat: no-repeat;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .canvas-split__label {

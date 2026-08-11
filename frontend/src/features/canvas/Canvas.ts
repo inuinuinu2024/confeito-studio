@@ -451,5 +451,10 @@ export function createCanvas(): HTMLElement {
     updateCanvasLayout();
   });
 
+  window.addEventListener('canvas:bg-color', (e: Event) => {
+    const customEvent = e as CustomEvent<{ color: string }>;
+    main.style.backgroundColor = customEvent.detail.color;
+  });
+
   return main;
 }

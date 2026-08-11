@@ -5,6 +5,7 @@
 import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
 import { createSettingsDialog } from './components/SettingsDialog';
+import { createBgColorDialog } from './components/BgColorDialog';
 
 type MenuItemDef = 
   | { type: 'item'; label: string; checked?: boolean; shortcut?: string; action?: () => void }
@@ -17,7 +18,16 @@ const fileMenuItems: MenuItemDef[] = [
   { type: 'item', label: 'Save As...', action: () => window.dispatchEvent(new Event('file:save-as')) },
 ];
 
-const viewMenuItems: MenuItemDef[] = [];
+// We will attach the action to this menu item later when we have the dialog instance
+let openBgColorDialog = () => {};
+
+const viewMenuItems: MenuItemDef[] = [
+  {
+    type: 'item',
+    label: 'Background Color...',
+    action: () => openBgColorDialog()
+  }
+];
 
 const topMenuDefs: { label: string; items?: MenuItemDef[] }[] = [
   { label: 'File', items: fileMenuItems },
@@ -147,6 +157,10 @@ export function createTopBar(): HTMLElement {
   
   const settingsDialog = createSettingsDialog();
   document.body.appendChild(settingsDialog.overlay);
+
+  const bgColorDialog = createBgColorDialog();
+  document.body.appendChild(bgColorDialog.overlay);
+  openBgColorDialog = () => bgColorDialog.open();
 
   for (const action of actionButtons) {
     const btn = document.createElement('button');
