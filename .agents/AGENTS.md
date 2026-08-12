@@ -48,11 +48,11 @@ confeito-studio/
 │       │   ├── ai-panel/      # AIツール用右サイドバー
 │       │   ├── canvas/        # 描画キャンバス領域
 │       │   ├── layer-panel/   # レイヤーツリー + プロパティインスペクタ
-│       │   ├── status-bar/    # フッター
-│       │   ├── toolbar/       # 左ナビレール
+│       │   ├── tools/         # AIツール実装 (1ツール1ファイル)
 │       │   └── top-bar/       # ヘッダー
 │       └── shared/            # 機能間で共有される依存関係
 │           ├── utils/
+│           ├── types/         # 共有型定義 (tool.types.ts)
 │           └── styles/        # デザイントークン・共通レイアウト用CSS
 ├── backend/                   # Python (FastAPI) バックエンド
 │   ├── src/app/
@@ -112,12 +112,16 @@ confeito-studio/
 
 以下は未実装であり、ダミーデータやプレースホルダー状態のものを含みます：
 
-1. **ファイル操作**: PSD読み込み/保存、Fileメニューの実動作
-2. **レイヤー管理**: 追加/削除/並び替え/グループ化（現在はハードコードされたダミーデータ）
-3. **キャンバス描画**: 実際の画像描画エンジン（Canvas API / WebGL）※現在は背景に画像を表示しているのみ
-4. **Undo/Redo**: 操作履歴
-5. **設定画面**: APIキーの設定など
-6. **キーボードショートカット**
+1. **キャンバス描画**: 実際の画像描画エンジン（Canvas API / WebGL）※現在は背景に画像を表示しているのみ
+2. **キーボードショートカット**: 一部実装済み (Ctrl+Z/Y/O/S/B)
+
+### 🧹 リファクタリング履歴
+
+- `test-psd.ts`（ルートのデッドテストファイル）を削除
+- `ToolPromptDialog.ts`（AIPanel配下、open()未呼び出しの死んだダイアログ）を削除
+- `dom.ts` から未使用の `el()` 関数を削除（`icon()` のみ残存）
+- `ToolRegistry.getTool()` 未使用メソッドを削除
+- `history.ts` の `Command` interfaceからexportを除去（外部importなし）
 
 ## バックエンドアーキテクチャ
 

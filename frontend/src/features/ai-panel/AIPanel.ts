@@ -9,7 +9,7 @@ import { ToolRegistry } from '../../shared/utils/ToolRegistry';
 import { GrayscaleTool } from '../tools/grayscale';
 import { NanoBananaProTool } from '../tools/nano-banana-pro';
 import { NanoBanana2Tool } from '../tools/nano-banana-2';
-import { createToolPromptDialog } from './components/ToolPromptDialog';
+
 import { createToolSettingsSidebar } from './components/ToolSettingsSidebar';
 import { DocumentManager } from '../document/DocumentManager';
 import { setImageCache, deleteImageCache } from '../../shared/utils/idb';
@@ -83,8 +83,7 @@ export function createAIPanel(): HTMLElement {
   toolsView.style.padding = '16px';
   toolsView.style.gap = '8px';
 
-  const toolPromptDialog = createToolPromptDialog();
-  document.body.appendChild(toolPromptDialog.overlay);
+
   
   const toolSettingsSidebar = createToolSettingsSidebar();
   document.body.appendChild(toolSettingsSidebar.overlay);

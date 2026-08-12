@@ -7,9 +7,7 @@ class ToolRegistryImpl {
     this.tools.set(tool.id, tool);
   }
 
-  getTool(id: string): Tool | undefined {
-    return this.tools.get(id);
-  }
+
 
   getAllTools(): Tool[] {
     return Array.from(this.tools.values());
