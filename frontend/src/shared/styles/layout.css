@@ -519,7 +519,7 @@
 
 /* ── Canvas Area ──────────────────────────────────────────── */
 .canvas-area {
-  background: #404040;
+  background: #000000;
   position: relative;
   display: flex;
   flex-direction: column;

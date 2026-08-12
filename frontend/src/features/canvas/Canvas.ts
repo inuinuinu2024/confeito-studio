@@ -165,6 +165,8 @@ export function createCanvas(): HTMLElement {
   const leftCacheOverlay = document.createElement('div');
   const rightCacheOverlay = document.createElement('div');
 
+  let currentBgColor = 'transparent';
+
   function styleOverlay(overlay: HTMLDivElement) {
     overlay.style.position = 'absolute';
     overlay.style.top = '0';
@@ -307,7 +309,13 @@ export function createCanvas(): HTMLElement {
 
   function renderSideContext(ctx: CanvasRenderingContext2D, selectedLayer: any, hiddenLayers: Set<any>) {
     if (!currentPsd) return;
-    ctx.clearRect(0, 0, psdWidth, psdHeight);
+    
+    if (currentBgColor && currentBgColor !== 'transparent') {
+      ctx.fillStyle = currentBgColor;
+      ctx.fillRect(0, 0, psdWidth, psdHeight);
+    } else {
+      ctx.clearRect(0, 0, psdWidth, psdHeight);
+    }
 
     if (currentPsd.children) {
       for (let i = currentPsd.children.length - 1; i >= 0; i--) {
@@ -358,6 +366,9 @@ export function createCanvas(): HTMLElement {
 
       styleCanvas(currentSourceCanvas);
       styleCanvas(currentResultCanvas);
+      
+      styleOverlay(leftCacheOverlay);
+      styleOverlay(rightCacheOverlay);
       
       sourcePanel.style.position = 'relative';
       resultPanel.style.position = 'relative';
@@ -449,7 +460,8 @@ export function createCanvas(): HTMLElement {
 
   window.addEventListener('canvas:bg-color', (e: Event) => {
     const customEvent = e as CustomEvent<{ color: string }>;
-    main.style.backgroundColor = customEvent.detail.color;
+    currentBgColor = customEvent.detail.color;
+    window.dispatchEvent(new CustomEvent('document:redraw'));
   });
 
   return main;
