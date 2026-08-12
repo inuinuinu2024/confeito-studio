@@ -4,7 +4,8 @@
 import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
 import type { Psd, Layer } from 'ag-psd';
-import { getAllImageCaches, deleteImageCache, renameImageCache, CachedImage } from '../../shared/utils/idb';
+import { getAllImageCaches, deleteImageCache, renameImageCache, setImageCache, CachedImage } from '../../shared/utils/idb';
+import { historyManager } from '../../shared/utils/history';
 
 interface LayerDef {
   name: string;
@@ -105,6 +106,30 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
     window.dispatchEvent(new CustomEvent(eventName, { detail: { hiddenLayers } }));
   };
 
+  const cloneState = (state: LayerDef[]): LayerDef[] => {
+    return state.map(l => ({ ...l }));
+  };
+
+  const commitStateChange = async (label: string, mutator: () => void | Promise<void>) => {
+    const beforeState = cloneState(currentLayerDefs);
+    await mutator();
+    const afterState = cloneState(currentLayerDefs);
+
+    const restoreFn = (state: LayerDef[]) => {
+      currentLayerDefs = cloneState(state);
+      if (currentPsd) currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
+      renderLayerTree(currentLayerDefs);
+      dispatchVisibilityChange(currentLayerDefs);
+      window.dispatchEvent(new Event('document:redraw'));
+    };
+
+    historyManager.push({
+      label,
+      execute: () => restoreFn(afterState),
+      undo: () => restoreFn(beforeState)
+    });
+  };
+
   // ── Header ──
   const header = document.createElement('div');
   header.className = 'layer-panel__header';
@@ -121,15 +146,17 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   showAllBtn.title = '全て表示';
   showAllBtn.appendChild(icon('visibility', 16));
   showAllBtn.addEventListener('click', () => {
-    currentLayerDefs.forEach(l => {
-      l.hidden = false;
+    commitStateChange('全て表示', () => {
+      currentLayerDefs.forEach(l => {
+        l.hidden = false;
+      });
+      if (currentPsd) {
+        currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
+      }
+      renderLayerTree(currentLayerDefs);
+      dispatchVisibilityChange(currentLayerDefs);
+      window.dispatchEvent(new Event('document:redraw'));
     });
-    if (currentPsd) {
-      currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
-    }
-    renderLayerTree(currentLayerDefs);
-    dispatchVisibilityChange(currentLayerDefs);
-    window.dispatchEvent(new Event('document:redraw'));
     showToast('全て表示しました', 'success');
   });
   actions.appendChild(showAllBtn);
@@ -139,15 +166,17 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   hideAllBtn.title = '全て非表示';
   hideAllBtn.appendChild(icon('visibility_off', 16));
   hideAllBtn.addEventListener('click', () => {
-    currentLayerDefs.forEach(l => {
-      l.hidden = true;
+    commitStateChange('全て非表示', () => {
+      currentLayerDefs.forEach(l => {
+        l.hidden = true;
+      });
+      if (currentPsd) {
+        currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
+      }
+      renderLayerTree(currentLayerDefs);
+      dispatchVisibilityChange(currentLayerDefs);
+      window.dispatchEvent(new Event('document:redraw'));
     });
-    if (currentPsd) {
-      currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
-    }
-    renderLayerTree(currentLayerDefs);
-    dispatchVisibilityChange(currentLayerDefs);
-    window.dispatchEvent(new Event('document:redraw'));
     showToast('全て非表示にしました', 'success');
   });
   actions.appendChild(hideAllBtn);
@@ -157,24 +186,26 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   createGroupBtn.title = 'グループ作成';
   createGroupBtn.appendChild(icon('folder', 16));
   createGroupBtn.addEventListener('click', () => {
-    const newGroupDef: LayerDef = {
-      name: 'New Group',
-      iconName: 'folder',
-      isGroup: true,
-      depth: 0,
-      active: true,
-      layer: { name: 'New Group', children: [] }
-    };
+    commitStateChange('グループ作成', () => {
+      const newGroupDef: LayerDef = {
+        name: 'New Group',
+        iconName: 'folder',
+        isGroup: true,
+        depth: 0,
+        active: true,
+        layer: { name: 'New Group', children: [] }
+      };
 
-    currentLayerDefs.forEach(l => l.active = false);
-    currentLayerDefs.push(newGroupDef);
+      currentLayerDefs.forEach(l => l.active = false);
+      currentLayerDefs.push(newGroupDef);
 
-    if (currentPsd) {
-      currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
-    }
-    
-    renderLayerTree(currentLayerDefs);
-    window.dispatchEvent(new Event('document:redraw'));
+      if (currentPsd) {
+        currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
+      }
+      
+      renderLayerTree(currentLayerDefs);
+      window.dispatchEvent(new Event('document:redraw'));
+    });
   });
   actions.appendChild(createGroupBtn);
 
@@ -190,27 +221,29 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
     }
 
     const activeLayer = currentLayerDefs[activeIndex];
-    let deleteCount = 1;
+    commitStateChange(`レイヤー削除: ${activeLayer.name}`, () => {
+      let deleteCount = 1;
 
-    if (activeLayer.isGroup) {
-      const groupDepth = activeLayer.depth || 0;
-      for (let i = activeIndex + 1; i < currentLayerDefs.length; i++) {
-        if ((currentLayerDefs[i].depth || 0) > groupDepth) {
-          deleteCount++;
-        } else {
-          break;
+      if (activeLayer.isGroup) {
+        const groupDepth = activeLayer.depth || 0;
+        for (let i = activeIndex + 1; i < currentLayerDefs.length; i++) {
+          if ((currentLayerDefs[i].depth || 0) > groupDepth) {
+            deleteCount++;
+          } else {
+            break;
+          }
         }
       }
-    }
 
-    currentLayerDefs.splice(activeIndex, deleteCount);
+      currentLayerDefs.splice(activeIndex, deleteCount);
 
-    if (currentPsd) {
-      currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
-    }
+      if (currentPsd) {
+        currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
+      }
 
-    renderLayerTree(currentLayerDefs);
-    window.dispatchEvent(new Event('document:redraw'));
+      renderLayerTree(currentLayerDefs);
+      window.dispatchEvent(new Event('document:redraw'));
+    });
     showToast(`「${activeLayer.name}」を削除しました`, 'success');
   });
   actions.appendChild(deleteLayerBtn);
@@ -413,83 +446,85 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
         item.style.boxShadow = '';
         
         if (draggedIndex !== null && draggedIndex !== i) {
-          const draggedItem = items[draggedIndex];
-          const draggedDepth = draggedItem.depth || 0;
-          let draggedCount = 1;
+          commitStateChange('レイヤー移動', () => {
+            const draggedItem = items[draggedIndex];
+            const draggedDepth = draggedItem.depth || 0;
+            let draggedCount = 1;
 
-          if (draggedItem.isGroup) {
-            for (let j = draggedIndex + 1; j < items.length; j++) {
-              if ((items[j].depth || 0) > draggedDepth) {
-                draggedCount++;
-              } else {
-                break;
+            if (draggedItem.isGroup) {
+              for (let j = draggedIndex + 1; j < items.length; j++) {
+                if ((items[j].depth || 0) > draggedDepth) {
+                  draggedCount++;
+                } else {
+                  break;
+                }
               }
             }
-          }
 
-          if (i >= draggedIndex && i < draggedIndex + draggedCount) {
-            return; // Dropping inside itself
-          }
+            if (i >= draggedIndex && i < draggedIndex + draggedCount) {
+              return; // Dropping inside itself
+            }
 
-          const rect = item.getBoundingClientRect();
-          const y = e.clientY - rect.top;
-          let position = 'before';
+            const rect = item.getBoundingClientRect();
+            const y = e.clientY - rect.top;
+            let position = 'before';
 
-          if (layerDef.isGroup) {
-            if (y < rect.height * 0.25) position = 'before';
-            else if (y > rect.height * 0.75) position = 'after';
-            else position = 'inside';
-          } else {
-            if (y < rect.height / 2) position = 'before';
-            else position = 'after';
-          }
+            if (layerDef.isGroup) {
+              if (y < rect.height * 0.25) position = 'before';
+              else if (y > rect.height * 0.75) position = 'after';
+              else position = 'inside';
+            } else {
+              if (y < rect.height / 2) position = 'before';
+              else position = 'after';
+            }
 
-          const movingItems = items.splice(draggedIndex, draggedCount);
-          let insertIndex = i;
-          if (draggedIndex < i) {
-            insertIndex -= draggedCount;
-          }
+            const movingItems = items.splice(draggedIndex, draggedCount);
+            let insertIndex = i;
+            if (draggedIndex < i) {
+              insertIndex -= draggedCount;
+            }
 
-          const targetItem = items[insertIndex];
-          const targetDepth = targetItem ? (targetItem.depth || 0) : 0;
-          let newDepth = targetDepth;
-          let finalInsertIndex = insertIndex;
+            const targetItem = items[insertIndex];
+            const targetDepth = targetItem ? (targetItem.depth || 0) : 0;
+            let newDepth = targetDepth;
+            let finalInsertIndex = insertIndex;
 
-          if (position === 'inside') {
-            newDepth = targetDepth + 1;
-            finalInsertIndex = insertIndex + 1;
-            targetItem.collapsed = false; // Expand folder automatically
-          } else if (position === 'after') {
-            let skipCount = 1;
-            if (targetItem.isGroup) {
-              for (let j = insertIndex + 1; j < items.length; j++) {
-                if ((items[j].depth || 0) > targetDepth) skipCount++;
-                else break;
+            if (position === 'inside') {
+              newDepth = targetDepth + 1;
+              finalInsertIndex = insertIndex + 1;
+              targetItem.collapsed = false; // Expand folder automatically
+            } else if (position === 'after') {
+              let skipCount = 1;
+              if (targetItem.isGroup) {
+                for (let j = insertIndex + 1; j < items.length; j++) {
+                  if ((items[j].depth || 0) > targetDepth) skipCount++;
+                  else break;
+                }
+              }
+              finalInsertIndex = insertIndex + skipCount;
+              newDepth = targetDepth;
+            } else {
+              finalInsertIndex = insertIndex;
+              newDepth = targetDepth;
+            }
+
+            const depthDiff = newDepth - draggedDepth;
+            if (depthDiff !== 0) {
+              for (const movingItem of movingItems) {
+                movingItem.depth = (movingItem.depth || 0) + depthDiff;
+                movingItem.isChild = (movingItem.depth > 0);
               }
             }
-            finalInsertIndex = insertIndex + skipCount;
-            newDepth = targetDepth;
-          } else {
-            finalInsertIndex = insertIndex;
-            newDepth = targetDepth;
-          }
 
-          const depthDiff = newDepth - draggedDepth;
-          if (depthDiff !== 0) {
-            for (const movingItem of movingItems) {
-              movingItem.depth = (movingItem.depth || 0) + depthDiff;
-              movingItem.isChild = (movingItem.depth > 0);
+            items.splice(finalInsertIndex, 0, ...movingItems);
+            
+            if (currentPsd) {
+              currentPsd.children = rebuildPsdHierarchy(items);
             }
-          }
 
-          items.splice(finalInsertIndex, 0, ...movingItems);
-          
-          if (currentPsd) {
-            currentPsd.children = rebuildPsdHierarchy(items);
-          }
-
-          renderLayerTree(items);
-          window.dispatchEvent(new Event('document:redraw'));
+            renderLayerTree(items);
+            window.dispatchEvent(new Event('document:redraw'));
+          });
         }
       });
 
@@ -551,71 +586,73 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
 
       visBox.addEventListener('click', (e) => {
         e.stopPropagation();
-        const targetHidden = !layerDef.hidden;
-        layerDef.hidden = targetHidden;
+        commitStateChange('表示/非表示切替', () => {
+          const targetHidden = !layerDef.hidden;
+          layerDef.hidden = targetHidden;
 
-        // Toggle children if it's a group
-        if (layerDef.isGroup) {
-          const targetDepth = layerDef.depth || 0;
-          for (let j = i + 1; j < items.length; j++) {
-            const childDef = items[j];
-            const childDepth = childDef.depth ?? (childDef.isChild ? 1 : 0);
-            if (childDepth > targetDepth) {
-              childDef.hidden = targetHidden;
-            } else {
-              break;
-            }
-          }
-        }
-
-        // Update ancestors based on children's state
-        let currentItemIndex = i;
-        while (true) {
-          let parentIndex = -1;
-          const currentDepth = items[currentItemIndex].depth || 0;
-          if (currentDepth === 0) break; // No parent
-
-          // Find the parent
-          for (let k = currentItemIndex - 1; k >= 0; k--) {
-            const kDepth = items[k].depth || 0;
-            if (kDepth < currentDepth) {
-              parentIndex = k;
-              break;
-            }
-          }
-
-          if (parentIndex === -1) break;
-
-          const parentDef = items[parentIndex];
-          const pDepth = parentDef.depth || 0;
-          
-          // Check if any direct child is visible
-          let anyChildVisible = false;
-          for (let j = parentIndex + 1; j < items.length; j++) {
-            const childDef = items[j];
-            const cDepth = childDef.depth || 0;
-            if (cDepth <= pDepth) break; // End of descendants
-             
-            if (cDepth === pDepth + 1) {
-              if (!childDef.hidden) {
-                anyChildVisible = true;
+          // Toggle children if it's a group
+          if (layerDef.isGroup) {
+            const targetDepth = layerDef.depth || 0;
+            for (let j = i + 1; j < items.length; j++) {
+              const childDef = items[j];
+              const childDepth = childDef.depth ?? (childDef.isChild ? 1 : 0);
+              if (childDepth > targetDepth) {
+                childDef.hidden = targetHidden;
+              } else {
                 break;
               }
             }
           }
 
-          const shouldHideParent = !anyChildVisible;
-          if (!!parentDef.hidden !== shouldHideParent) {
-            parentDef.hidden = shouldHideParent;
-            currentItemIndex = parentIndex; // Bubble up to parent
-          } else {
-            break; // Stop bubbling if parent state didn't change
-          }
-        }
+          // Update ancestors based on children's state
+          let currentItemIndex = i;
+          while (true) {
+            let parentIndex = -1;
+            const currentDepth = items[currentItemIndex].depth || 0;
+            if (currentDepth === 0) break; // No parent
 
-        renderLayerTree(items);
-        dispatchVisibilityChange(items);
-        window.dispatchEvent(new Event('document:redraw'));
+            // Find the parent
+            for (let k = currentItemIndex - 1; k >= 0; k--) {
+              const kDepth = items[k].depth || 0;
+              if (kDepth < currentDepth) {
+                parentIndex = k;
+                break;
+              }
+            }
+
+            if (parentIndex === -1) break;
+
+            const parentDef = items[parentIndex];
+            const pDepth = parentDef.depth || 0;
+            
+            // Check if any direct child is visible
+            let anyChildVisible = false;
+            for (let j = parentIndex + 1; j < items.length; j++) {
+              const childDef = items[j];
+              const cDepth = childDef.depth || 0;
+              if (cDepth <= pDepth) break; // End of descendants
+               
+              if (cDepth === pDepth + 1) {
+                if (!childDef.hidden) {
+                  anyChildVisible = true;
+                  break;
+                }
+              }
+            }
+
+            const shouldHideParent = !anyChildVisible;
+            if (!!parentDef.hidden !== shouldHideParent) {
+              parentDef.hidden = shouldHideParent;
+              currentItemIndex = parentIndex; // Bubble up to parent
+            } else {
+              break; // Stop bubbling if parent state didn't change
+            }
+          }
+
+          renderLayerTree(items);
+          dispatchVisibilityChange(items);
+          window.dispatchEvent(new Event('document:redraw'));
+        });
       });
 
       item.appendChild(visBox);
@@ -664,9 +701,11 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
         input.className = 'layer-item__name-input';
         
         const saveName = () => {
-          layerDef.name = input.value || 'Unnamed Layer';
-          if (layerDef.layer) layerDef.layer.name = layerDef.name;
-          renderLayerTree(items);
+          commitStateChange('レイヤー名変更', () => {
+            layerDef.name = input.value || 'Unnamed Layer';
+            if (layerDef.layer) layerDef.layer.name = layerDef.name;
+            renderLayerTree(items);
+          });
         };
         
         input.addEventListener('blur', saveName);
@@ -716,39 +755,41 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
       e.preventDefault();
       dropZone.classList.remove('layer-item--drag-over');
       if (draggedIndex !== null) {
-        const draggedItem = items[draggedIndex];
-        const draggedDepth = draggedItem.depth || 0;
-        let draggedCount = 1;
+        commitStateChange('レイヤー移動 (末尾)', () => {
+          const draggedItem = items[draggedIndex];
+          const draggedDepth = draggedItem.depth || 0;
+          let draggedCount = 1;
 
-        if (draggedItem.isGroup) {
-          for (let j = draggedIndex + 1; j < items.length; j++) {
-            if ((items[j].depth || 0) > draggedDepth) {
-              draggedCount++;
-            } else {
-              break;
+          if (draggedItem.isGroup) {
+            for (let j = draggedIndex + 1; j < items.length; j++) {
+              if ((items[j].depth || 0) > draggedDepth) {
+                draggedCount++;
+              } else {
+                break;
+              }
             }
           }
-        }
 
-        if (draggedIndex + draggedCount === items.length) {
-          return; // Already at the bottom
-        }
+          if (draggedIndex + draggedCount === items.length) {
+            return; // Already at the bottom
+          }
 
-        const movingItems = items.splice(draggedIndex, draggedCount);
-        
-        for (const movingItem of movingItems) {
-          movingItem.depth = (movingItem.depth || 0) - draggedDepth;
-          movingItem.isChild = (movingItem.depth > 0);
-        }
+          const movingItems = items.splice(draggedIndex, draggedCount);
+          
+          for (const movingItem of movingItems) {
+            movingItem.depth = (movingItem.depth || 0) - draggedDepth;
+            movingItem.isChild = (movingItem.depth > 0);
+          }
 
-        items.push(...movingItems);
-        
-        if (currentPsd) {
-          currentPsd.children = rebuildPsdHierarchy(items);
-        }
+          items.push(...movingItems);
+          
+          if (currentPsd) {
+            currentPsd.children = rebuildPsdHierarchy(items);
+          }
 
-        renderLayerTree(items);
-        window.dispatchEvent(new Event('document:redraw'));
+          renderLayerTree(items);
+          window.dispatchEvent(new Event('document:redraw'));
+        });
       }
     });
     tree.appendChild(dropZone);
@@ -877,70 +918,73 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
       }
       try {
         const sortedIndices = Array.from(activeCacheItemIndices).sort((a, b) => a - b);
-        let activeIndex = currentLayerDefs.findIndex(l => l.active);
         
-        let baseInsertIndex = currentLayerDefs.length;
-        let insertDepth = 0;
+        await commitStateChange(`キャッシュをレイヤーに昇格 (${sortedIndices.length}件)`, async () => {
+          let activeIndex = currentLayerDefs.findIndex(l => l.active);
+          
+          let baseInsertIndex = currentLayerDefs.length;
+          let insertDepth = 0;
 
-        if (activeIndex !== -1) {
-          const activeLayer = currentLayerDefs[activeIndex];
-          if (activeLayer.isGroup) {
-            insertDepth = (activeLayer.depth || 0) + 1;
-            baseInsertIndex = currentLayerDefs.length;
-            for (let i = activeIndex + 1; i < currentLayerDefs.length; i++) {
-              if ((currentLayerDefs[i].depth || 0) <= (activeLayer.depth || 0)) {
-                baseInsertIndex = i;
-                break;
+          if (activeIndex !== -1) {
+            const activeLayer = currentLayerDefs[activeIndex];
+            if (activeLayer.isGroup) {
+              insertDepth = (activeLayer.depth || 0) + 1;
+              baseInsertIndex = currentLayerDefs.length;
+              for (let i = activeIndex + 1; i < currentLayerDefs.length; i++) {
+                if ((currentLayerDefs[i].depth || 0) <= (activeLayer.depth || 0)) {
+                  baseInsertIndex = i;
+                  break;
+                }
               }
-            }
-          } else {
-            insertDepth = activeLayer.depth || 0;
-            baseInsertIndex = currentLayerDefs.length;
-            for (let i = activeIndex + 1; i < currentLayerDefs.length; i++) {
-              if ((currentLayerDefs[i].depth || 0) < insertDepth) {
-                baseInsertIndex = i;
-                break;
+            } else {
+              insertDepth = activeLayer.depth || 0;
+              baseInsertIndex = currentLayerDefs.length;
+              for (let i = activeIndex + 1; i < currentLayerDefs.length; i++) {
+                if ((currentLayerDefs[i].depth || 0) < insertDepth) {
+                  baseInsertIndex = i;
+                  break;
+                }
               }
             }
           }
-        }
 
-        currentLayerDefs.forEach(l => l.active = false);
+          currentLayerDefs.forEach(l => l.active = false);
 
-        for (let i = 0; i < sortedIndices.length; i++) {
-          const cache = currentCaches[sortedIndices[i]];
-          const bmp = await createImageBitmap(cache.blob);
-          const canvas = document.createElement('canvas');
-          canvas.width = bmp.width;
-          canvas.height = bmp.height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) ctx.drawImage(bmp, 0, 0);
+          for (let i = 0; i < sortedIndices.length; i++) {
+            const cache = currentCaches[sortedIndices[i]];
+            const bmp = await createImageBitmap(cache.blob);
+            const canvas = document.createElement('canvas');
+            canvas.width = bmp.width;
+            canvas.height = bmp.height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) ctx.drawImage(bmp, 0, 0);
 
-          const newLayer: Layer = {
-            name: cache.name,
-            canvas: canvas,
-            hidden: false,
-            opacity: 255,
-            blendMode: 'normal'
-          };
+            const newLayer: Layer = {
+              name: cache.name,
+              canvas: canvas,
+              hidden: false,
+              opacity: 255,
+              blendMode: 'normal'
+            };
 
-          const newDef: LayerDef = {
-            name: cache.name,
-            iconName: 'image',
-            isGroup: false,
-            isChild: insertDepth > 0,
-            depth: insertDepth,
-            active: i === sortedIndices.length - 1, // Make the last promoted layer active
-            layer: newLayer
-          };
+            const newDef: LayerDef = {
+              name: cache.name,
+              iconName: 'image',
+              isGroup: false,
+              isChild: insertDepth > 0,
+              depth: insertDepth,
+              active: i === sortedIndices.length - 1, // Make the last promoted layer active
+              layer: newLayer
+            };
 
-          currentLayerDefs.splice(baseInsertIndex + i, 0, newDef);
-        }
+            currentLayerDefs.splice(baseInsertIndex + i, 0, newDef);
+          }
 
-        currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
-        renderLayerTree(currentLayerDefs);
-        dispatchVisibilityChange(currentLayerDefs);
-        window.dispatchEvent(new Event('document:redraw'));
+          currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
+          renderLayerTree(currentLayerDefs);
+          dispatchVisibilityChange(currentLayerDefs);
+          window.dispatchEvent(new Event('document:redraw'));
+        });
 
         showToast(`${sortedIndices.length}件のキャッシュをレイヤーに昇格しました`, 'success');
       } catch (err) {
@@ -955,11 +999,22 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   deleteBtn.addEventListener('click', async () => {
     if (activeCacheItemIndices.size > 0) {
       try {
-        const promises = Array.from(activeCacheItemIndices).map(idx => {
-          const cache = currentCaches[idx];
-          return deleteImageCache(cache.key);
-        });
+        const deletedCaches = Array.from(activeCacheItemIndices).map(idx => currentCaches[idx]);
+        const promises = deletedCaches.map(cache => deleteImageCache(cache.key));
         await Promise.all(promises);
+
+        historyManager.push({
+          label: `キャッシュ削除 (${deletedCaches.length}件)`,
+          execute: async () => {
+            await Promise.all(deletedCaches.map(c => deleteImageCache(c.key)));
+            window.dispatchEvent(new Event('tool:cache-updated'));
+          },
+          undo: async () => {
+            await Promise.all(deletedCaches.map(c => setImageCache(c.key, c.blob, c.name)));
+            window.dispatchEvent(new Event('tool:cache-updated'));
+          }
+        });
+
         showToast(`${activeCacheItemIndices.size}件のキャッシュを削除しました。`, 'success');
         // Refresh the list
         await loadCacheList();
@@ -1027,6 +1082,20 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
 
               try {
                  await renameImageCache(c.key, newName);
+                 const oldName = c.name;
+
+                 historyManager.push({
+                    label: `キャッシュ名変更: ${newName}`,
+                    execute: async () => {
+                       await renameImageCache(c.key, newName);
+                       window.dispatchEvent(new Event('tool:cache-updated'));
+                    },
+                    undo: async () => {
+                       await renameImageCache(c.key, oldName);
+                       window.dispatchEvent(new Event('tool:cache-updated'));
+                    }
+                 });
+
                  c.name = newName;
                  label.textContent = newName;
                  showToast(`名前を「${newName}」に変更しました`, 'success');

@@ -1,6 +1,6 @@
 import { readPsd, writePsd, type Psd } from 'ag-psd';
 import { showToast } from '../../shared/utils/toast';
-import { setPsdCache, getPsdCache } from '../../shared/utils/idb';
+import { setPsdCache, getPsdCache, addRecentFile } from '../../shared/utils/idb';
 
 export class DocumentManager {
   private static instance: DocumentManager;
@@ -21,6 +21,7 @@ export class DocumentManager {
     window.addEventListener('file:open', this.handleFileOpen.bind(this));
     window.addEventListener('file:save', () => this.handleFileSave(false));
     window.addEventListener('file:save-as', () => this.handleFileSave(true));
+    window.addEventListener('file:open-recent', this.handleFileOpenRecent.bind(this) as EventListener);
     window.addEventListener('layer:selected', this.handleLayerSelected.bind(this) as EventListener);
     
     // Load cached PSD on startup
@@ -218,6 +219,33 @@ export class DocumentManager {
     }
   }
 
+  private async handleFileOpenRecent(event: CustomEvent<{ handle?: any, filename: string }>) {
+    const { handle, filename } = event.detail;
+    if (handle && 'queryPermission' in handle) {
+      await this.openFileFromHandle(handle, filename);
+    } else {
+      showToast(`Cannot open ${filename} directly. Please use Open PSD.`);
+    }
+  }
+
+  public async openFileFromHandle(handle: any, fallbackName?: string) {
+    try {
+      if ((await handle.queryPermission({ mode: 'read' })) !== 'granted') {
+        const perm = await handle.requestPermission({ mode: 'read' });
+        if (perm !== 'granted') {
+          showToast('Permission to read file denied.', 'error');
+          return;
+        }
+      }
+      const file = await handle.getFile();
+      this.currentFileHandle = handle;
+      await this.processFile(file);
+    } catch (err: any) {
+      console.warn('Failed to open recent file from handle:', err);
+      showToast(`Failed to open recent file: ${fallbackName || 'Unknown'}`, 'error');
+    }
+  }
+
   private async handleFileSelect(event: Event) {
     const target = event.target as HTMLInputElement;
     if (!target.files || target.files.length === 0) return;
@@ -239,6 +267,7 @@ export class DocumentManager {
       // Save a copy to cache before parsing to avoid any detachment issues
       const bufferCopy = arrayBuffer.slice(0);
       await setPsdCache(file.name, bufferCopy, this.currentFileHandle);
+      await addRecentFile(file.name, this.currentFileHandle);
 
       // ag-psd expects a Uint8Array or ArrayBuffer
       const psd = readPsd(arrayBuffer);

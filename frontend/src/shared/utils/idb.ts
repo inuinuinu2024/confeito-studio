@@ -38,6 +38,59 @@ export async function getPsdCache(): Promise<{ filename: string; buffer: ArrayBu
   });
 }
 
+export interface RecentFile {
+  filename: string;
+  fileHandle?: any;
+  timestamp: number;
+}
+
+export async function addRecentFile(filename: string, fileHandle?: any): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const getReq = store.get('recentFiles');
+    getReq.onsuccess = () => {
+      let recents: RecentFile[] = getReq.result || [];
+      recents = recents.filter(r => r.filename !== filename);
+      recents.unshift({ filename, fileHandle, timestamp: Date.now() });
+      recents = recents.slice(0, 10);
+      const putReq = store.put(recents, 'recentFiles');
+      putReq.onsuccess = () => {
+        window.dispatchEvent(new Event('recent-files:updated'));
+        resolve();
+      };
+      putReq.onerror = () => reject(putReq.error);
+    };
+    getReq.onerror = () => reject(getReq.error);
+  });
+}
+
+export async function getRecentFiles(): Promise<RecentFile[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const getReq = store.get('recentFiles');
+    getReq.onsuccess = () => resolve(getReq.result || []);
+    getReq.onerror = () => reject(getReq.error);
+  });
+}
+
+export async function clearRecentFiles(): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const putReq = store.put([], 'recentFiles');
+    putReq.onsuccess = () => {
+      window.dispatchEvent(new Event('recent-files:updated'));
+      resolve();
+    };
+    putReq.onerror = () => reject(putReq.error);
+  });
+}
+
 export interface CachedImage {
   key: string;
   name: string;

@@ -6,6 +6,8 @@ import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
 import { createSettingsDialog } from './components/SettingsDialog';
 import { createBgColorDialog } from './components/BgColorDialog';
+import { getRecentFiles, clearRecentFiles } from '../../shared/utils/idb';
+import { historyManager } from '../../shared/utils/history';
 
 type MenuItemDef = 
   | { type: 'item'; label: string; checked?: boolean; shortcut?: string; action?: () => void }
@@ -13,27 +15,100 @@ type MenuItemDef =
   | { type: 'submenu'; label: string; items: MenuItemDef[] };
 
 const fileMenuItems: MenuItemDef[] = [
-  { type: 'item', label: 'Open PSD', action: () => window.dispatchEvent(new Event('file:open')) },
-  { type: 'item', label: 'Save', action: () => window.dispatchEvent(new Event('file:save')) },
-  { type: 'item', label: 'Save As...', action: () => window.dispatchEvent(new Event('file:save-as')) },
+  { type: 'item', label: 'Open PSD', shortcut: 'Ctrl+O', action: () => window.dispatchEvent(new Event('file:open')) },
+  { type: 'submenu', label: 'Open Recent', items: [
+    { type: 'item', label: 'Loading...' }
+  ] },
+  { type: 'item', label: 'Save', shortcut: 'Ctrl+S', action: () => window.dispatchEvent(new Event('file:save')) },
+  { type: 'item', label: 'Save As...', shortcut: 'Ctrl+Shift+S', action: () => window.dispatchEvent(new Event('file:save-as')) },
 ];
 
 // We will attach the action to this menu item later when we have the dialog instance
 let openBgColorDialog = () => {};
 
+const editMenuItems: MenuItemDef[] = [
+  { type: 'item', label: 'Undo', shortcut: 'Ctrl+Z', action: () => historyManager.undo() },
+  { type: 'item', label: 'Redo', shortcut: 'Ctrl+Y', action: () => historyManager.redo() }
+];
+
+window.addEventListener('keydown', (e) => {
+  // Prevent undo/redo if typing in an input field
+  const target = e.target as HTMLElement;
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+    return;
+  }
+  
+  if (e.ctrlKey || e.metaKey) {
+    if (e.key === 'z') {
+      e.preventDefault();
+      historyManager.undo();
+    } else if (e.key === 'y') {
+      e.preventDefault();
+      historyManager.redo();
+    } else if (e.key === 'o' || e.key === 'O') {
+      e.preventDefault();
+      window.dispatchEvent(new Event('file:open'));
+    } else if (e.key === 's') {
+      e.preventDefault();
+      window.dispatchEvent(new Event('file:save'));
+    } else if (e.key === 'S') {
+      e.preventDefault();
+      window.dispatchEvent(new Event('file:save-as'));
+    } else if (e.key === 'b' || e.key === 'B') {
+      e.preventDefault();
+      openBgColorDialog();
+    }
+  }
+});
+
 const viewMenuItems: MenuItemDef[] = [
   {
     type: 'item',
     label: 'Background Color...',
+    shortcut: 'Ctrl+B',
     action: () => openBgColorDialog()
   }
 ];
 
 const topMenuDefs: { label: string; items?: MenuItemDef[] }[] = [
   { label: 'File', items: fileMenuItems },
+  { label: 'Edit', items: editMenuItems },
   { label: 'View', items: viewMenuItems },
   { label: 'Help' },
 ];
+
+async function updateRecentFilesMenu(submenu: HTMLElement) {
+  try {
+    const recents = await getRecentFiles();
+    const items: MenuItemDef[] = recents.map(r => ({
+      type: 'item',
+      label: r.filename,
+      action: () => window.dispatchEvent(new CustomEvent('file:open-recent', { 
+        detail: { handle: r.fileHandle, filename: r.filename } 
+      }))
+    }));
+
+    if (items.length > 0) {
+      items.push({ type: 'separator' });
+    }
+    
+    items.push({
+      type: 'item',
+      label: 'Clear Recent...',
+      action: async () => {
+        await clearRecentFiles();
+      }
+    });
+
+    const newDOM = buildMenuDOM(items);
+    submenu.innerHTML = '';
+    while (newDOM.firstChild) {
+      submenu.appendChild(newDOM.firstChild);
+    }
+  } catch (err) {
+    console.error('Failed to update recent files menu', err);
+  }
+}
 
 function buildMenuDOM(items: MenuItemDef[]): HTMLElement {
   const container = document.createElement('div');
@@ -91,6 +166,15 @@ function buildMenuDOM(items: MenuItemDef[]): HTMLElement {
       submenu.className = 'topbar__submenu';
       a.appendChild(submenu);
       a.classList.add('topbar__submenu-wrapper');
+
+      if (item.label === 'Open Recent') {
+        // Initial populate
+        updateRecentFilesMenu(submenu);
+        // Re-populate on updates
+        window.addEventListener('recent-files:updated', () => {
+          updateRecentFilesMenu(submenu);
+        });
+      }
     }
     
     container.appendChild(a);

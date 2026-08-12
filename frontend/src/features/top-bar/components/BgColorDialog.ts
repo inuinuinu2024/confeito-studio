@@ -85,20 +85,7 @@ export function createBgColorDialog(): { overlay: HTMLElement; open: () => void;
   buttonGroup.style.gap = '8px';
   buttonGroup.style.marginTop = '8px';
 
-  const defaultBtn = document.createElement('button');
-  defaultBtn.textContent = 'Default';
-  defaultBtn.style.padding = '8px 16px';
-  defaultBtn.style.borderRadius = '4px';
-  defaultBtn.style.border = '1px solid var(--color-outline)';
-  defaultBtn.style.backgroundColor = 'transparent';
-  defaultBtn.style.color = 'var(--color-on-surface)';
-  defaultBtn.style.cursor = 'pointer';
-  defaultBtn.addEventListener('click', () => {
-    window.dispatchEvent(new CustomEvent('canvas:bg-color', { detail: { color: '' } }));
-    showToast('Background set to Default', true);
-    close();
-  });
-  buttonGroup.appendChild(defaultBtn);
+
 
   const cancelBtn = document.createElement('button');
   cancelBtn.textContent = 'Cancel';

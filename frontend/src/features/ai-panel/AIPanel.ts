@@ -12,7 +12,8 @@ import { NanoBanana2Tool } from '../tools/nano-banana-2';
 import { createToolPromptDialog } from './components/ToolPromptDialog';
 import { createToolSettingsSidebar } from './components/ToolSettingsSidebar';
 import { DocumentManager } from '../document/DocumentManager';
-import { setImageCache } from '../../shared/utils/idb';
+import { setImageCache, deleteImageCache } from '../../shared/utils/idb';
+import { historyManager } from '../../shared/utils/history';
 import { ToolContext } from '../../shared/types/tool.types';
 
 // Register built-in tools
@@ -324,6 +325,18 @@ export function createAIPanel(): HTMLElement {
             
             const key = `ToolResult_${Date.now()}`;
             await setImageCache(key, blob, displayName);
+            
+            historyManager.push({
+               label: `AI生成結果を追加: ${displayName}`,
+               execute: async () => {
+                  await setImageCache(key, blob, displayName);
+                  window.dispatchEvent(new Event('tool:cache-updated'));
+               },
+               undo: async () => {
+                  await deleteImageCache(key);
+                  window.dispatchEvent(new Event('tool:cache-updated'));
+               }
+            });
             
             window.dispatchEvent(new CustomEvent('tool:result-ready', { detail: { key, toolName: displayName } }));
             window.dispatchEvent(new CustomEvent('tool:cache-updated', { detail: { autoSelectKey: key } }));
