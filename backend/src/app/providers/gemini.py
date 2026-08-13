@@ -70,10 +70,38 @@ class GeminiProvider(ImageGenerationProvider):
                 )
                 
             # If it returned JSON, try to find base64 data
-            # Check common fields where it might be returned
-            b64_data = data.get("image") or data.get("data")
+            
+            # Check Interactions API status
+            status = data.get("status")
+            if status and status not in ("completed",):
+                raise RuntimeError(f"Interaction ended with status '{status}'. Response: {data}")
+            
+            b64_data = None
+            mime_type = "image/png"
+
+            # 1) Interactions API: steps[].content[] with type="image"
+            for step in data.get("steps", []):
+                for block in step.get("content", []):
+                    if block.get("type") == "image" and block.get("data"):
+                        b64_data = block["data"]
+                        mime_type = block.get("mime_type", mime_type)
+                        break
+                if b64_data:
+                    break
+
+            # 2) Convenience property: output_image
             if not b64_data:
-                # Fallback to checking inside standard Gemini JSON structures just in case
+                output_image = data.get("output_image")
+                if output_image and isinstance(output_image, dict):
+                    b64_data = output_image.get("data")
+                    mime_type = output_image.get("mime_type", mime_type)
+
+            # 3) Fallback: top-level fields
+            if not b64_data:
+                b64_data = data.get("image") or data.get("data")
+
+            # 4) Legacy Gemini candidates structure
+            if not b64_data:
                 for cand in data.get("candidates", []):
                     for part in cand.get("content", {}).get("parts", []):
                         if "inlineData" in part:

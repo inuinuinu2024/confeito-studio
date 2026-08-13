@@ -368,6 +368,10 @@ export class DocumentManager {
     return this.currentPsd;
   }
 
+  public getCurrentFilename(): string | null {
+    return this.currentFilename;
+  }
+
   public getCurrentSelectedLayer(): import('ag-psd').Layer | null {
     return this.currentSelectedLayer;
   }

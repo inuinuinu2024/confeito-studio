@@ -1,5 +1,6 @@
 import { Tool, ToolContext } from '../../shared/types/tool.types';
 import { showToast } from '../../shared/utils/toast';
+import { createCacheFolder, moveCacheItem } from '../../shared/utils/idb';
 import { DocumentManager } from '../document/DocumentManager';
 
 export class NanoBananaProTool implements Tool {
@@ -655,9 +656,49 @@ export class NanoBananaProTool implements Tool {
       }
 
       const blob = await response.blob();
-      const arrayBuffer = await blob.arrayBuffer();
-      
-      await context.cacheResult(blob, this.id);
+
+      // --- Structured cache output ---
+      const docManager = DocumentManager.getInstance();
+      const rawFilename = docManager.getCurrentFilename() || 'Untitled';
+      const baseName = rawFilename.replace(/\.[^.]+$/, ''); // Remove extension
+
+      const date = new Date();
+      const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+      const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
+
+      // 1) Create main folder: <filename>_<datetime>
+      const mainFolderName = `${baseName}_${dateStr}_${timeStr}`;
+      const mainFolderId = await createCacheFolder(mainFolderName);
+
+      // 2) Save generated image as <filename>.png inside main folder
+      const mimeType = payload.response_format?.mime_type || 'image/png';
+      const ext = mimeType === 'image/jpeg' ? '.jpg' : '.png';
+      await context.cacheResult(blob, this.id, { name: `${baseName}${ext}`, folderId: mainFolderId });
+
+      // 3) Create Inputs subfolder
+      const inputsFolderId = await createCacheFolder('Inputs');
+      // Move Inputs folder into main folder
+      await moveCacheItem(inputsFolderId, mainFolderId);
+
+      // 4) Save reference images as Image1, Image2, ... inside Inputs
+      for (let i = 0; i < this.globalImages.length; i++) {
+        const item = this.globalImages[i];
+        const imgBlob = item.file as Blob;
+        const imgExt = (item.file.type || 'image/png').includes('jpeg') ? '.jpg' : '.png';
+        await context.cacheResult(imgBlob, this.id, { name: `Image${i + 1}${imgExt}`, folderId: inputsFolderId });
+      }
+
+      // 5) Save payload.json inside Inputs
+      const payloadForSave = JSON.parse(JSON.stringify(payload));
+      if (payloadForSave.input) {
+        payloadForSave.input.forEach((p: any) => {
+          if (p.type === 'image' && p.data) {
+            p.data = `[Image data omitted — see Image files in this folder]`;
+          }
+        });
+      }
+      const jsonBlob = new Blob([JSON.stringify(payloadForSave, null, 2)], { type: 'application/json' });
+      await context.cacheResult(jsonBlob, this.id, { name: 'payload.json', folderId: inputsFolderId });
       
     } catch (e: any) {
       console.error(e);
