@@ -15,12 +15,16 @@ type MenuItemDef =
   | { type: 'submenu'; label: string; items: MenuItemDef[] };
 
 const fileMenuItems: MenuItemDef[] = [
+  { type: 'item', label: 'New PSD', shortcut: 'Ctrl+N', action: () => window.dispatchEvent(new Event('file:new')) },
   { type: 'item', label: 'Open PSD', shortcut: 'Ctrl+O', action: () => window.dispatchEvent(new Event('file:open')) },
   { type: 'submenu', label: 'Open Recent', items: [
     { type: 'item', label: 'Loading...' }
   ] },
+  { type: 'separator' },
   { type: 'item', label: 'Save', shortcut: 'Ctrl+S', action: () => window.dispatchEvent(new Event('file:save')) },
   { type: 'item', label: 'Save As...', shortcut: 'Ctrl+Shift+S', action: () => window.dispatchEvent(new Event('file:save-as')) },
+  { type: 'separator' },
+  { type: 'item', label: 'Close PSD', action: () => window.dispatchEvent(new Event('file:close')) }
 ];
 
 // We will attach the action to this menu item later when we have the dialog instance
@@ -193,7 +197,7 @@ export function createTopBar(): HTMLElement {
 
   const logo = document.createElement('div');
   logo.className = 'topbar__logo';
-  logo.textContent = 'Confeito-Studio';
+  logo.textContent = 'ConfeitO-StudiO';
   left.appendChild(logo);
 
   const nav = document.createElement('nav');

@@ -5,12 +5,6 @@ import { icon } from '../../shared/utils/dom';
 import { getImageCache } from '../../shared/utils/idb';
 import { showToast } from '../../shared/utils/toast';
 
-const SOURCE_IMAGE =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuBOjBDI-NCafz1QuAcWVa7bAxd-XGA8SIyL1BXWHpoLE7uIzC5sQIVAGG6AcV3db4D-kwCIPM_sKETNx5UTvSyw6Wi6GSRsFzqHaEnBvdxe6r_7yPP2MCoh0fwwJXs5S3VFMhP3sogaFVTpEMVFCUusjbRGMr9_X8sRV89K351R5XVcA08yPFPUWoU6B5gOqAvWPCPSbx_9qH6ArYrbFc22JpW9ooxDInwMim-MP8JbeYtcpY2VlQmIrDJ9YMoeHoS5dHVxlux57kVA';
-
-const RESULT_IMAGE =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuBvTrajqudV6c47ff4nSnUjdL3rAEa33nQiubGB1a7BImcL6XsTTejwx4AuLg6oim9P-Bc-foNKzuSG4Y2Xg86wzrDAeV3XgqV5vZLsYnVbjzfyKQUT3747b53iQ6BF65Ol9ABFXLH-pxFQ8RRbeP8PYvMm3Wfvjdxl7vJ-ZbtfXpOwqrUSIB589oLXg6gHcKdtlsqx4QnO0D6l8HBxoOgT0o4lCyynTTJ1NGsZepfyv0r4Pyh-3hDjjiiyQorfIx29k9Vqviqfv1Gw';
-
 export function createCanvas(): HTMLElement {
   const main = document.createElement('main');
   main.className = 'canvas-area';
@@ -95,7 +89,7 @@ export function createCanvas(): HTMLElement {
   // Source panel
   const sourcePanel = document.createElement('div');
   sourcePanel.className = 'canvas-split__panel';
-  sourcePanel.style.backgroundImage = `url('${SOURCE_IMAGE}')`;
+  sourcePanel.style.backgroundImage = 'none';
   sourcePanel.style.backgroundSize = 'contain';
   sourcePanel.style.backgroundPosition = 'center';
   sourcePanel.style.backgroundRepeat = 'no-repeat';
@@ -139,7 +133,7 @@ export function createCanvas(): HTMLElement {
   // AI Result panel
   const resultPanel = document.createElement('div');
   resultPanel.className = 'canvas-split__panel';
-  resultPanel.style.backgroundImage = `url('${RESULT_IMAGE}')`;
+  resultPanel.style.backgroundImage = 'none';
   resultPanel.style.backgroundSize = 'contain';
   resultPanel.style.backgroundPosition = 'center';
   resultPanel.style.backgroundRepeat = 'no-repeat';
@@ -379,6 +373,20 @@ export function createCanvas(): HTMLElement {
       resultPanel.appendChild(currentResultCanvas);
       resultPanel.appendChild(rightCacheOverlay);
     }
+  });
+
+  window.addEventListener('document:closed', () => {
+    currentPsd = null;
+    leftSelectedLayer = null;
+    rightSelectedLayer = null;
+    currentSourceCanvas = null;
+    currentResultCanvas = null;
+    
+    sourcePanel.style.backgroundImage = 'none';
+    resultPanel.style.backgroundImage = 'none';
+    
+    sourcePanel.innerHTML = '';
+    resultPanel.innerHTML = '';
   });
 
   window.addEventListener('document:redraw', () => {

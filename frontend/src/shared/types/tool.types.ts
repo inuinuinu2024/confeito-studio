@@ -14,7 +14,7 @@ export interface ToolContext {
   getPrompts(toolName?: string): { prompt: string };
 
   // Cache the result and return a cache key
-  cacheResult(image: HTMLCanvasElement | Blob, toolName: string): Promise<string>;
+  cacheResult(image: HTMLCanvasElement | Blob, toolName: string, options?: { name?: string, folderId?: string }): Promise<string>;
 }
 
 export interface Tool {

@@ -18,9 +18,11 @@ export class DocumentManager {
     document.body.appendChild(this.fileInput);
 
     this.fileInput.addEventListener('change', this.handleFileSelect.bind(this));
+    window.addEventListener('file:new', this.handleFileNew.bind(this));
     window.addEventListener('file:open', this.handleFileOpen.bind(this));
     window.addEventListener('file:save', () => this.handleFileSave(false));
     window.addEventListener('file:save-as', () => this.handleFileSave(true));
+    window.addEventListener('file:close', this.handleFileClose.bind(this));
     window.addEventListener('file:open-recent', this.handleFileOpenRecent.bind(this) as EventListener);
     window.addEventListener('layer:selected', this.handleLayerSelected.bind(this) as EventListener);
     
@@ -171,12 +173,26 @@ export class DocumentManager {
     }
   }
 
+  private sanitizePsd(psd: Psd) {
+    if (psd.children && psd.children.length === 1) {
+      const dummy = psd.children[0];
+      if (
+        !dummy.name &&
+        dummy.top === 0 && dummy.bottom === 0 && dummy.left === 0 && dummy.right === 0 &&
+        !dummy.canvas && !dummy.imageData
+      ) {
+        psd.children = [];
+      }
+    }
+  }
+
   private async loadCachedPsd() {
     try {
       const cache = await getPsdCache();
       if (cache) {
         showToast(`Restoring ${cache.filename}...`);
         const psd = readPsd(cache.buffer);
+        this.sanitizePsd(psd);
         this.currentPsd = psd;
         this.currentFilename = cache.filename;
         if (cache.fileHandle) {
@@ -199,7 +215,61 @@ export class DocumentManager {
     return DocumentManager.instance;
   }
 
+  private async handleFileNew() {
+    if (this.currentPsd) {
+      const confirmClose = window.confirm('変更内容を保存しましたか？保存していない内容は失われます。\n\n新しいPSDを作成してもよろしいですか？');
+      if (!confirmClose) return;
+    }
+
+    const filename = 'Untitled.psd';
+    
+    const rootPsd: Psd = {
+      width: 1024,
+      height: 1024,
+      channels: 3,
+      bitsPerChannel: 8,
+      colorMode: 3,
+      children: []
+    };
+    
+    this.currentPsd = rootPsd;
+    this.currentFilename = filename;
+    this.currentFileHandle = null;
+    this.currentSelectedLayer = null;
+    
+    try {
+      const buffer = writePsd(rootPsd);
+      await setPsdCache(filename, buffer, null);
+    } catch (e) {
+      console.error('Error saving new psd to cache', e);
+    }
+    
+    window.dispatchEvent(new CustomEvent('document:loaded', {
+      detail: { psd: rootPsd, filename }
+    }));
+    showToast('新しいPSDを作成しました', 'success');
+  }
+
+  private async handleFileClose() {
+    if (!this.currentPsd) return;
+
+    const confirmClose = window.confirm('変更内容を保存しましたか？保存していない内容は失われます。\n\nPSDを閉じてもよろしいですか？');
+    if (!confirmClose) return;
+
+    this.currentPsd = null;
+    this.currentFilename = null;
+    this.currentFileHandle = null;
+    this.currentSelectedLayer = null;
+    window.dispatchEvent(new Event('document:closed'));
+    showToast('PSDを閉じました');
+  }
+
   private async handleFileOpen() {
+    if (this.currentPsd) {
+      const confirmClose = window.confirm('変更内容を保存しましたか？保存していない内容は失われます。\n\n新しいファイルを開いてもよろしいですか？');
+      if (!confirmClose) return;
+    }
+
     if ('showOpenFilePicker' in window) {
       try {
         const [fileHandle] = await (window as any).showOpenFilePicker({
@@ -229,6 +299,11 @@ export class DocumentManager {
   }
 
   public async openFileFromHandle(handle: any, fallbackName?: string) {
+    if (this.currentPsd) {
+      const confirmClose = window.confirm('変更内容を保存しましたか？保存していない内容は失われます。\n\n新しいファイルを開いてもよろしいですか？');
+      if (!confirmClose) return;
+    }
+
     try {
       if ((await handle.queryPermission({ mode: 'read' })) !== 'granted') {
         const perm = await handle.requestPermission({ mode: 'read' });
@@ -271,6 +346,7 @@ export class DocumentManager {
 
       // ag-psd expects a Uint8Array or ArrayBuffer
       const psd = readPsd(arrayBuffer);
+      this.sanitizePsd(psd);
       
       this.currentPsd = psd;
       this.currentFilename = file.name;

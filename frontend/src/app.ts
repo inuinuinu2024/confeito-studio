@@ -1,9 +1,17 @@
 /**
- * Confeito-Studio — Application Entry Point
+ * ConfeitO-StudiO — Application Entry Point
  *
  * Assembles the toolbar, grid layout, and all panels
  * into the main application shell.
  */
+
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
+import '@fontsource/geist-sans/500.css';
+import '@fontsource/geist-sans/600.css';
+import 'material-symbols/outlined.css';
 
 import './shared/styles/variables.css';
 import './shared/styles/base.css';

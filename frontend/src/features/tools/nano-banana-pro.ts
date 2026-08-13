@@ -9,7 +9,7 @@ export class NanoBananaProTool implements Tool {
   hasSettings = true;
 
   private buildPayloadFn?: () => Promise<any>;
-  private globalImages: { file: File, zoneTitle: string }[] = [];
+  private globalImages: { file: File, zoneTitle: string, isImportant?: boolean }[] = [];
 
   private async fileToBase64(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -226,6 +226,31 @@ export class NanoBananaProTool implements Tool {
             numBadge.style.lineHeight = '1';
             numBadge.style.pointerEvents = 'none';
             
+            const starBtn = document.createElement('button');
+            starBtn.innerHTML = '&#9733;'; // star
+            starBtn.style.position = 'absolute';
+            starBtn.style.bottom = '2px';
+            starBtn.style.right = '2px';
+            starBtn.style.width = '16px';
+            starBtn.style.height = '16px';
+            starBtn.style.background = 'rgba(0,0,0,0.6)';
+            starBtn.style.color = item.isImportant ? 'gold' : '#ccc';
+            starBtn.style.border = 'none';
+            starBtn.style.borderRadius = '2px';
+            starBtn.style.cursor = 'pointer';
+            starBtn.style.fontSize = '12px';
+            starBtn.style.lineHeight = '1';
+            starBtn.style.display = 'flex';
+            starBtn.style.alignItems = 'center';
+            starBtn.style.justifyContent = 'center';
+            starBtn.title = '重要画像に設定';
+
+            starBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              item.isImportant = !item.isImportant;
+              starBtn.style.color = item.isImportant ? 'gold' : '#ccc';
+            });
+
             const removeBtn = document.createElement('button');
             removeBtn.innerHTML = '&times;';
             removeBtn.style.position = 'absolute';
@@ -255,6 +280,7 @@ export class NanoBananaProTool implements Tool {
 
             thumb.appendChild(img);
             thumb.appendChild(numBadge);
+            thumb.appendChild(starBtn);
             thumb.appendChild(removeBtn);
             dropArea.appendChild(thumb);
           });
@@ -511,16 +537,21 @@ export class NanoBananaProTool implements Tool {
       
       this.globalImages.forEach((item, index) => {
         const cleanTitle = item.zoneTitle.split(' (')[0];
-        textPrompt += `# Image ${index + 1}\nこの画像を${cleanTitle}画像とする。\n\n`;
+        const importantStr = item.isImportant ? 'これはユーザにより重要画像に設定されている。\n' : '';
+        textPrompt += `# Image ${index + 1}\nこの画像を${cleanTitle}画像とする。\n${importantStr}\n`;
       });
       
       for (const item of this.globalImages) {
         const base64 = await this.fileToBase64(item.file);
-        input.push({
+        const imagePayload: any = {
           type: 'image',
           mime_type: item.file.type || 'image/png',
           data: base64
-        });
+        };
+        if (item.isImportant) {
+          imagePayload.resolution = 'ultra-high';
+        }
+        input.push(imagePayload);
       }
       
       const userPrompt = this.getSetting('prompt', '');

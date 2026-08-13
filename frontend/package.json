@@ -12,7 +12,10 @@
     "vite": "^5.4.0"
   },
   "dependencies": {
+    "@fontsource/geist-sans": "^5.3.0",
+    "@fontsource/inter": "^5.3.0",
     "ag-psd": "^31.0.2",
-    "canvas": "^3.2.3"
+    "canvas": "^3.2.3",
+    "material-symbols": "^0.45.10"
   }
 }

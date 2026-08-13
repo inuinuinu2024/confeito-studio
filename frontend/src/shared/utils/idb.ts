@@ -95,15 +95,20 @@ export interface CachedImage {
   key: string;
   name: string;
   timestamp: number;
-  blob: Blob;
+  blob?: Blob;
+  type?: 'image' | 'folder';
+  folderId?: string | null;
+  collapsed?: boolean;
 }
 
-export async function setImageCache(key: string, blob: Blob, name: string): Promise<void> {
+export async function setImageCache(key: string, blob: Blob | undefined, name: string, type: 'image' | 'folder' = 'image', folderId: string | null = null, collapsed: boolean = false): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
-    const request = store.put({ blob, name, timestamp: Date.now() }, key);
+    const data: any = { name, timestamp: Date.now(), type, folderId, collapsed };
+    if (blob) data.blob = blob;
+    const request = store.put(data, key);
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
@@ -133,12 +138,15 @@ export async function getAllImageCaches(): Promise<CachedImage[]> {
         const items: CachedImage[] = [];
         for (let i = 0; i < request.result.length; i++) {
           const key = keysRequest.result[i] as string;
-          if (key && key.startsWith('ToolResult_')) {
+          if (key && (key.startsWith('ToolResult_') || key.startsWith('ToolFolder_'))) {
             items.push({
               key,
               name: request.result[i].name || 'Unknown',
               timestamp: request.result[i].timestamp || 0,
-              blob: request.result[i].blob
+              blob: request.result[i].blob,
+              type: request.result[i].type || 'image',
+              folderId: request.result[i].folderId || null,
+              collapsed: request.result[i].collapsed || false
             });
           }
         }
@@ -179,3 +187,46 @@ export async function renameImageCache(key: string, newName: string): Promise<vo
     request.onerror = () => reject(request.error);
   });
 }
+
+export async function createCacheFolder(name: string): Promise<string> {
+  const key = `ToolFolder_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+  await setImageCache(key, undefined, name, 'folder', null);
+  return key;
+}
+
+export async function moveCacheItem(key: string, folderId: string | null): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(key);
+    request.onsuccess = () => {
+      const data = request.result;
+      if (!data) return reject(new Error('Cache not found'));
+      data.folderId = folderId;
+      const putReq = store.put(data, key);
+      putReq.onsuccess = () => resolve();
+      putReq.onerror = () => reject(putReq.error);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function updateCacheFolderCollapse(key: string, collapsed: boolean): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(key);
+    request.onsuccess = () => {
+      const data = request.result;
+      if (!data) return reject(new Error('Cache not found'));
+      data.collapsed = collapsed;
+      const putReq = store.put(data, key);
+      putReq.onsuccess = () => resolve();
+      putReq.onerror = () => reject(putReq.error);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+

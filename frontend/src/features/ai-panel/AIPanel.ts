@@ -292,7 +292,7 @@ export function createAIPanel(): HTMLElement {
             }
             return { prompt: pos };
           },
-          cacheResult: async (image: HTMLCanvasElement | Blob, toolName: string) => {
+          cacheResult: async (image: HTMLCanvasElement | Blob, toolName: string, options?: { name?: string, folderId?: string }) => {
             let canvasToAdd: HTMLCanvasElement;
             let blob: Blob;
 
@@ -320,15 +320,15 @@ export function createAIPanel(): HTMLElement {
             const date = new Date();
             const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
             const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
-            const displayName = `${dateStr}_${timeStr}_${toolName}`;
+            const displayName = options?.name ?? `${dateStr}_${timeStr}_${toolName}`;
             
             const key = `ToolResult_${Date.now()}`;
-            await setImageCache(key, blob, displayName);
+            await setImageCache(key, blob, displayName, 'image', options?.folderId || null);
             
             historyManager.push({
                label: `AI生成結果を追加: ${displayName}`,
                execute: async () => {
-                  await setImageCache(key, blob, displayName);
+                  await setImageCache(key, blob, displayName, 'image', options?.folderId || null);
                   window.dispatchEvent(new Event('tool:cache-updated'));
                },
                undo: async () => {
