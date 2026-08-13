@@ -1145,6 +1145,23 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
           }
         });
         
+        // Find folders that will become empty after this deletion
+        let allCachesTemp = [...currentCaches];
+        let newlyDeletedCount = 1;
+        while (newlyDeletedCount > 0) {
+          newlyDeletedCount = 0;
+          const remainingCaches = allCachesTemp.filter(c => !deletedCaches.some(d => d.key === c.key));
+          const remainingFolders = remainingCaches.filter(c => c.type === 'folder');
+          
+          for (const folder of remainingFolders) {
+            const hasChildren = remainingCaches.some(c => c.folderId === folder.key);
+            if (!hasChildren) {
+              deletedCaches.push(folder);
+              newlyDeletedCount++;
+            }
+          }
+        }
+        
         const promises = deletedCaches.map(cache => deleteImageCache(cache.key));
         await Promise.all(promises);
 
@@ -1161,6 +1178,8 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
         });
 
         showToast(`${deletedCaches.length}件のキャッシュを削除しました。`, 'success');
+        const eventName = options.panelType === 'right' ? 'tool:result-cleared:right' : 'tool:result-cleared';
+        window.dispatchEvent(new CustomEvent(eventName));
         // Refresh the list
         await loadCacheList();
       } catch (err) {

@@ -12,7 +12,7 @@ import { NanoBanana2Tool } from '../tools/nano-banana-2';
 
 import { createToolSettingsSidebar } from './components/ToolSettingsSidebar';
 import { DocumentManager } from '../document/DocumentManager';
-import { setImageCache, deleteImageCache } from '../../shared/utils/idb';
+import { setImageCache, deleteImageCache, createCacheFolder } from '../../shared/utils/idb';
 import { historyManager } from '../../shared/utils/history';
 import { ToolContext } from '../../shared/types/tool.types';
 
@@ -351,6 +351,25 @@ export function createAIPanel(): HTMLElement {
         } catch (err: any) {
           console.error(err);
           showToast(`${tool.name} failed: ${err.message || 'Unknown error'}`, 'error');
+          
+          try {
+            const folderName = `[Error] ${tool.name}`;
+            const folderId = await createCacheFolder(folderName);
+            const errorText = `${tool.name} Execution Error\n\nDate: ${new Date().toLocaleString()}\nError: ${err.message || 'Unknown error'}\nStack: ${err.stack || ''}`;
+            const errorBlob = new Blob([errorText], { type: 'text/plain' });
+            
+            const date = new Date();
+            const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+            const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
+            const fileName = `error_${dateStr}_${timeStr}.txt`;
+            
+            const key = `ToolError_${Date.now()}`;
+            await setImageCache(key, errorBlob, fileName, 'image', folderId);
+            
+            window.dispatchEvent(new Event('tool:cache-updated'));
+          } catch (cacheErr) {
+            console.error('Failed to save error cache:', cacheErr);
+          }
         } finally {
           window.dispatchEvent(new Event('tool:end'));
         }
