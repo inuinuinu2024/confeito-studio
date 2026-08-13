@@ -1286,12 +1286,8 @@ let cacheDraggedIndex: number | null = null;
           item.style.backgroundColor = 'var(--color-surface-container-high)';
         }
 
-        // Indent & tree lines (matching LAYER TREE)
-        for (let j = 0; j < currentDepth; j++) {
-          const spacer = document.createElement('span');
-          spacer.className = 'layer-item__spacer';
-          item.appendChild(spacer);
-        }
+        const indent = currentDepth * 16;
+        item.style.paddingLeft = `${8 + indent}px`;
 
         // Chevron icon
         if (cDef.isGroup) {

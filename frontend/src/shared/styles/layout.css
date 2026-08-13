@@ -377,14 +377,14 @@
 }
 
 .layer-item--group {
-  padding-left: 12px;
   color: var(--color-on-surface-variant);
 }
 
 .layer-item--child {
-  padding-left: 24px;
   color: var(--color-on-surface-variant);
 }
+
+
 
 .layer-item--child.layer-item--active {
   color: var(--color-on-surface);
