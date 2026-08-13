@@ -8,7 +8,7 @@ export function createToolBar(): HTMLElement {
   const compareBtn = document.createElement('div');
   compareBtn.className = 'left-toolbar__btn';
   compareBtn.title = 'Compare Mode';
-  compareBtn.appendChild(icon('vertical_split', 24));
+  compareBtn.appendChild(icon('splitscreen_right', 24));
 
   let isCompareMode = false;
   compareBtn.addEventListener('click', () => {

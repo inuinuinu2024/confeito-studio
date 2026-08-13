@@ -297,8 +297,8 @@
 }
 
 .left-toolbar__btn--active {
-  background: var(--color-primary-container);
-  color: var(--color-on-primary-container);
+  background: var(--color-secondary-container);
+  color: var(--color-primary);
 }
 
 .layer-panel__resizer {
@@ -697,6 +697,7 @@
 /* Split Divider */
 .canvas-split__divider {
   width: 2px;
+  height: 100%;
   background: var(--color-primary);
   position: relative;
   cursor: col-resize;
@@ -704,11 +705,20 @@
   align-items: center;
   justify-content: center;
   z-index: 10;
-  transition: width 100ms ease;
 }
 
 .canvas-split__divider:hover {
   width: 4px;
+}
+
+.canvas-split__divider--vertical {
+  width: 100% !important;
+  height: 2px !important;
+  cursor: row-resize !important;
+}
+
+.canvas-split__divider--vertical:hover {
+  height: 4px !important;
 }
 
 .canvas-split__divider-handle {

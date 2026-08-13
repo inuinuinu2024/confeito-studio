@@ -19,17 +19,13 @@ export function createCanvas(): HTMLElement {
   // Hidden until slider mode is ON
   compareGroup.style.display = 'none';
 
-  // Switch Toggle (Dummy)
-  const switchIcon = icon('sync_alt', 18);
-  switchIcon.classList.add('canvas-toolbar__compare-icon');
-  compareGroup.appendChild(switchIcon);
-
   const switchLabel = document.createElement('span');
   switchLabel.className = 'canvas-toolbar__compare-label';
-  switchLabel.textContent = 'Switch';
+  switchLabel.textContent = 'Transpose';
   compareGroup.appendChild(switchLabel);
 
   let isGlobalCompareMode = false;
+  let isVerticalSplit = false;
 
   const switchToggle = document.createElement('div');
   switchToggle.className = 'toggle toggle--off';
@@ -38,7 +34,10 @@ export function createCanvas(): HTMLElement {
   switchToggle.appendChild(switchKnob);
   
   switchToggle.addEventListener('click', () => {
-    showToast('Not implemented yet', 'error');
+    isVerticalSplit = !isVerticalSplit;
+    switchToggle.classList.toggle('toggle--on', isVerticalSplit);
+    switchToggle.classList.toggle('toggle--off', !isVerticalSplit);
+    updateCanvasLayout();
   });
   
   compareGroup.appendChild(switchToggle);
@@ -48,14 +47,12 @@ export function createCanvas(): HTMLElement {
   spacer.style.width = '16px';
   compareGroup.appendChild(spacer);
 
-  // Reverse Toggle (Dummy)
-  const reverseIcon = icon('swap_horiz', 18);
-  reverseIcon.classList.add('canvas-toolbar__compare-icon');
-  compareGroup.appendChild(reverseIcon);
+  let isFlipped = false;
+  let isTintMode = false;
 
   const reverseLabel = document.createElement('span');
   reverseLabel.className = 'canvas-toolbar__compare-label';
-  reverseLabel.textContent = 'Reverse';
+  reverseLabel.textContent = 'Flip';
   compareGroup.appendChild(reverseLabel);
 
   const reverseToggle = document.createElement('div');
@@ -65,10 +62,35 @@ export function createCanvas(): HTMLElement {
   reverseToggle.appendChild(reverseKnob);
   
   reverseToggle.addEventListener('click', () => {
-    showToast('Not implemented yet', 'error');
+    isFlipped = !isFlipped;
+    reverseToggle.classList.toggle('toggle--on', isFlipped);
+    reverseToggle.classList.toggle('toggle--off', !isFlipped);
+    updateCanvasLayout();
   });
 
   compareGroup.appendChild(reverseToggle);
+
+  // Spacer
+  const spacer2 = document.createElement('div');
+  spacer2.style.width = '16px';
+  compareGroup.appendChild(spacer2);
+
+  const tintLabel = document.createElement('span');
+  tintLabel.className = 'canvas-toolbar__compare-label';
+  tintLabel.textContent = 'Tint';
+  compareGroup.appendChild(tintLabel);
+
+  const tintToggle = document.createElement('div');
+  tintToggle.className = 'toggle toggle--off';
+  const tintKnob = document.createElement('div');
+  tintKnob.className = 'toggle__knob';
+  tintToggle.appendChild(tintKnob);
+  
+  tintToggle.addEventListener('click', () => {
+    showToast('Tint', 'mock');
+  });
+
+  compareGroup.appendChild(tintToggle);
 
   toolbar.appendChild(compareGroup);
   main.appendChild(toolbar);
@@ -106,12 +128,21 @@ export function createCanvas(): HTMLElement {
   document.addEventListener('mousemove', (e) => {
     if (!isDragging) return;
     const rect = splitViewInner.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    splitPct = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    const leftPanel = isFlipped ? resultPanel : sourcePanel;
+    const rightPanel = isFlipped ? sourcePanel : resultPanel;
+    const frontPanel = leftPanel;
     
-    // Fast update during drag
-    sourcePanel.style.clipPath = `polygon(0 0, ${splitPct}% 0, ${splitPct}% 100%, 0 100%)`;
-    splitDivider.style.left = `${splitPct}%`;
+    if (isVerticalSplit) {
+      const y = e.clientY - rect.top;
+      splitPct = Math.max(0, Math.min(100, (y / rect.height) * 100));
+      frontPanel.style.clipPath = `polygon(0 0, 100% 0, 100% ${splitPct}%, 0 ${splitPct}%)`;
+      splitDivider.style.top = `${splitPct}%`;
+    } else {
+      const x = e.clientX - rect.left;
+      splitPct = Math.max(0, Math.min(100, (x / rect.width) * 100));
+      frontPanel.style.clipPath = `polygon(0 0, ${splitPct}% 0, ${splitPct}% 100%, 0 100%)`;
+      splitDivider.style.left = `${splitPct}%`;
+    }
   });
   document.addEventListener('mouseup', () => {
     if (isDragging) {
@@ -203,30 +234,49 @@ export function createCanvas(): HTMLElement {
         splitDivider.style.display = 'flex';
         splitViewInner.style.gap = '0';
         
-        sourcePanel.style.flex = 'none';
-        sourcePanel.style.position = 'absolute';
-        sourcePanel.style.top = '0';
-        sourcePanel.style.left = '0';
-        sourcePanel.style.width = '100%';
-        sourcePanel.style.height = '100%';
-        sourcePanel.style.zIndex = '2';
-        sourcePanel.style.clipPath = `polygon(0 0, ${splitPct}% 0, ${splitPct}% 100%, 0 100%)`;
+        const leftPanel = isFlipped ? resultPanel : sourcePanel;
+        const rightPanel = isFlipped ? sourcePanel : resultPanel;
+        
+        const frontPanel = leftPanel;
+        const backPanel = rightPanel;
 
-        resultPanel.style.flex = 'none';
-        resultPanel.style.position = 'absolute';
-        resultPanel.style.top = '0';
-        resultPanel.style.left = '0';
-        resultPanel.style.width = '100%';
-        resultPanel.style.height = '100%';
-        resultPanel.style.zIndex = '1';
-        resultPanel.style.clipPath = 'none';
+        frontPanel.style.flex = 'none';
+        frontPanel.style.position = 'absolute';
+        frontPanel.style.top = '0';
+        frontPanel.style.left = '0';
+        frontPanel.style.width = '100%';
+        frontPanel.style.height = '100%';
+        frontPanel.style.zIndex = '2';
+
+        backPanel.style.flex = 'none';
+        backPanel.style.position = 'absolute';
+        backPanel.style.top = '0';
+        backPanel.style.left = '0';
+        backPanel.style.width = '100%';
+        backPanel.style.height = '100%';
+        backPanel.style.zIndex = '1';
+        backPanel.style.clipPath = 'none';
 
         splitDivider.style.position = 'absolute';
-        splitDivider.style.top = '0';
-        splitDivider.style.bottom = '0';
-        splitDivider.style.left = `${splitPct}%`;
-        splitDivider.style.transform = 'translateX(-50%)';
         splitDivider.style.zIndex = '3';
+
+        if (isVerticalSplit) {
+          splitDivider.classList.add('canvas-split__divider--vertical');
+          frontPanel.style.clipPath = `polygon(0 0, 100% 0, 100% ${splitPct}%, 0 ${splitPct}%)`;
+          splitDivider.style.top = `${splitPct}%`;
+          splitDivider.style.bottom = 'auto';
+          splitDivider.style.left = '0';
+          splitDivider.style.right = '0';
+          splitDivider.style.transform = 'translateY(-50%)';
+        } else {
+          splitDivider.classList.remove('canvas-split__divider--vertical');
+          frontPanel.style.clipPath = `polygon(0 0, ${splitPct}% 0, ${splitPct}% 100%, 0 100%)`;
+          splitDivider.style.top = '0';
+          splitDivider.style.bottom = '0';
+          splitDivider.style.left = `${splitPct}%`;
+          splitDivider.style.right = 'auto';
+          splitDivider.style.transform = 'translateX(-50%)';
+        }
         
       } else {
         splitDivider.style.display = 'none';
@@ -238,6 +288,7 @@ export function createCanvas(): HTMLElement {
         sourcePanel.style.height = 'auto';
         sourcePanel.style.zIndex = '';
         sourcePanel.style.clipPath = 'none';
+        sourcePanel.style.opacity = '1';
 
         resultPanel.style.flex = '1';
         resultPanel.style.position = 'relative';
@@ -245,6 +296,7 @@ export function createCanvas(): HTMLElement {
         resultPanel.style.height = 'auto';
         resultPanel.style.zIndex = '';
         resultPanel.style.clipPath = 'none';
+        resultPanel.style.opacity = '1';
       }
     } else {
       resultPanel.style.display = 'none';
@@ -257,6 +309,7 @@ export function createCanvas(): HTMLElement {
       sourcePanel.style.height = 'auto';
       sourcePanel.style.zIndex = '';
       sourcePanel.style.clipPath = 'none';
+      sourcePanel.style.opacity = '1';
     }
 
     if (isGlobalCompareMode) {

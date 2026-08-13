@@ -71,7 +71,7 @@ export function createBgColorDialog(): { overlay: HTMLElement; open: () => void;
 
     btn.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('canvas:bg-color', { detail: { color: color.hex } }));
-      showToast(`Background set to ${color.label}`, true);
+      showToast(`Background set to ${color.label}`, 'success');
       close();
     });
 
