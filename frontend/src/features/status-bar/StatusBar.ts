@@ -142,6 +142,11 @@ export function createStatusBar(): HTMLElement {
     progress.style.display = 'block';
   });
 
+  window.addEventListener('tool:progress', (e: Event) => {
+    const customEvent = e as CustomEvent<{ message: string }>;
+    statusText.textContent = customEvent.detail.message;
+  });
+
   window.addEventListener('tool:end', () => {
     statusText.textContent = 'Ready';
     progress.style.display = 'none';

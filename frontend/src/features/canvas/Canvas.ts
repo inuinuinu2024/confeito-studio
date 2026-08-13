@@ -16,68 +16,59 @@ export function createCanvas(): HTMLElement {
   const compareGroup = document.createElement('div');
   compareGroup.className = 'canvas-toolbar__compare';
 
-  // Compare Mode Toggle (Dummy)
-  const compareModeIcon = icon('vertical_split', 18);
-  compareModeIcon.classList.add('canvas-toolbar__compare-icon');
-  compareGroup.appendChild(compareModeIcon);
+  // Hidden until slider mode is ON
+  compareGroup.style.display = 'none';
 
-  const compareModeLabel = document.createElement('span');
-  compareModeLabel.className = 'canvas-toolbar__compare-label';
-  compareModeLabel.textContent = 'Compare Mode';
-  compareGroup.appendChild(compareModeLabel);
+  // Switch Toggle (Dummy)
+  const switchIcon = icon('sync_alt', 18);
+  switchIcon.classList.add('canvas-toolbar__compare-icon');
+  compareGroup.appendChild(switchIcon);
+
+  const switchLabel = document.createElement('span');
+  switchLabel.className = 'canvas-toolbar__compare-label';
+  switchLabel.textContent = 'Switch';
+  compareGroup.appendChild(switchLabel);
 
   let isGlobalCompareMode = false;
 
-  const compareModeToggle = document.createElement('div');
-  compareModeToggle.className = 'toggle toggle--off';
-  const compareModeKnob = document.createElement('div');
-  compareModeKnob.className = 'toggle__knob';
-  compareModeToggle.appendChild(compareModeKnob);
+  const switchToggle = document.createElement('div');
+  switchToggle.className = 'toggle toggle--off';
+  const switchKnob = document.createElement('div');
+  switchKnob.className = 'toggle__knob';
+  switchToggle.appendChild(switchKnob);
   
-  compareModeToggle.addEventListener('click', () => {
-    isGlobalCompareMode = !isGlobalCompareMode;
-    compareModeToggle.classList.toggle('toggle--on', isGlobalCompareMode);
-    compareModeToggle.classList.toggle('toggle--off', !isGlobalCompareMode);
-    
-    if (isGlobalCompareMode) {
-      rightSelectedLayer = leftSelectedLayer;
-      rightHiddenLayers = new Set(leftHiddenLayers);
-      rightCacheUrl = leftCacheUrl;
-      
-      if (currentResultCanvas) {
-        const ctx = currentResultCanvas.getContext('2d');
-        if (ctx) renderSideContext(ctx, rightSelectedLayer, rightHiddenLayers);
-      }
-    }
-
-    window.dispatchEvent(new CustomEvent('compare-mode:toggle', { detail: { enabled: isGlobalCompareMode } }));
-    updateCanvasLayout();
+  switchToggle.addEventListener('click', () => {
+    showToast('Not implemented yet', 'error');
   });
   
-  compareGroup.appendChild(compareModeToggle);
+  compareGroup.appendChild(switchToggle);
 
   // Spacer
   const spacer = document.createElement('div');
   spacer.style.width = '16px';
   compareGroup.appendChild(spacer);
 
-  // Slider Toggle (Functional)
-  const sliderIcon = icon('compare', 18);
-  sliderIcon.classList.add('canvas-toolbar__compare-icon');
-  compareGroup.appendChild(sliderIcon);
+  // Reverse Toggle (Dummy)
+  const reverseIcon = icon('swap_horiz', 18);
+  reverseIcon.classList.add('canvas-toolbar__compare-icon');
+  compareGroup.appendChild(reverseIcon);
 
-  const compareLabel = document.createElement('span');
-  compareLabel.className = 'canvas-toolbar__compare-label';
-  compareLabel.textContent = 'Slider';
-  compareGroup.appendChild(compareLabel);
+  const reverseLabel = document.createElement('span');
+  reverseLabel.className = 'canvas-toolbar__compare-label';
+  reverseLabel.textContent = 'Reverse';
+  compareGroup.appendChild(reverseLabel);
 
-  const toggle = document.createElement('div');
-  toggle.className = 'toggle toggle--off';
-  const knob = document.createElement('div');
-  knob.className = 'toggle__knob';
-  toggle.appendChild(knob);
+  const reverseToggle = document.createElement('div');
+  reverseToggle.className = 'toggle toggle--off';
+  const reverseKnob = document.createElement('div');
+  reverseKnob.className = 'toggle__knob';
+  reverseToggle.appendChild(reverseKnob);
+  
+  reverseToggle.addEventListener('click', () => {
+    showToast('Not implemented yet', 'error');
+  });
 
-  compareGroup.appendChild(toggle);
+  compareGroup.appendChild(reverseToggle);
 
   toolbar.appendChild(compareGroup);
   main.appendChild(toolbar);
@@ -200,7 +191,7 @@ export function createCanvas(): HTMLElement {
   styleTextOverlay(rightTextOverlay);
 
   function updateCanvasLayout() {
-    compareGroup.style.display = 'flex';
+    compareGroup.style.display = isSliderMode ? 'flex' : 'none';
     
     const hasLeftCache = leftCacheUrl !== '';
     const showTwoPanes = isGlobalCompareMode || (!isGlobalCompareMode && hasLeftCache);
@@ -282,15 +273,38 @@ export function createCanvas(): HTMLElement {
     }
   }
 
-  toggle.addEventListener('click', () => {
-    if (!isGlobalCompareMode && leftCacheUrl === '') {
+  window.addEventListener('compare-mode:toggle', (e: Event) => {
+    const isCompareMode = (e as CustomEvent).detail.enabled;
+    isGlobalCompareMode = isCompareMode;
+
+    if (isGlobalCompareMode) {
+      rightSelectedLayer = leftSelectedLayer;
+      rightHiddenLayers = new Set(leftHiddenLayers);
+      rightCacheUrl = leftCacheUrl;
+      
+      if (currentResultCanvas) {
+        const ctx = currentResultCanvas.getContext('2d');
+        if (ctx) renderSideContext(ctx, rightSelectedLayer, rightHiddenLayers);
+      }
+    }
+    updateCanvasLayout();
+  });
+
+  window.addEventListener('slider-mode:toggle', (e: Event) => {
+    const requestedEnabled = (e as CustomEvent).detail.enabled;
+
+    if (requestedEnabled && !isGlobalCompareMode && leftCacheUrl === '') {
       showToast('比較するキャッシュが選択されていません', 'error');
+      // Revert the toolbar button state asynchronously to avoid state conflict
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('slider-mode:toggle', { detail: { enabled: false } }));
+      }, 0);
       return;
     }
 
-    isSliderMode = !isSliderMode;
-    toggle.classList.toggle('toggle--on', isSliderMode);
-    toggle.classList.toggle('toggle--off', !isSliderMode);
+    if (isSliderMode === requestedEnabled) return;
+
+    isSliderMode = requestedEnabled;
     updateCanvasLayout();
   });
   
@@ -492,9 +506,7 @@ export function createCanvas(): HTMLElement {
     leftCacheUrl = '';
     leftTextOverlay.style.display = 'none';
     if (!isGlobalCompareMode && isSliderMode) {
-      isSliderMode = false;
-      toggle.classList.add('toggle--off');
-      toggle.classList.remove('toggle--on');
+      window.dispatchEvent(new CustomEvent('slider-mode:toggle', { detail: { enabled: false } }));
     }
     updateCanvasLayout();
   });

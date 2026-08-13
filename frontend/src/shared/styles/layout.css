@@ -6,7 +6,7 @@
 .manga-grid {
   flex: 1;
   display: grid;
-  grid-template-columns: var(--left-sidebar-width) 1fr var(--right-sidebar-width);
+  grid-template-columns: var(--left-toolbar-width) var(--left-sidebar-width) 1fr var(--right-sidebar-width);
   grid-template-rows: var(--topbar-height) 1fr 24px;
   height: 100vh;
   gap: var(--panel-gap);
@@ -230,7 +230,7 @@
 
 /* ── AI Panel (Right Sidebar) ─────────────────────────────── */
 .ai-panel {
-  grid-column: 3 / 4;
+  grid-column: 4 / 5;
   background: var(--color-surface-container-low);
   display: flex;
   flex-direction: column;
@@ -253,7 +253,7 @@
 }
 
 .layer-panel {
-  grid-column: 1 / 2;
+  grid-column: 2 / 3;
   background: var(--color-surface-container-low);
   display: flex;
   flex-direction: column;
@@ -262,7 +262,43 @@
 }
 
 .layer-panel--right {
-  grid-column: 3 / 4;
+  grid-column: 4 / 5;
+}
+
+/* ── Left Toolbar ─────────────────────────────────────────── */
+.left-toolbar {
+  grid-column: 1 / 2;
+  background: var(--color-surface-container-low);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0;
+  gap: 16px;
+  border-right: 1px solid var(--color-outline-variant);
+  z-index: 30;
+}
+
+.left-toolbar__btn {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+  transition: all 150ms ease;
+  position: relative;
+}
+
+.left-toolbar__btn:hover {
+  background: var(--color-surface-container-highest);
+  color: var(--color-on-surface);
+}
+
+.left-toolbar__btn--active {
+  background: var(--color-primary-container);
+  color: var(--color-on-primary-container);
 }
 
 .layer-panel__resizer {

@@ -23,6 +23,7 @@ import { createCanvas } from './features/canvas/Canvas';
 import { createAIPanel } from './features/ai-panel/AIPanel';
 import { createStatusBar } from './features/status-bar/StatusBar';
 import { initDocumentManager } from './features/document/DocumentManager';
+import { createToolBar } from './features/tool-bar/ToolBar';
 
 function initApp(): void {
   const app = document.getElementById('app');
@@ -37,9 +38,10 @@ function initApp(): void {
   const aiPanel = createAIPanel();
   let rightSidebar = aiPanel;
 
-  // Grid children in order: topbar (row 1 full), layers (row 2 col 1),
-  // canvas (row 2 col 2), ai-panel (row 2 col 3), statusbar (row 3 full)
+  // Grid children in order: topbar (row 1 full), toolbar (row 2 col 1), layers (row 2 col 2),
+  // canvas (row 2 col 3), ai-panel (row 2 col 4), statusbar (row 3 full)
   workspace.appendChild(createTopBar());
+  workspace.appendChild(createToolBar());
   workspace.appendChild(leftSidebar);
   workspace.appendChild(canvas);
   workspace.appendChild(rightSidebar);

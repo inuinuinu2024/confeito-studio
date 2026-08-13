@@ -630,9 +630,18 @@ export class NanoBananaProTool implements Tool {
       throw new Error('設定画面が開かれていません。');
     }
 
+    let progressInterval: number | undefined;
     try {
       const payload = await this.buildPayloadFn();
       
+      const startTime = Date.now();
+      progressInterval = window.setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        window.dispatchEvent(new CustomEvent('tool:progress', {
+          detail: { message: `Generating image... (${elapsed}s elapsed)` }
+        }));
+      }, 1000);
+
       const response = await fetch('http://127.0.0.1:8000/api/nano-banana-pro', {
         method: 'POST',
         headers: {
@@ -699,6 +708,10 @@ export class NanoBananaProTool implements Tool {
     } catch (e: any) {
       console.error(e);
       throw e; // Rethrow to let AIPanel handle the error toast
+    } finally {
+      if (progressInterval) {
+        window.clearInterval(progressInterval);
+      }
     }
   }
 }
