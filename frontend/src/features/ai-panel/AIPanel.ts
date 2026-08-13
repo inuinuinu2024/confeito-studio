@@ -322,7 +322,7 @@ export function createAIPanel(): HTMLElement {
             const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
             const displayName = options?.name ?? `${dateStr}_${timeStr}_${toolName}`;
             
-            const key = `ToolResult_${Date.now()}`;
+            const key = `ToolResult_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
             await setImageCache(key, blob, displayName, 'image', options?.folderId || null);
             
             historyManager.push({
@@ -362,7 +362,7 @@ export function createAIPanel(): HTMLElement {
             const errorBlob = new Blob([errorText], { type: 'text/plain' });
             const fileName = `error_${dateStr}_${timeStr}.txt`;
             
-            const key = `ToolError_${Date.now()}`;
+            const key = `ToolError_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
             await setImageCache(key, errorBlob, fileName, 'image', folderId);
             
             window.dispatchEvent(new Event('tool:cache-updated'));

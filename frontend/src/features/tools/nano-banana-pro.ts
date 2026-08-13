@@ -693,7 +693,7 @@ export class NanoBananaProTool implements Tool {
         });
       }
       const jsonBlob = new Blob([JSON.stringify(payloadForSave, null, 2)], { type: 'application/json' });
-      const jsonKey = `ToolResult_${Date.now()}`;
+      const jsonKey = `ToolResult_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
       await setImageCache(jsonKey, jsonBlob, 'payload.json', 'image', inputsFolderId);
       
     } catch (e: any) {

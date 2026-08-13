@@ -23,7 +23,7 @@ export class DocumentManager {
     window.addEventListener('file:save', () => this.handleFileSave(false));
     window.addEventListener('file:save-as', () => this.handleFileSave(true));
     window.addEventListener('file:close', this.handleFileClose.bind(this));
-    window.addEventListener('file:open-recent', this.handleFileOpenRecent.bind(this) as EventListener);
+    window.addEventListener('file:open-recent', this.handleFileOpenRecent.bind(this) as unknown as EventListener);
     window.addEventListener('layer:selected', this.handleLayerSelected.bind(this) as EventListener);
     
     // Load cached PSD on startup

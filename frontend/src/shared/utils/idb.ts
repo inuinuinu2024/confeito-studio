@@ -138,7 +138,7 @@ export async function getAllImageCaches(): Promise<CachedImage[]> {
         const items: CachedImage[] = [];
         for (let i = 0; i < request.result.length; i++) {
           const key = keysRequest.result[i] as string;
-          if (key && (key.startsWith('ToolResult_') || key.startsWith('ToolFolder_'))) {
+          if (key && (key.startsWith('ToolResult_') || key.startsWith('ToolFolder_') || key.startsWith('ToolError_'))) {
             items.push({
               key,
               name: request.result[i].name || 'Unknown',

@@ -1075,24 +1075,33 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
             const cache = cacheDef.item;
             if (cache.type === 'folder' || !cache.blob) continue;
             
-            const bmp = await createImageBitmap(cache.blob);
-            const canvas = document.createElement('canvas');
-            canvas.width = bmp.width;
-            canvas.height = bmp.height;
-            const ctx = canvas.getContext('2d');
-            if (ctx) ctx.drawImage(bmp, 0, 0);
+            let isText = false;
+            if (cache.name.match(/\.(json|txt|md)$/i)) {
+              isText = true;
+            }
 
-            const newLayer: Layer = {
+            const newLayer: any = {
               name: cache.name,
-              canvas: canvas,
               hidden: false,
               opacity: 255,
               blendMode: 'normal'
             };
 
+            if (isText) {
+              newLayer.fileBlob = cache.blob;
+            } else {
+              const bmp = await createImageBitmap(cache.blob);
+              const canvas = document.createElement('canvas');
+              canvas.width = bmp.width;
+              canvas.height = bmp.height;
+              const ctx = canvas.getContext('2d');
+              if (ctx) ctx.drawImage(bmp, 0, 0);
+              newLayer.canvas = canvas;
+            }
+
             const newDef: LayerDef = {
               name: cache.name,
-              iconName: 'image',
+              iconName: isText ? 'description' : 'image',
               isGroup: false,
               isChild: insertDepth > 0,
               depth: insertDepth,
@@ -1313,7 +1322,11 @@ let cacheDraggedIndex: number | null = null;
         }
 
         // Type icon
-        const actualIconName = cDef.isGroup ? (cDef.collapsed ? 'folder' : 'folder_open') : 'image';
+        let isText = false;
+        if (!cDef.isGroup && c.name.match(/\.(json|txt|md)$/i)) {
+          isText = true;
+        }
+        const actualIconName = cDef.isGroup ? (cDef.collapsed ? 'folder' : 'folder_open') : (isText ? 'description' : 'image');
         const typeIcon = icon(actualIconName, 16);
         typeIcon.className = `material-symbols-outlined layer-item__icon ${cDef.active ? 'layer-item__icon--type-active' : 'layer-item__icon--type'}`;
         item.appendChild(typeIcon);

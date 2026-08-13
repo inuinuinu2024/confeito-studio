@@ -47,7 +47,7 @@ class GeminiProvider(ImageGenerationProvider):
         }
         
         def _post():
-            response = requests.post(url, headers=headers, json=payload, timeout=120)
+            response = requests.post(url, headers=headers, json=payload, timeout=300)
             if response.status_code != 200:
                 raise RuntimeError(f"API Error ({response.status_code}): {response.text}")
             

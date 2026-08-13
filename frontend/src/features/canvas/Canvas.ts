@@ -158,6 +158,8 @@ export function createCanvas(): HTMLElement {
 
   const leftCacheOverlay = document.createElement('div');
   const rightCacheOverlay = document.createElement('div');
+  const leftTextOverlay = document.createElement('div');
+  const rightTextOverlay = document.createElement('div');
 
   let currentBgColor = 'transparent';
 
@@ -176,6 +178,26 @@ export function createCanvas(): HTMLElement {
   
   styleOverlay(leftCacheOverlay);
   styleOverlay(rightCacheOverlay);
+
+  function styleTextOverlay(overlay: HTMLDivElement) {
+    overlay.style.position = 'absolute';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.zIndex = '2';
+    overlay.style.backgroundColor = 'var(--color-surface-container)';
+    overlay.style.color = 'var(--color-on-surface)';
+    overlay.style.padding = '16px';
+    overlay.style.overflow = 'auto';
+    overlay.style.whiteSpace = 'pre-wrap';
+    overlay.style.fontFamily = 'monospace';
+    overlay.style.fontSize = '12px';
+    overlay.style.display = 'none';
+  }
+  
+  styleTextOverlay(leftTextOverlay);
+  styleTextOverlay(rightTextOverlay);
 
   function updateCanvasLayout() {
     compareGroup.style.display = 'flex';
@@ -369,9 +391,11 @@ export function createCanvas(): HTMLElement {
 
       sourcePanel.appendChild(currentSourceCanvas);
       sourcePanel.appendChild(leftCacheOverlay);
+      sourcePanel.appendChild(leftTextOverlay);
       
       resultPanel.appendChild(currentResultCanvas);
       resultPanel.appendChild(rightCacheOverlay);
+      resultPanel.appendChild(rightTextOverlay);
     }
   });
 
@@ -405,18 +429,32 @@ export function createCanvas(): HTMLElement {
     }
   });
 
-  window.addEventListener('layer:selected', (e: Event) => {
+  window.addEventListener('layer:selected', async (e: Event) => {
     const customEvent = e as CustomEvent<{ layer: any }>;
     leftSelectedLayer = customEvent.detail.layer;
+    if (leftSelectedLayer && leftSelectedLayer.fileBlob) {
+      const text = await leftSelectedLayer.fileBlob.text();
+      leftTextOverlay.textContent = text;
+      leftTextOverlay.style.display = 'block';
+    } else {
+      leftTextOverlay.style.display = 'none';
+    }
     if (currentSourceCanvas) {
       const ctx = currentSourceCanvas.getContext('2d');
       if (ctx) renderSideContext(ctx, leftSelectedLayer, leftHiddenLayers);
     }
   });
   
-  window.addEventListener('layer:selected:right', (e: Event) => {
+  window.addEventListener('layer:selected:right', async (e: Event) => {
     const customEvent = e as CustomEvent<{ layer: any }>;
     rightSelectedLayer = customEvent.detail.layer;
+    if (rightSelectedLayer && rightSelectedLayer.fileBlob) {
+      const text = await rightSelectedLayer.fileBlob.text();
+      rightTextOverlay.textContent = text;
+      rightTextOverlay.style.display = 'block';
+    } else {
+      rightTextOverlay.style.display = 'none';
+    }
     if (currentResultCanvas) {
       const ctx = currentResultCanvas.getContext('2d');
       if (ctx) renderSideContext(ctx, rightSelectedLayer, rightHiddenLayers);
@@ -437,13 +475,22 @@ export function createCanvas(): HTMLElement {
     const customEvent = e as CustomEvent<{ key: string, toolName: string }>;
     const blob = await getImageCache(customEvent.detail.key);
     if (blob) {
-      leftCacheUrl = URL.createObjectURL(blob);
+      if (customEvent.detail.toolName.match(/\.(json|txt|md)$/i) || blob.type.startsWith('text/') || blob.type === 'application/json') {
+        const text = await blob.text();
+        leftTextOverlay.textContent = text;
+        leftTextOverlay.style.display = 'block';
+        leftCacheUrl = '';
+      } else {
+        leftTextOverlay.style.display = 'none';
+        leftCacheUrl = URL.createObjectURL(blob);
+      }
       updateCanvasLayout();
     }
   });
 
   window.addEventListener('tool:result-cleared', () => {
     leftCacheUrl = '';
+    leftTextOverlay.style.display = 'none';
     if (!isGlobalCompareMode && isSliderMode) {
       isSliderMode = false;
       toggle.classList.add('toggle--off');
@@ -456,13 +503,22 @@ export function createCanvas(): HTMLElement {
     const customEvent = e as CustomEvent<{ key: string, toolName: string }>;
     const blob = await getImageCache(customEvent.detail.key);
     if (blob) {
-      rightCacheUrl = URL.createObjectURL(blob);
+      if (customEvent.detail.toolName.match(/\.(json|txt|md)$/i) || blob.type.startsWith('text/') || blob.type === 'application/json') {
+        const text = await blob.text();
+        rightTextOverlay.textContent = text;
+        rightTextOverlay.style.display = 'block';
+        rightCacheUrl = '';
+      } else {
+        rightTextOverlay.style.display = 'none';
+        rightCacheUrl = URL.createObjectURL(blob);
+      }
       updateCanvasLayout();
     }
   });
 
   window.addEventListener('tool:result-cleared:right', () => {
     rightCacheUrl = '';
+    rightTextOverlay.style.display = 'none';
     updateCanvasLayout();
   });
 
