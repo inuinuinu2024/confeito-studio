@@ -48,7 +48,6 @@ export function createCanvas(): HTMLElement {
   compareGroup.appendChild(spacer);
 
   let isFlipped = false;
-  let isTintMode = false;
 
   const reverseLabel = document.createElement('span');
   reverseLabel.className = 'canvas-toolbar__compare-label';
@@ -70,29 +69,104 @@ export function createCanvas(): HTMLElement {
 
   compareGroup.appendChild(reverseToggle);
 
-  // Spacer
-  const spacer2 = document.createElement('div');
-  spacer2.style.width = '16px';
-  compareGroup.appendChild(spacer2);
-
-  const tintLabel = document.createElement('span');
-  tintLabel.className = 'canvas-toolbar__compare-label';
-  tintLabel.textContent = 'Tint';
-  compareGroup.appendChild(tintLabel);
-
-  const tintToggle = document.createElement('div');
-  tintToggle.className = 'toggle toggle--off';
-  const tintKnob = document.createElement('div');
-  tintKnob.className = 'toggle__knob';
-  tintToggle.appendChild(tintKnob);
-  
-  tintToggle.addEventListener('click', () => {
-    showToast('Tint', 'mock');
-  });
-
-  compareGroup.appendChild(tintToggle);
-
   toolbar.appendChild(compareGroup);
+
+  // ── Overlay Mode Toolbar ──
+  const overlayGroup = document.createElement('div');
+  overlayGroup.className = 'canvas-toolbar__compare';
+  overlayGroup.style.display = 'none'; // Hidden until overlay mode is ON
+
+  const underdrawingLabel = document.createElement('span');
+  underdrawingLabel.className = 'canvas-toolbar__compare-label';
+  underdrawingLabel.textContent = 'Underdrawing';
+  overlayGroup.appendChild(underdrawingLabel);
+
+  let currentUnderdrawingColor: string | null = null;
+  
+  const underdrawingColorGroup = document.createElement('div');
+  underdrawingColorGroup.style.display = 'flex';
+  underdrawingColorGroup.style.gap = '8px';
+  underdrawingColorGroup.style.alignItems = 'center';
+
+  const colors = [
+    { id: 'blue', hex: '#448aff' },
+    { id: 'green', hex: '#4caf50' },
+    { id: 'red', hex: '#ff5252' },
+    { id: 'gray', hex: '#9e9e9e' }
+  ];
+  
+  const colorBtns: HTMLDivElement[] = [];
+
+  colors.forEach(c => {
+    const btn = document.createElement('div');
+    btn.style.width = '18px';
+    btn.style.height = '18px';
+    btn.style.backgroundColor = c.hex;
+    btn.style.border = '2px solid transparent';
+    btn.style.borderRadius = '4px';
+    btn.style.cursor = 'pointer';
+    btn.style.boxSizing = 'border-box';
+    
+    btn.addEventListener('click', () => {
+      if (currentUnderdrawingColor === c.id) {
+        currentUnderdrawingColor = null;
+      } else {
+        currentUnderdrawingColor = c.id;
+      }
+      
+      colorBtns.forEach((b, idx) => {
+        b.style.borderColor = (currentUnderdrawingColor === colors[idx].id) 
+          ? 'var(--color-on-surface)' 
+          : 'transparent';
+      });
+      
+      window.dispatchEvent(new CustomEvent('overlay:underdrawing-color', { detail: { color: currentUnderdrawingColor } }));
+      window.dispatchEvent(new Event('document:redraw'));
+    });
+    
+    colorBtns.push(btn);
+    underdrawingColorGroup.appendChild(btn);
+  });
+  
+  overlayGroup.appendChild(underdrawingColorGroup);
+
+  // Spacer
+  const overlaySpacer = document.createElement('div');
+  overlaySpacer.style.width = '16px';
+  overlayGroup.appendChild(overlaySpacer);
+
+  const topLabel = document.createElement('span');
+  topLabel.className = 'canvas-toolbar__compare-label';
+  topLabel.textContent = 'Top';
+  overlayGroup.appendChild(topLabel);
+
+  let topOpacity = 50;
+  const topSlider = document.createElement('input');
+  topSlider.type = 'range';
+  topSlider.min = '0';
+  topSlider.max = '100';
+  topSlider.value = '50';
+  topSlider.style.width = '100px';
+  topSlider.style.cursor = 'pointer';
+  topSlider.style.marginLeft = '4px';
+
+  const opacityValueLabel = document.createElement('span');
+  opacityValueLabel.className = 'canvas-toolbar__compare-label';
+  opacityValueLabel.style.marginLeft = '4px';
+  opacityValueLabel.style.minWidth = '32px';
+  opacityValueLabel.textContent = '50%';
+  
+  topSlider.addEventListener('input', (e) => {
+    topOpacity = parseInt((e.target as HTMLInputElement).value, 10);
+    opacityValueLabel.textContent = `${topOpacity}%`;
+    window.dispatchEvent(new CustomEvent('overlay:top-opacity', { detail: { opacity: topOpacity } }));
+    window.dispatchEvent(new Event('document:redraw'));
+  });
+  
+  overlayGroup.appendChild(topSlider);
+  overlayGroup.appendChild(opacityValueLabel);
+
+  toolbar.appendChild(overlayGroup);
   main.appendChild(toolbar);
 
   // ── Split View ──
@@ -360,6 +434,13 @@ export function createCanvas(): HTMLElement {
     isSliderMode = requestedEnabled;
     updateCanvasLayout();
   });
+
+  let isOverlayMode = false;
+  window.addEventListener('overlay-mode:toggle', (e: Event) => {
+    isOverlayMode = (e as CustomEvent).detail.enabled;
+    overlayGroup.style.display = isOverlayMode ? 'flex' : 'none';
+    window.dispatchEvent(new Event('document:redraw'));
+  });
   
   // Initial layout state
   updateCanvasLayout();
@@ -390,6 +471,83 @@ export function createCanvas(): HTMLElement {
     }
   }
 
+  let overlayULayer: any = null;
+  let overlayTLayer: any = null;
+  let overlayUCacheKey: string | null = null;
+  let overlayTCacheKey: string | null = null;
+  let overlayUCacheImg: HTMLCanvasElement | null = null;
+  let overlayTCacheImg: HTMLCanvasElement | null = null;
+
+  async function loadCacheImg(key: string | null): Promise<HTMLCanvasElement | null> {
+    if (!key) return null;
+    const blob = await getImageCache(key);
+    if (!blob || !blob.type.startsWith('image/')) return null;
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+         const canvas = document.createElement('canvas');
+         canvas.width = img.width;
+         canvas.height = img.height;
+         const ctx = canvas.getContext('2d');
+         if (ctx) ctx.drawImage(img, 0, 0);
+         URL.revokeObjectURL(url);
+         resolve(canvas);
+      };
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  }
+
+  window.addEventListener('overlay:select-u', async (e: Event) => {
+    const d = (e as CustomEvent).detail;
+    overlayULayer = d.layer;
+    overlayUCacheKey = d.cacheKey;
+    overlayUCacheImg = await loadCacheImg(overlayUCacheKey);
+    window.dispatchEvent(new Event('document:redraw'));
+  });
+
+  window.addEventListener('overlay:select-t', async (e: Event) => {
+    const d = (e as CustomEvent).detail;
+    overlayTLayer = d.layer;
+    overlayTCacheKey = d.cacheKey;
+    overlayTCacheImg = await loadCacheImg(overlayTCacheKey);
+    window.dispatchEvent(new Event('document:redraw'));
+  });
+  
+  let overlayTopOpacity: number = 50;
+  window.addEventListener('overlay:top-opacity', (e: Event) => {
+    overlayTopOpacity = (e as CustomEvent).detail.opacity;
+    window.dispatchEvent(new Event('document:redraw'));
+  });
+  
+  let overlayUnderdrawingColor: string | null = null;
+  window.addEventListener('overlay:underdrawing-color', (e: Event) => {
+    overlayUnderdrawingColor = (e as CustomEvent).detail.color;
+    window.dispatchEvent(new Event('document:redraw'));
+  });
+
+  function getTintedCanvas(source: HTMLCanvasElement | HTMLImageElement, colorHex: string): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.width = source.width;
+    canvas.height = source.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return source as any;
+
+    ctx.filter = 'grayscale(100%)';
+    ctx.drawImage(source, 0, 0);
+    ctx.filter = 'none';
+
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = colorHex;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.drawImage(source, 0, 0);
+
+    return canvas;
+  }
+
   function renderSideContext(ctx: CanvasRenderingContext2D, selectedLayer: any, hiddenLayers: Set<any>) {
     if (!currentPsd) return;
     
@@ -398,6 +556,46 @@ export function createCanvas(): HTMLElement {
       ctx.fillRect(0, 0, psdWidth, psdHeight);
     } else {
       ctx.clearRect(0, 0, psdWidth, psdHeight);
+    }
+
+    if (isOverlayMode) {
+       // Draw U
+       if (overlayUCacheImg || (overlayULayer && overlayULayer.canvas)) {
+          let source = overlayUCacheImg || overlayULayer.canvas;
+          let drawLeft = 0;
+          let drawTop = 0;
+          
+          if (!overlayUCacheImg && overlayULayer) {
+             drawLeft = overlayULayer.left || 0;
+             drawTop = overlayULayer.top || 0;
+          }
+          
+          if (overlayUnderdrawingColor) {
+             const tintColors: Record<string, string> = {
+                'blue': '#448aff',
+                'green': '#4caf50',
+                'red': '#ff5252',
+                'gray': '#9e9e9e'
+             };
+             if (tintColors[overlayUnderdrawingColor]) {
+                source = getTintedCanvas(source, tintColors[overlayUnderdrawingColor]);
+             }
+          }
+          
+          ctx.drawImage(source, drawLeft, drawTop);
+       }
+       
+       // Draw T with slider opacity
+       if (overlayTCacheImg || (overlayTLayer && overlayTLayer.canvas)) {
+          ctx.globalAlpha = overlayTopOpacity / 100;
+          if (overlayTCacheImg) {
+             ctx.drawImage(overlayTCacheImg, 0, 0);
+          } else if (overlayTLayer && overlayTLayer.canvas) {
+             ctx.drawImage(overlayTLayer.canvas, overlayTLayer.left || 0, overlayTLayer.top || 0);
+          }
+          ctx.globalAlpha = 1.0;
+       }
+       return;
     }
 
     if (currentPsd.children) {

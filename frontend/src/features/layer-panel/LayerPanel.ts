@@ -20,6 +20,93 @@ interface LayerDef {
   collapsed?: boolean;
   layer?: Layer;
   isRoot?: boolean;
+  _utId?: string;
+}
+
+export let globalIsOverlayMode = false;
+export let globalULayerId: string | null = null;
+export let globalTLayerId: string | null = null;
+export let globalULayerObj: any = null;
+export let globalTLayerObj: any = null;
+export let globalUCacheKey: string | null = null;
+export let globalTCacheKey: string | null = null;
+
+window.addEventListener('overlay-mode:toggle', (e: Event) => {
+  globalIsOverlayMode = (e as CustomEvent).detail.enabled;
+  window.dispatchEvent(new Event('overlay-mode:changed'));
+  window.dispatchEvent(new Event('document:redraw'));
+});
+window.addEventListener('overlay:select-u', (e: Event) => {
+  const d = (e as CustomEvent).detail;
+  globalULayerId = d.id;
+  globalULayerObj = d.layer;
+  globalUCacheKey = d.cacheKey;
+  window.dispatchEvent(new Event('overlay-mode:changed'));
+  window.dispatchEvent(new Event('document:redraw'));
+});
+window.addEventListener('overlay:select-t', (e: Event) => {
+  const d = (e as CustomEvent).detail;
+  globalTLayerId = d.id;
+  globalTLayerObj = d.layer;
+  globalTCacheKey = d.cacheKey;
+  window.dispatchEvent(new Event('overlay-mode:changed'));
+  window.dispatchEvent(new Event('document:redraw'));
+});
+
+function createUTBoxes(id: string, layerObj: any, cacheKey: string | null) {
+  const container = document.createElement('div');
+  container.className = 'layer-item__ut-boxes';
+  container.style.display = globalIsOverlayMode ? 'flex' : 'none';
+  container.style.gap = '4px';
+  container.style.marginLeft = 'auto';
+  container.style.marginRight = '8px';
+  
+  const uBox = document.createElement('div');
+  const tBox = document.createElement('div');
+  
+  const updateBox = (box: HTMLDivElement, label: 'U' | 'T', isSelected: boolean) => {
+    box.textContent = label;
+    box.style.width = '14px';
+    box.style.height = '14px';
+    box.style.display = 'flex';
+    box.style.alignItems = 'center';
+    box.style.justifyContent = 'center';
+    box.style.border = '1px solid var(--color-on-surface-variant)';
+    box.style.borderRadius = '2px';
+    box.style.cursor = 'pointer';
+    box.style.fontSize = '10px';
+    box.style.fontWeight = 'bold';
+    box.style.color = isSelected ? 'var(--color-on-surface)' : 'transparent';
+    box.style.backgroundColor = 'transparent';
+  };
+
+  const sync = () => {
+    container.style.display = globalIsOverlayMode ? 'flex' : 'none';
+    updateBox(uBox, 'U', globalULayerId === id);
+    updateBox(tBox, 'T', globalTLayerId === id);
+  };
+  sync();
+  
+  uBox.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isSelected = globalULayerId === id;
+    const detail = isSelected ? { id: null, layer: null, cacheKey: null } : { id, layer: layerObj, cacheKey };
+    window.dispatchEvent(new CustomEvent('overlay:select-u', { detail }));
+  });
+  tBox.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isSelected = globalTLayerId === id;
+    const detail = isSelected ? { id: null, layer: null, cacheKey: null } : { id, layer: layerObj, cacheKey };
+    window.dispatchEvent(new CustomEvent('overlay:select-t', { detail }));
+  });
+  
+  container.appendChild(uBox);
+  container.appendChild(tBox);
+  
+  const listener = () => sync();
+  window.addEventListener('overlay-mode:changed', listener);
+  
+  return container;
 }
 
 interface CacheDef {
@@ -619,6 +706,12 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
       visBox.style.marginRight = '8px';
       visBox.style.cursor = 'pointer';
       visBox.style.flexShrink = '0';
+      
+      const syncVisBox = () => {
+        visBox.style.visibility = globalIsOverlayMode ? 'hidden' : 'visible';
+      };
+      syncVisBox();
+      window.addEventListener('overlay-mode:changed', syncVisBox);
 
       let visState = 'hidden'; // 'visible', 'hidden', 'partial'
       
@@ -760,7 +853,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
       // Type icon
       let actualIconName = layerDef.iconName;
       if (layerDef.isRoot) {
-        actualIconName = layerDef.collapsed ? 'book' : 'menu_book';
+        actualIconName = 'layers';
       } else if (layerDef.isGroup) {
         actualIconName = layerDef.collapsed ? 'folder' : 'folder_open';
       }
@@ -807,6 +900,13 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
       });
       
       item.appendChild(name);
+
+      if (!layerDef.isGroup) {
+        if (!layerDef._utId) {
+          layerDef._utId = 'psd_' + Math.random().toString(36).substr(2, 9);
+        }
+        item.appendChild(createUTBoxes(layerDef._utId, layerDef.layer, null));
+      }
 
       // Badge
       if (layerDef.badge) {
@@ -1343,6 +1443,10 @@ let cacheDraggedIndex: number | null = null;
         label.title = displayName;
         if (cDef.active) label.style.color = 'var(--color-on-surface)';
         item.appendChild(label);
+        
+        if (!cDef.isGroup) {
+          item.appendChild(createUTBoxes(`cache_${c.key}`, null, c.key));
+        }
         
         label.addEventListener('dblclick', (e) => {
            e.stopPropagation();

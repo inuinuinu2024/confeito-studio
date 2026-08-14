@@ -26,6 +26,17 @@ export function createToolBar(): HTMLElement {
     window.dispatchEvent(new CustomEvent('slider-mode:toggle', { detail: { enabled: !isSliderMode } }));
   });
 
+  // Overlay Button
+  const overlayBtn = document.createElement('div');
+  overlayBtn.className = 'left-toolbar__btn';
+  overlayBtn.title = 'Overlay Mode';
+  overlayBtn.appendChild(icon('photo_library', 24));
+
+  let isOverlayMode = false;
+  overlayBtn.addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent('overlay-mode:toggle', { detail: { enabled: !isOverlayMode } }));
+  });
+
   // Listen to external events just in case
   window.addEventListener('compare-mode:toggle', (e: Event) => {
     const enabled = (e as CustomEvent).detail.enabled;
@@ -43,8 +54,17 @@ export function createToolBar(): HTMLElement {
     }
   });
 
+  window.addEventListener('overlay-mode:toggle', (e: Event) => {
+    const enabled = (e as CustomEvent).detail.enabled;
+    if (isOverlayMode !== enabled) {
+      isOverlayMode = enabled;
+      overlayBtn.classList.toggle('left-toolbar__btn--active', isOverlayMode);
+    }
+  });
+
   toolbar.appendChild(compareBtn);
   toolbar.appendChild(sliderBtn);
+  toolbar.appendChild(overlayBtn);
 
   return toolbar;
 }

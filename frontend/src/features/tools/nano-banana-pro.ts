@@ -705,6 +705,8 @@ export class NanoBananaProTool implements Tool {
       const jsonKey = `ToolResult_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
       await setImageCache(jsonKey, jsonBlob, 'payload.json', 'image', inputsFolderId);
       
+      window.dispatchEvent(new Event('tool:cache-updated'));
+      
     } catch (e: any) {
       console.error(e);
       throw e; // Rethrow to let AIPanel handle the error toast
