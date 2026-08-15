@@ -439,7 +439,7 @@ export function createCanvas(): HTMLElement {
   const leftTextOverlay = document.createElement('div');
   const rightTextOverlay = document.createElement('div');
 
-  let currentBgColor = 'transparent';
+  let currentBgColor = '#B3B3B3'; // Light Gray 2
 
   function styleOverlay(overlay: HTMLDivElement) {
     overlay.style.position = 'absolute';
@@ -600,6 +600,7 @@ export function createCanvas(): HTMLElement {
       }
     }
     updateCanvasLayout();
+    window.dispatchEvent(new Event('document:redraw'));
   });
 
   window.addEventListener('slider-mode:toggle', (e: Event) => {
@@ -729,8 +730,12 @@ export function createCanvas(): HTMLElement {
     if (isOverlayMode && currentSourceCanvas) {
       const rect = currentSourceCanvas.getBoundingClientRect();
       const scale = Math.min(rect.width / psdWidth, rect.height / psdHeight);
-      const mouseX = (e.clientX - rect.left) / scale;
-      const mouseY = (e.clientY - rect.top) / scale;
+      const imgW = psdWidth * scale;
+      const imgH = psdHeight * scale;
+      const offsetX = (rect.width - imgW) / 2;
+      const offsetY = (rect.height - imgH) / 2;
+      const mouseX = (e.clientX - rect.left - offsetX) / scale;
+      const mouseY = (e.clientY - rect.top - offsetY) / scale;
 
       let topX = overlayTopOffsetX;
       let topY = overlayTopOffsetY;
@@ -783,8 +788,12 @@ export function createCanvas(): HTMLElement {
     if (isOverlayMode && currentSourceCanvas) {
       const rect = currentSourceCanvas.getBoundingClientRect();
       const scale = Math.min(rect.width / psdWidth, rect.height / psdHeight);
-      const mouseX = (e.clientX - rect.left) / scale;
-      const mouseY = (e.clientY - rect.top) / scale;
+      const imgW = psdWidth * scale;
+      const imgH = psdHeight * scale;
+      const offsetX = (rect.width - imgW) / 2;
+      const offsetY = (rect.height - imgH) / 2;
+      const mouseX = (e.clientX - rect.left - offsetX) / scale;
+      const mouseY = (e.clientY - rect.top - offsetY) / scale;
 
       let topX = overlayTopOffsetX;
       let topY = overlayTopOffsetY;
@@ -874,12 +883,54 @@ export function createCanvas(): HTMLElement {
 
   function renderSideContext(ctx: CanvasRenderingContext2D, selectedLayer: any, hiddenLayers: Set<any>) {
     if (!currentPsd) return;
-    
-    if (currentBgColor && currentBgColor !== 'transparent') {
+
+    ctx.clearRect(0, 0, psdWidth, psdHeight);
+
+    let shouldDrawBg = true;
+    if (isOverlayMode) {
+      const hasU = !!(overlayUCacheImg || (overlayULayer && overlayULayer.canvas));
+      const hasT = !!(overlayTCacheImg || (overlayTLayer && overlayTLayer.canvas));
+      if (!hasU && !hasT) {
+        shouldDrawBg = false;
+      }
+    } else {
+      let hasVisibleLayer = false;
+      if (currentPsd && currentPsd.children) {
+        const checkVisibility = (node: any) => {
+          if (hasVisibleLayer || hiddenLayers.has(node)) return;
+          if (node.children) {
+            for (let i = 0; i < node.children.length; i++) {
+              checkVisibility(node.children[i]);
+            }
+          } else if (node.canvas) {
+            hasVisibleLayer = true;
+          }
+        };
+        for (let i = 0; i < currentPsd.children.length; i++) {
+          checkVisibility(currentPsd.children[i]);
+        }
+      }
+      
+      if (ctx.canvas === currentSourceCanvas) {
+        const bg = leftCacheOverlay.style.backgroundImage;
+        if ((bg && bg !== 'none') || leftTextOverlay.style.display === 'block') {
+          hasVisibleLayer = true;
+        }
+      } else if (ctx.canvas === currentResultCanvas) {
+        const bg = rightCacheOverlay.style.backgroundImage;
+        if ((bg && bg !== 'none') || rightTextOverlay.style.display === 'block') {
+          hasVisibleLayer = true;
+        }
+      }
+      
+      if (!hasVisibleLayer) {
+        shouldDrawBg = false;
+      }
+    }
+
+    if (shouldDrawBg && currentBgColor && currentBgColor !== 'transparent') {
       ctx.fillStyle = currentBgColor;
       ctx.fillRect(0, 0, psdWidth, psdHeight);
-    } else {
-      ctx.clearRect(0, 0, psdWidth, psdHeight);
     }
 
     if (isOverlayMode) {
@@ -975,12 +1026,14 @@ export function createCanvas(): HTMLElement {
       currentSourceCanvas = document.createElement('canvas');
       currentSourceCanvas.width = psdWidth;
       currentSourceCanvas.height = psdHeight;
+      currentSourceCanvas.title = `${psdWidth} x ${psdHeight}px`;
       const ctxSource = currentSourceCanvas.getContext('2d');
       if (ctxSource) renderSideContext(ctxSource, leftSelectedLayer, leftHiddenLayers);
 
       currentResultCanvas = document.createElement('canvas');
       currentResultCanvas.width = psdWidth;
       currentResultCanvas.height = psdHeight;
+      currentResultCanvas.title = `${psdWidth} x ${psdHeight}px`;
       const ctxResult = currentResultCanvas.getContext('2d');
       if (ctxResult) renderSideContext(ctxResult, rightSelectedLayer, rightHiddenLayers);
 
@@ -1103,6 +1156,7 @@ export function createCanvas(): HTMLElement {
         leftCacheUrl = URL.createObjectURL(blob);
       }
       updateCanvasLayout();
+      window.dispatchEvent(new Event('document:redraw'));
     }
   });
 
@@ -1113,6 +1167,7 @@ export function createCanvas(): HTMLElement {
       window.dispatchEvent(new CustomEvent('slider-mode:toggle', { detail: { enabled: false } }));
     }
     updateCanvasLayout();
+    window.dispatchEvent(new Event('document:redraw'));
   });
 
   window.addEventListener('tool:result-ready:right', async (e: Event) => {
@@ -1129,6 +1184,7 @@ export function createCanvas(): HTMLElement {
         rightCacheUrl = URL.createObjectURL(blob);
       }
       updateCanvasLayout();
+      window.dispatchEvent(new Event('document:redraw'));
     }
   });
 
@@ -1136,6 +1192,7 @@ export function createCanvas(): HTMLElement {
     rightCacheUrl = '';
     rightTextOverlay.style.display = 'none';
     updateCanvasLayout();
+    window.dispatchEvent(new Event('document:redraw'));
   });
 
   window.addEventListener('canvas:bg-color', (e: Event) => {
