@@ -1383,6 +1383,17 @@ export function createCanvas(): HTMLElement {
       const ctx = currentResultCanvas.getContext('2d');
       if (ctx) renderSideContext(ctx, rightSelectedLayer, rightHiddenLayers);
     }
+    updateCanvasTooltips();
+  });
+
+  window.addEventListener('document:resized', () => {
+    if (currentPsd) {
+      psdWidth = currentPsd.width;
+      psdHeight = currentPsd.height;
+      updateCanvasDrawSize();
+      updateCanvasLayout();
+      window.dispatchEvent(new Event('document:redraw'));
+    }
   });
 
   window.addEventListener('layer:selected', async (e: Event) => {

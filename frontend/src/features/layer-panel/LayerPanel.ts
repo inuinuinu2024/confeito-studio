@@ -1235,6 +1235,12 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
               const ctx = canvas.getContext('2d');
               if (ctx) ctx.drawImage(bmp, 0, 0);
               newLayer.canvas = canvas;
+              
+              if (currentPsd) {
+                if (bmp.width > currentPsd.width || bmp.height > currentPsd.height) {
+                  throw new Error('画像のサイズが元のPSDのキャンバスに入らないため、昇格できませんでした。');
+                }
+              }
             }
 
             const newDef: LayerDef = {
@@ -1262,9 +1268,9 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
         });
 
         showToast(`${sortedIndices.length}件のキャッシュをレイヤーに昇格しました`, 'success');
-      } catch (err) {
+      } catch (err: any) {
         console.error(err);
-        showToast('昇格に失敗しました', 'error');
+        showToast(err.message || '昇格に失敗しました', 'error');
       }
     } else {
       showToast('昇格するキャッシュを選択してください', false);
