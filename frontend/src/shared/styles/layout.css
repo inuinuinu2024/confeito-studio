@@ -301,6 +301,14 @@
   color: var(--color-primary);
 }
 
+.left-toolbar__divider {
+  width: 24px;
+  height: 1px;
+  background-color: var(--color-outline-variant);
+  margin: -8px 0;
+  flex-shrink: 0;
+}
+
 .layer-panel__resizer {
   position: absolute;
   top: 0;
@@ -476,7 +484,6 @@
   height: var(--cache-panel-height, 33%);
   background: var(--color-surface-container-low);
   border-top: 1px solid var(--color-outline-variant);
-  padding: 12px;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -488,7 +495,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--color-outline-variant);
+  background: var(--color-surface-container-low);
+  flex-shrink: 0;
 }
 
 .layer-cache__title {
@@ -506,7 +516,7 @@
   flex-direction: column;
   gap: 4px;
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 12px 4px 12px 12px;
 }
 
 .layer-cache__list::-webkit-scrollbar {
