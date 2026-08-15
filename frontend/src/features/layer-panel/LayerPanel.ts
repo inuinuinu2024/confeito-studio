@@ -337,17 +337,43 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   createGroupBtn.appendChild(icon('create_new_folder', 16));
   createGroupBtn.addEventListener('click', () => {
     commitStateChange('フォルダ作成', () => {
+      const activeIndex = currentLayerDefs.findIndex(l => l.active);
+      let baseInsertIndex = 0;
+      let insertDepth = 1;
+
+      if (activeIndex !== -1) {
+        const activeDef = currentLayerDefs[activeIndex];
+        if (activeDef.isRoot) {
+          baseInsertIndex = activeIndex + 1;
+          insertDepth = 1;
+        } else if (activeDef.isGroup) {
+          baseInsertIndex = activeIndex + 1;
+          insertDepth = (activeDef.depth || 0) + 1;
+        } else {
+          baseInsertIndex = activeIndex;
+          insertDepth = activeDef.depth || 0;
+        }
+      } else {
+        baseInsertIndex = currentLayerDefs.length;
+        if (currentLayerDefs.length > 0 && currentLayerDefs[0].isRoot) {
+          insertDepth = 1;
+        } else {
+          insertDepth = 0;
+        }
+      }
+
       const newGroupDef: LayerDef = {
         name: 'New Folder',
         iconName: 'folder',
         isGroup: true,
-        depth: 0,
+        isChild: insertDepth > 0,
+        depth: insertDepth,
         active: true,
         layer: { name: 'New Folder', children: [] }
       };
 
       currentLayerDefs.forEach(l => l.active = false);
-      currentLayerDefs.push(newGroupDef);
+      currentLayerDefs.splice(baseInsertIndex, 0, newGroupDef);
 
       if (currentPsd) {
         currentPsd.children = rebuildPsdHierarchy(currentLayerDefs);
@@ -1099,8 +1125,8 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   const cacheActions = document.createElement('div');
   cacheActions.style.display = 'flex';
   cacheActions.style.gap = '4px';
-  cacheActions.appendChild(createFolderBtn);
   cacheActions.appendChild(promoteBtn);
+  cacheActions.appendChild(createFolderBtn);
   cacheActions.appendChild(deleteBtn);
 
   cacheHeader.appendChild(cacheActions);

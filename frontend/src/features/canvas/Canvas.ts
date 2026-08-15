@@ -166,6 +166,45 @@ export function createCanvas(): HTMLElement {
   overlayGroup.appendChild(topSlider);
   overlayGroup.appendChild(opacityValueLabel);
 
+  const homeLabel = document.createElement('span');
+  homeLabel.className = 'canvas-toolbar__compare-label';
+  homeLabel.style.marginLeft = '16px';
+  homeLabel.textContent = 'Home';
+  overlayGroup.appendChild(homeLabel);
+
+  const homeBtn = document.createElement('div');
+  homeBtn.style.cursor = 'pointer';
+  homeBtn.style.width = '18px';
+  homeBtn.style.height = '18px';
+  homeBtn.style.marginLeft = '4px';
+  homeBtn.style.backgroundColor = 'var(--color-surface-variant)';
+  homeBtn.style.border = '1px solid var(--color-on-surface)';
+  homeBtn.style.borderRadius = '4px';
+  homeBtn.style.boxShadow = '0 2px 0 var(--color-on-surface)';
+  homeBtn.style.transition = 'all 0.1s ease';
+  homeBtn.title = 'Reset Position';
+  
+  homeBtn.addEventListener('mousedown', () => {
+    homeBtn.style.boxShadow = '0 0 0 var(--color-on-surface)';
+    homeBtn.style.transform = 'translateY(2px)';
+  });
+
+  const resetBtnStyle = () => {
+    homeBtn.style.boxShadow = '0 2px 0 var(--color-on-surface)';
+    homeBtn.style.transform = 'translateY(0)';
+  };
+
+  homeBtn.addEventListener('mouseup', resetBtnStyle);
+  homeBtn.addEventListener('mouseleave', resetBtnStyle);
+  
+  homeBtn.addEventListener('click', () => {
+    overlayTopOffsetX = 0;
+    overlayTopOffsetY = 0;
+    window.dispatchEvent(new Event('document:redraw'));
+  });
+  
+  overlayGroup.appendChild(homeBtn);
+
   toolbar.appendChild(overlayGroup);
   main.appendChild(toolbar);
 
@@ -527,6 +566,67 @@ export function createCanvas(): HTMLElement {
     window.dispatchEvent(new Event('document:redraw'));
   });
 
+  let overlayTopOffsetX = 0;
+  let overlayTopOffsetY = 0;
+
+  let isDraggingOverlay = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let initialOffsetX = 0;
+  let initialOffsetY = 0;
+
+  sourcePanel.addEventListener('mousedown', (e) => {
+    if (!isOverlayMode || !currentSourceCanvas) return;
+    // Don't drag if we're interacting with the divider
+    if ((e.target as HTMLElement).closest('.canvas-split__divider')) return;
+    
+    isDraggingOverlay = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    initialOffsetX = overlayTopOffsetX;
+    initialOffsetY = overlayTopOffsetY;
+    document.body.style.cursor = 'move';
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (isDraggingOverlay && currentSourceCanvas) {
+      const rect = currentSourceCanvas.getBoundingClientRect();
+      const scale = Math.min(rect.width / psdWidth, rect.height / psdHeight);
+      
+      overlayTopOffsetX = initialOffsetX + (e.clientX - dragStartX) / scale;
+      overlayTopOffsetY = initialOffsetY + (e.clientY - dragStartY) / scale;
+      window.dispatchEvent(new Event('document:redraw'));
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (isDraggingOverlay) {
+      isDraggingOverlay = false;
+      document.body.style.cursor = '';
+    }
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (!isOverlayMode) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+    let dx = 0;
+    let dy = 0;
+    const step = e.shiftKey ? 10 : 1;
+
+    if (e.key === 'ArrowUp') dy = -step;
+    else if (e.key === 'ArrowDown') dy = step;
+    else if (e.key === 'ArrowLeft') dx = -step;
+    else if (e.key === 'ArrowRight') dx = step;
+
+    if (dx !== 0 || dy !== 0) {
+      overlayTopOffsetX += dx;
+      overlayTopOffsetY += dy;
+      window.dispatchEvent(new Event('document:redraw'));
+      e.preventDefault();
+    }
+  });
+
   function getTintedCanvas(source: HTMLCanvasElement | HTMLImageElement, colorHex: string): HTMLCanvasElement {
     const canvas = document.createElement('canvas');
     canvas.width = source.width;
@@ -589,9 +689,9 @@ export function createCanvas(): HTMLElement {
        if (overlayTCacheImg || (overlayTLayer && overlayTLayer.canvas)) {
           ctx.globalAlpha = overlayTopOpacity / 100;
           if (overlayTCacheImg) {
-             ctx.drawImage(overlayTCacheImg, 0, 0);
+             ctx.drawImage(overlayTCacheImg, overlayTopOffsetX, overlayTopOffsetY);
           } else if (overlayTLayer && overlayTLayer.canvas) {
-             ctx.drawImage(overlayTLayer.canvas, overlayTLayer.left || 0, overlayTLayer.top || 0);
+             ctx.drawImage(overlayTLayer.canvas, (overlayTLayer.left || 0) + overlayTopOffsetX, (overlayTLayer.top || 0) + overlayTopOffsetY);
           }
           ctx.globalAlpha = 1.0;
        }
