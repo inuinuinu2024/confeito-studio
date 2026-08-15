@@ -650,6 +650,55 @@
   background: var(--color-outline);
 }
 
+/* Zoom Bar */
+.canvas-zoom-bar {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  background: var(--color-surface-container);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  z-index: 50;
+}
+
+.canvas-zoom-bar button {
+  background: none;
+  border: none;
+  color: var(--color-on-surface);
+  cursor: pointer;
+  font-size: 16px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 150ms ease;
+}
+
+.canvas-zoom-bar button:hover {
+  background: var(--color-surface-container-highest);
+}
+
+.canvas-zoom-bar__label {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--color-on-surface);
+  min-width: 40px;
+  text-align: right;
+  user-select: none;
+}
+
+.canvas-zoom-bar input[type="range"] {
+  width: 100px;
+  cursor: pointer;
+}
+
 /* Canvas Split View */
 .canvas-split {
   flex: 1;
@@ -662,10 +711,21 @@
 .canvas-split__panel {
   flex: 1;
   position: relative;
+  overflow: hidden;
   background-color: transparent;
   background-size: contain;
   background-position: center;
   background-repeat: no-repeat;
+}
+
+.canvas-split__content-wrapper {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  transform-origin: center center;
+  transition: transform 0.1s ease-out;
 }
 
 .canvas-split__label {

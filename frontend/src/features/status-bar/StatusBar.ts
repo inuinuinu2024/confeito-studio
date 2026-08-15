@@ -104,7 +104,7 @@ export function createStatusBar(): HTMLElement {
   const geminiDot = document.createElement('span');
   geminiDot.className = 'statusbar__status-dot';
   
-  const geminiText = document.createTextNode('Gemini: Checking...');
+  const geminiText = document.createTextNode('Gemini API: Checking...');
   
   geminiStatus.appendChild(geminiDot);
   geminiStatus.appendChild(geminiText);
@@ -117,16 +117,16 @@ export function createStatusBar(): HTMLElement {
       if (data.has_key) {
         geminiDot.style.backgroundColor = 'var(--color-success, #4ade80)';
         geminiDot.style.boxShadow = '0 0 8px var(--color-success, #4ade80)';
-        geminiText.textContent = 'Gemini: Ready';
+        geminiText.textContent = 'Gemini API: Ready';
       } else {
         geminiDot.style.backgroundColor = 'var(--color-error, #f87171)';
         geminiDot.style.boxShadow = '0 0 8px var(--color-error, #f87171)';
-        geminiText.textContent = 'Gemini: Missing Key';
+        geminiText.textContent = 'Gemini API: Missing Key';
       }
     } catch (e) {
       geminiDot.style.backgroundColor = 'var(--color-error, #f87171)';
       geminiDot.style.boxShadow = '0 0 8px var(--color-error, #f87171)';
-      geminiText.textContent = 'Gemini: Backend Error';
+      geminiText.textContent = 'Gemini API: Backend Error';
     }
   };
 

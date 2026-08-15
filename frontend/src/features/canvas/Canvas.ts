@@ -166,44 +166,35 @@ export function createCanvas(): HTMLElement {
   overlayGroup.appendChild(topSlider);
   overlayGroup.appendChild(opacityValueLabel);
 
-  const homeLabel = document.createElement('span');
-  homeLabel.className = 'canvas-toolbar__compare-label';
-  homeLabel.style.marginLeft = '16px';
-  homeLabel.textContent = 'Home';
-  overlayGroup.appendChild(homeLabel);
-
-  const homeBtn = document.createElement('div');
-  homeBtn.style.cursor = 'pointer';
-  homeBtn.style.width = '18px';
-  homeBtn.style.height = '18px';
-  homeBtn.style.marginLeft = '4px';
-  homeBtn.style.backgroundColor = 'var(--color-surface-variant)';
-  homeBtn.style.border = '1px solid var(--color-on-surface)';
-  homeBtn.style.borderRadius = '4px';
-  homeBtn.style.boxShadow = '0 2px 0 var(--color-on-surface)';
-  homeBtn.style.transition = 'all 0.1s ease';
-  homeBtn.title = 'Reset Position';
+  const resetBtn = document.createElement('div');
+  resetBtn.style.marginLeft = '16px';
+  resetBtn.style.cursor = 'pointer';
+  resetBtn.style.display = 'flex';
+  resetBtn.style.alignItems = 'center';
+  resetBtn.style.justifyContent = 'center';
+  resetBtn.style.width = '24px';
+  resetBtn.style.height = '24px';
+  resetBtn.style.borderRadius = '4px';
+  resetBtn.style.color = 'var(--color-on-surface-variant)';
+  resetBtn.style.transition = 'background-color 0.1s ease, color 0.1s ease';
+  resetBtn.appendChild(icon('home', 18));
   
-  homeBtn.addEventListener('mousedown', () => {
-    homeBtn.style.boxShadow = '0 0 0 var(--color-on-surface)';
-    homeBtn.style.transform = 'translateY(2px)';
+  resetBtn.addEventListener('mouseenter', () => {
+    resetBtn.style.backgroundColor = 'var(--color-surface-container-highest)';
+    resetBtn.style.color = 'var(--color-on-surface)';
   });
-
-  const resetBtnStyle = () => {
-    homeBtn.style.boxShadow = '0 2px 0 var(--color-on-surface)';
-    homeBtn.style.transform = 'translateY(0)';
-  };
-
-  homeBtn.addEventListener('mouseup', resetBtnStyle);
-  homeBtn.addEventListener('mouseleave', resetBtnStyle);
+  resetBtn.addEventListener('mouseleave', () => {
+    resetBtn.style.backgroundColor = 'transparent';
+    resetBtn.style.color = 'var(--color-on-surface-variant)';
+  });
   
-  homeBtn.addEventListener('click', () => {
+  resetBtn.addEventListener('click', () => {
     overlayTopOffsetX = 0;
     overlayTopOffsetY = 0;
     window.dispatchEvent(new Event('document:redraw'));
   });
   
-  overlayGroup.appendChild(homeBtn);
+  overlayGroup.appendChild(resetBtn);
 
   toolbar.appendChild(overlayGroup);
   main.appendChild(toolbar);
@@ -278,12 +269,164 @@ export function createCanvas(): HTMLElement {
   splitViewInner.style.flex = '1';
   splitViewInner.style.display = 'flex';
   splitViewInner.style.position = 'relative';
+  splitViewInner.style.width = '100%';
+  splitViewInner.style.height = '100%';
   
+  const sourceContentWrapper = document.createElement('div');
+  sourceContentWrapper.className = 'canvas-split__content-wrapper';
+  sourcePanel.appendChild(sourceContentWrapper);
+
+  const resultContentWrapper = document.createElement('div');
+  resultContentWrapper.className = 'canvas-split__content-wrapper';
+  resultPanel.appendChild(resultContentWrapper);
+
   splitViewInner.appendChild(sourcePanel);
   splitViewInner.appendChild(splitDivider);
   splitViewInner.appendChild(resultPanel);
 
   splitView.appendChild(splitViewInner);
+
+  // ── Zoom & Pan ──
+  let currentZoom = 100;
+  let panX = 0;
+  let panY = 0;
+
+  let isPanning = false;
+  let panStartX = 0;
+  let panStartY = 0;
+  let panInitialX = 0;
+  let panInitialY = 0;
+  let isOverlayTopSelected = false;
+
+  window.addEventListener('mousemove', (e) => {
+    if (isPanning) {
+      panX = panInitialX + (e.clientX - panStartX);
+      panY = panInitialY + (e.clientY - panStartY);
+      updateZoom(currentZoom, true);
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (isPanning) {
+      isPanning = false;
+      document.body.style.cursor = '';
+      sourceContentWrapper.style.transition = 'transform 0.1s ease-out';
+      resultContentWrapper.style.transition = 'transform 0.1s ease-out';
+    }
+  });
+
+  const zoomBar = document.createElement('div');
+  zoomBar.className = 'canvas-zoom-bar';
+  
+  const zoomOutBtn = document.createElement('button');
+  zoomOutBtn.textContent = '-';
+  zoomOutBtn.title = 'Zoom Out';
+  
+  const zoomSlider = document.createElement('input');
+  zoomSlider.type = 'range';
+  zoomSlider.min = '10';
+  zoomSlider.max = '500';
+  zoomSlider.value = '100';
+  
+  const zoomInBtn = document.createElement('button');
+  zoomInBtn.textContent = '+';
+  zoomInBtn.title = 'Zoom In';
+
+  const zoomLabel = document.createElement('span');
+  zoomLabel.className = 'canvas-zoom-bar__label';
+  zoomLabel.textContent = '100%';
+
+  const resetZoomBtn = document.createElement('button');
+  resetZoomBtn.appendChild(icon('home', 16));
+  resetZoomBtn.style.display = 'flex';
+  resetZoomBtn.style.alignItems = 'center';
+  resetZoomBtn.style.justifyContent = 'center';
+  
+  resetZoomBtn.addEventListener('click', () => {
+    const oldZoom = currentZoom;
+    currentZoom = 100;
+    panX = 0;
+    panY = 0;
+    sourceContentWrapper.style.transition = 'transform 0.2s ease-out';
+    resultContentWrapper.style.transition = 'transform 0.2s ease-out';
+    updateZoom(oldZoom);
+  });
+
+  function updateZoom(oldZoom: number, forcePanUpdate: boolean = false) {
+    if (oldZoom === currentZoom && !forcePanUpdate) return;
+
+    zoomSlider.value = currentZoom.toString();
+    zoomLabel.textContent = `${currentZoom}%`;
+
+    const oldScale = oldZoom / 100;
+    const newScale = currentZoom / 100;
+
+    if (oldScale !== newScale) {
+      panX = panX * (newScale / oldScale);
+      panY = panY * (newScale / oldScale);
+    }
+    
+    sourceContentWrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${newScale})`;
+    resultContentWrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${newScale})`;
+  }
+
+  zoomOutBtn.addEventListener('click', () => {
+    const oldZoom = currentZoom;
+    currentZoom = Math.max(10, currentZoom - 10);
+    sourceContentWrapper.style.transition = 'transform 0.1s ease-out';
+    resultContentWrapper.style.transition = 'transform 0.1s ease-out';
+    updateZoom(oldZoom);
+  });
+
+  zoomInBtn.addEventListener('click', () => {
+    const oldZoom = currentZoom;
+    currentZoom = Math.min(500, currentZoom + 10);
+    sourceContentWrapper.style.transition = 'transform 0.1s ease-out';
+    resultContentWrapper.style.transition = 'transform 0.1s ease-out';
+    updateZoom(oldZoom);
+  });
+
+  zoomSlider.addEventListener('input', (e) => {
+    const oldZoom = currentZoom;
+    currentZoom = parseInt((e.target as HTMLInputElement).value, 10);
+    sourceContentWrapper.style.transition = 'none';
+    resultContentWrapper.style.transition = 'none';
+    updateZoom(oldZoom);
+  });
+  
+  zoomSlider.addEventListener('change', () => {
+    sourceContentWrapper.style.transition = 'transform 0.1s ease-out';
+    resultContentWrapper.style.transition = 'transform 0.1s ease-out';
+  });
+
+  // Enable mouse wheel zooming with Ctrl key
+  main.addEventListener('wheel', (e) => {
+    if (e.ctrlKey) {
+      e.preventDefault();
+      const oldZoom = currentZoom;
+      if (e.deltaY < 0) {
+        currentZoom = Math.min(500, currentZoom + 10);
+      } else {
+        currentZoom = Math.max(10, currentZoom - 10);
+      }
+      sourceContentWrapper.style.transition = 'none';
+      resultContentWrapper.style.transition = 'none';
+      updateZoom(oldZoom);
+      
+      clearTimeout((main as any)._wheelTimeout);
+      (main as any)._wheelTimeout = setTimeout(() => {
+        sourceContentWrapper.style.transition = 'transform 0.1s ease-out';
+        resultContentWrapper.style.transition = 'transform 0.1s ease-out';
+      }, 150);
+    }
+  }, { passive: false });
+
+  zoomBar.appendChild(zoomOutBtn);
+  zoomBar.appendChild(zoomSlider);
+  zoomBar.appendChild(zoomInBtn);
+  zoomBar.appendChild(zoomLabel);
+  zoomBar.appendChild(resetZoomBtn);
+  main.appendChild(zoomBar);
 
   let isSliderMode = false;
   let splitPct = 50;
@@ -334,8 +477,11 @@ export function createCanvas(): HTMLElement {
   styleTextOverlay(leftTextOverlay);
   styleTextOverlay(rightTextOverlay);
 
+  let isOverlayMode = false;
+
   function updateCanvasLayout() {
     compareGroup.style.display = isSliderMode ? 'flex' : 'none';
+    toolbar.style.display = (isSliderMode || isOverlayMode) ? 'flex' : 'none';
     
     const hasLeftCache = leftCacheUrl !== '';
     const showTwoPanes = isGlobalCompareMode || (!isGlobalCompareMode && hasLeftCache);
@@ -398,7 +544,7 @@ export function createCanvas(): HTMLElement {
         sourcePanel.style.flex = '1';
         sourcePanel.style.position = 'relative';
         sourcePanel.style.width = 'auto';
-        sourcePanel.style.height = 'auto';
+        sourcePanel.style.height = '100%';
         sourcePanel.style.zIndex = '';
         sourcePanel.style.clipPath = 'none';
         sourcePanel.style.opacity = '1';
@@ -406,7 +552,7 @@ export function createCanvas(): HTMLElement {
         resultPanel.style.flex = '1';
         resultPanel.style.position = 'relative';
         resultPanel.style.width = 'auto';
-        resultPanel.style.height = 'auto';
+        resultPanel.style.height = '100%';
         resultPanel.style.zIndex = '';
         resultPanel.style.clipPath = 'none';
         resultPanel.style.opacity = '1';
@@ -419,7 +565,7 @@ export function createCanvas(): HTMLElement {
       sourcePanel.style.flex = '1';
       sourcePanel.style.position = 'relative';
       sourcePanel.style.width = 'auto';
-      sourcePanel.style.height = 'auto';
+      sourcePanel.style.height = '100%';
       sourcePanel.style.zIndex = '';
       sourcePanel.style.clipPath = 'none';
       sourcePanel.style.opacity = '1';
@@ -474,10 +620,10 @@ export function createCanvas(): HTMLElement {
     updateCanvasLayout();
   });
 
-  let isOverlayMode = false;
   window.addEventListener('overlay-mode:toggle', (e: Event) => {
     isOverlayMode = (e as CustomEvent).detail.enabled;
     overlayGroup.style.display = isOverlayMode ? 'flex' : 'none';
+    updateCanvasLayout();
     window.dispatchEvent(new Event('document:redraw'));
   });
   
@@ -575,17 +721,95 @@ export function createCanvas(): HTMLElement {
   let initialOffsetX = 0;
   let initialOffsetY = 0;
 
-  sourcePanel.addEventListener('mousedown', (e) => {
-    if (!isOverlayMode || !currentSourceCanvas) return;
-    // Don't drag if we're interacting with the divider
+  splitView.addEventListener('mousedown', (e) => {
     if ((e.target as HTMLElement).closest('.canvas-split__divider')) return;
-    
-    isDraggingOverlay = true;
-    dragStartX = e.clientX;
-    dragStartY = e.clientY;
-    initialOffsetX = overlayTopOffsetX;
-    initialOffsetY = overlayTopOffsetY;
-    document.body.style.cursor = 'move';
+    if ((e.target as HTMLElement).closest('.canvas-toolbar')) return;
+    if ((e.target as HTMLElement).closest('.canvas-zoom-bar')) return;
+
+    if (isOverlayMode && currentSourceCanvas) {
+      const rect = currentSourceCanvas.getBoundingClientRect();
+      const scale = Math.min(rect.width / psdWidth, rect.height / psdHeight);
+      const mouseX = (e.clientX - rect.left) / scale;
+      const mouseY = (e.clientY - rect.top) / scale;
+
+      let topX = overlayTopOffsetX;
+      let topY = overlayTopOffsetY;
+      let topW = 0;
+      let topH = 0;
+
+      if (overlayTCacheImg) {
+        topW = overlayTCacheImg.width;
+        topH = overlayTCacheImg.height;
+      } else if (overlayTLayer && overlayTLayer.canvas) {
+        topX += overlayTLayer.left || 0;
+        topY += overlayTLayer.top || 0;
+        topW = overlayTLayer.canvas.width;
+        topH = overlayTLayer.canvas.height;
+      }
+
+      if (topW > 0 && topH > 0) {
+        const isHit = (mouseX >= topX && mouseX <= topX + topW && mouseY >= topY && mouseY <= topY + topH);
+
+        if (isHit && isOverlayTopSelected) {
+          isDraggingOverlay = true;
+          dragStartX = e.clientX;
+          dragStartY = e.clientY;
+          initialOffsetX = overlayTopOffsetX;
+          initialOffsetY = overlayTopOffsetY;
+          document.body.style.cursor = 'move';
+          return;
+        } else if (!isHit && isOverlayTopSelected) {
+          isOverlayTopSelected = false;
+          window.dispatchEvent(new Event('document:redraw'));
+        }
+      }
+    }
+
+    isPanning = true;
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+    panInitialX = panX;
+    panInitialY = panY;
+    document.body.style.cursor = 'grabbing';
+    sourceContentWrapper.style.transition = 'none';
+    resultContentWrapper.style.transition = 'none';
+  });
+
+  splitView.addEventListener('dblclick', (e) => {
+    if ((e.target as HTMLElement).closest('.canvas-split__divider')) return;
+    if ((e.target as HTMLElement).closest('.canvas-toolbar')) return;
+    if ((e.target as HTMLElement).closest('.canvas-zoom-bar')) return;
+
+    if (isOverlayMode && currentSourceCanvas) {
+      const rect = currentSourceCanvas.getBoundingClientRect();
+      const scale = Math.min(rect.width / psdWidth, rect.height / psdHeight);
+      const mouseX = (e.clientX - rect.left) / scale;
+      const mouseY = (e.clientY - rect.top) / scale;
+
+      let topX = overlayTopOffsetX;
+      let topY = overlayTopOffsetY;
+      let topW = 0;
+      let topH = 0;
+
+      if (overlayTCacheImg) {
+        topW = overlayTCacheImg.width;
+        topH = overlayTCacheImg.height;
+      } else if (overlayTLayer && overlayTLayer.canvas) {
+        topX += overlayTLayer.left || 0;
+        topY += overlayTLayer.top || 0;
+        topW = overlayTLayer.canvas.width;
+        topH = overlayTLayer.canvas.height;
+      }
+
+      if (topW > 0 && topH > 0) {
+        const isHit = (mouseX >= topX && mouseX <= topX + topW && mouseY >= topY && mouseY <= topY + topH);
+
+        if (isHit) {
+          isOverlayTopSelected = !isOverlayTopSelected;
+          window.dispatchEvent(new Event('document:redraw'));
+        }
+      }
+    }
   });
 
   window.addEventListener('mousemove', (e) => {
@@ -688,12 +912,31 @@ export function createCanvas(): HTMLElement {
        // Draw T with slider opacity
        if (overlayTCacheImg || (overlayTLayer && overlayTLayer.canvas)) {
           ctx.globalAlpha = overlayTopOpacity / 100;
+          let drawLeft = overlayTopOffsetX;
+          let drawTop = overlayTopOffsetY;
+          let drawW = 0;
+          let drawH = 0;
+
           if (overlayTCacheImg) {
-             ctx.drawImage(overlayTCacheImg, overlayTopOffsetX, overlayTopOffsetY);
+             ctx.drawImage(overlayTCacheImg, drawLeft, drawTop);
+             drawW = overlayTCacheImg.width;
+             drawH = overlayTCacheImg.height;
           } else if (overlayTLayer && overlayTLayer.canvas) {
-             ctx.drawImage(overlayTLayer.canvas, (overlayTLayer.left || 0) + overlayTopOffsetX, (overlayTLayer.top || 0) + overlayTopOffsetY);
+             drawLeft += (overlayTLayer.left || 0);
+             drawTop += (overlayTLayer.top || 0);
+             ctx.drawImage(overlayTLayer.canvas, drawLeft, drawTop);
+             drawW = overlayTLayer.canvas.width;
+             drawH = overlayTLayer.canvas.height;
           }
           ctx.globalAlpha = 1.0;
+
+          if (isOverlayTopSelected && drawW > 0 && drawH > 0) {
+             ctx.strokeStyle = '#0078d4';
+             ctx.lineWidth = 2 / (currentZoom / 100);
+             ctx.setLineDash([5 / (currentZoom / 100), 5 / (currentZoom / 100)]);
+             ctx.strokeRect(drawLeft, drawTop, drawW, drawH);
+             ctx.setLineDash([]);
+          }
        }
        return;
     }
@@ -717,8 +960,14 @@ export function createCanvas(): HTMLElement {
       sourcePanel.style.backgroundImage = 'none';
       resultPanel.style.backgroundImage = 'none';
 
+      sourceContentWrapper.innerHTML = '';
+      resultContentWrapper.innerHTML = '';
+
       sourcePanel.innerHTML = '';
       resultPanel.innerHTML = '';
+
+      sourcePanel.appendChild(sourceContentWrapper);
+      resultPanel.appendChild(resultContentWrapper);
 
       psdWidth = psd.width;
       psdHeight = psd.height;
@@ -754,13 +1003,13 @@ export function createCanvas(): HTMLElement {
       sourcePanel.style.position = 'relative';
       resultPanel.style.position = 'relative';
 
-      sourcePanel.appendChild(currentSourceCanvas);
-      sourcePanel.appendChild(leftCacheOverlay);
-      sourcePanel.appendChild(leftTextOverlay);
+      sourceContentWrapper.appendChild(currentSourceCanvas);
+      sourceContentWrapper.appendChild(leftCacheOverlay);
+      sourceContentWrapper.appendChild(leftTextOverlay);
       
-      resultPanel.appendChild(currentResultCanvas);
-      resultPanel.appendChild(rightCacheOverlay);
-      resultPanel.appendChild(rightTextOverlay);
+      resultContentWrapper.appendChild(currentResultCanvas);
+      resultContentWrapper.appendChild(rightCacheOverlay);
+      resultContentWrapper.appendChild(rightTextOverlay);
     }
   });
 
@@ -774,8 +1023,12 @@ export function createCanvas(): HTMLElement {
     sourcePanel.style.backgroundImage = 'none';
     resultPanel.style.backgroundImage = 'none';
     
+    sourceContentWrapper.innerHTML = '';
+    resultContentWrapper.innerHTML = '';
     sourcePanel.innerHTML = '';
     resultPanel.innerHTML = '';
+    sourcePanel.appendChild(sourceContentWrapper);
+    resultPanel.appendChild(resultContentWrapper);
   });
 
   window.addEventListener('document:redraw', () => {
