@@ -19,6 +19,46 @@ export function createCanvas(): HTMLElement {
   // Hidden until slider mode is ON
   compareGroup.style.display = 'none';
 
+  let isSliderMode = false;
+
+  const sliderLabel = document.createElement('span');
+  sliderLabel.className = 'canvas-toolbar__compare-label';
+  sliderLabel.textContent = 'Slider';
+  compareGroup.appendChild(sliderLabel);
+
+  const sliderToggle = document.createElement('div');
+  sliderToggle.className = 'toggle toggle--off';
+  const sliderKnob = document.createElement('div');
+  sliderKnob.className = 'toggle__knob';
+  sliderToggle.appendChild(sliderKnob);
+
+  sliderToggle.addEventListener('click', () => {
+    if (!isSliderMode) {
+      if (!checkSliderModeValidity(true)) return;
+    }
+    isSliderMode = !isSliderMode;
+    sliderToggle.classList.toggle('toggle--on', isSliderMode);
+    sliderToggle.classList.toggle('toggle--off', !isSliderMode);
+    
+    if (!isSliderMode) {
+      isVerticalSplit = false;
+      switchToggle.classList.remove('toggle--on');
+      switchToggle.classList.add('toggle--off');
+      
+      isFlipped = false;
+      reverseToggle.classList.remove('toggle--on');
+      reverseToggle.classList.add('toggle--off');
+    }
+    
+    updateCanvasLayout();
+  });
+  
+  compareGroup.appendChild(sliderToggle);
+
+  const sliderSpacer = document.createElement('div');
+  sliderSpacer.style.width = '16px';
+  compareGroup.appendChild(sliderSpacer);
+
   const switchLabel = document.createElement('span');
   switchLabel.className = 'canvas-toolbar__compare-label';
   switchLabel.textContent = 'Transpose';
@@ -431,7 +471,6 @@ export function createCanvas(): HTMLElement {
   zoomBar.appendChild(resetZoomBtn);
   main.appendChild(zoomBar);
 
-  let isSliderMode = false;
   let splitPct = 50;
 
   let leftCacheCanvas: HTMLCanvasElement | null = null;
@@ -465,12 +504,20 @@ export function createCanvas(): HTMLElement {
   let isOverlayMode = false;
 
   function updateCanvasLayout() {
-    compareGroup.style.display = isSliderMode ? 'flex' : 'none';
-    toolbar.style.display = (isSliderMode || isOverlayMode) ? 'flex' : 'none';
-    
     const hasLeftCache = leftCacheCanvas !== null;
     const showTwoPanes = isGlobalCompareMode || (!isGlobalCompareMode && hasLeftCache);
 
+    compareGroup.style.display = showTwoPanes ? 'flex' : 'none';
+    toolbar.style.display = (showTwoPanes || isOverlayMode) ? 'flex' : 'none';
+    
+    const displayStyle = isSliderMode ? '' : 'none';
+    sliderSpacer.style.display = displayStyle;
+    switchLabel.style.display = displayStyle;
+    switchToggle.style.display = displayStyle;
+    spacer.style.display = displayStyle;
+    reverseLabel.style.display = displayStyle;
+    reverseToggle.style.display = displayStyle;
+    
     if (showTwoPanes) {
       resultPanel.style.display = '';
       
@@ -593,7 +640,19 @@ export function createCanvas(): HTMLElement {
 
   function ensureSliderModeValid() {
     if (isSliderMode && !checkSliderModeValidity(false)) {
-      window.dispatchEvent(new CustomEvent('slider-mode:toggle', { detail: { enabled: false } }));
+      isSliderMode = false;
+      sliderToggle.classList.remove('toggle--on');
+      sliderToggle.classList.add('toggle--off');
+      
+      isVerticalSplit = false;
+      switchToggle.classList.remove('toggle--on');
+      switchToggle.classList.add('toggle--off');
+      
+      isFlipped = false;
+      reverseToggle.classList.remove('toggle--on');
+      reverseToggle.classList.add('toggle--off');
+      
+      updateCanvasLayout();
     }
   }
 
@@ -616,22 +675,7 @@ export function createCanvas(): HTMLElement {
     ensureSliderModeValid();
   });
 
-  window.addEventListener('slider-mode:toggle', (e: Event) => {
-    const requestedEnabled = (e as CustomEvent).detail.enabled;
 
-    if (requestedEnabled && !checkSliderModeValidity(true)) {
-      // Revert the toolbar button state asynchronously to avoid state conflict
-      setTimeout(() => {
-        window.dispatchEvent(new CustomEvent('slider-mode:toggle', { detail: { enabled: false } }));
-      }, 0);
-      return;
-    }
-
-    if (isSliderMode === requestedEnabled) return;
-
-    isSliderMode = requestedEnabled;
-    updateCanvasLayout();
-  });
 
   window.addEventListener('overlay-mode:toggle', (e: Event) => {
     isOverlayMode = (e as CustomEvent).detail.enabled;
@@ -871,10 +915,6 @@ export function createCanvas(): HTMLElement {
           } else if (!isHit && isTopSelected) {
             if (isLeft) leftIsOverlayTopSelected = false;
             else rightIsOverlayTopSelected = false;
-            window.dispatchEvent(new Event('document:redraw'));
-          } else if (isHit && !isTopSelected) {
-            if (isLeft) leftIsOverlayTopSelected = true;
-            else rightIsOverlayTopSelected = true;
             window.dispatchEvent(new Event('document:redraw'));
           }
         }

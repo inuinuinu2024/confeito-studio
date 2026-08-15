@@ -7,7 +7,6 @@ export function createToolBar(): HTMLElement {
   // State
   let isNormalMode = true;
   let isCompareMode = false;
-  let isSliderMode = false;
   let isOverlayMode = false;
 
   // Normal Mode Button
@@ -24,13 +23,7 @@ export function createToolBar(): HTMLElement {
   const compareBtn = document.createElement('div');
   compareBtn.className = 'left-toolbar__btn';
   compareBtn.title = 'Compare Mode';
-  compareBtn.appendChild(icon('splitscreen_right', 24));
-
-  // Slider Button
-  const sliderBtn = document.createElement('div');
-  sliderBtn.className = 'left-toolbar__btn';
-  sliderBtn.title = 'Slider Mode';
-  sliderBtn.appendChild(icon('compare', 24));
+  compareBtn.appendChild(icon('compare', 24));
 
   // Overlay Button
   const overlayBtn = document.createElement('div');
@@ -38,15 +31,12 @@ export function createToolBar(): HTMLElement {
   overlayBtn.title = 'Overlay Mode';
   overlayBtn.appendChild(icon('photo_library', 24));
 
-  function activateMode(mode: 'normal' | 'compare' | 'slider' | 'overlay') {
+  function activateMode(mode: 'normal' | 'compare' | 'overlay') {
     if (mode === 'normal' && !isNormalMode) window.dispatchEvent(new CustomEvent('normal-mode:toggle', { detail: { enabled: true } }));
     if (mode !== 'normal' && isNormalMode) window.dispatchEvent(new CustomEvent('normal-mode:toggle', { detail: { enabled: false } }));
 
     if (mode === 'compare' && !isCompareMode) window.dispatchEvent(new CustomEvent('compare-mode:toggle', { detail: { enabled: true } }));
     if (mode !== 'compare' && isCompareMode) window.dispatchEvent(new CustomEvent('compare-mode:toggle', { detail: { enabled: false } }));
-
-    if (mode === 'slider' && !isSliderMode) window.dispatchEvent(new CustomEvent('slider-mode:toggle', { detail: { enabled: true } }));
-    if (mode !== 'slider' && isSliderMode) window.dispatchEvent(new CustomEvent('slider-mode:toggle', { detail: { enabled: false } }));
 
     if (mode === 'overlay' && !isOverlayMode) window.dispatchEvent(new CustomEvent('overlay-mode:toggle', { detail: { enabled: true } }));
     if (mode !== 'overlay' && isOverlayMode) window.dispatchEvent(new CustomEvent('overlay-mode:toggle', { detail: { enabled: false } }));
@@ -54,12 +44,11 @@ export function createToolBar(): HTMLElement {
 
   normalBtn.addEventListener('click', () => activateMode('normal'));
   compareBtn.addEventListener('click', () => activateMode('compare'));
-  sliderBtn.addEventListener('click', () => activateMode('slider'));
   overlayBtn.addEventListener('click', () => activateMode('overlay'));
 
   function ensureOneActive() {
     setTimeout(() => {
-      if (!isNormalMode && !isCompareMode && !isSliderMode && !isOverlayMode) {
+      if (!isNormalMode && !isCompareMode && !isOverlayMode) {
         window.dispatchEvent(new CustomEvent('normal-mode:toggle', { detail: { enabled: true } }));
       }
     }, 10);
@@ -84,15 +73,6 @@ export function createToolBar(): HTMLElement {
     }
   });
 
-  window.addEventListener('slider-mode:toggle', (e: Event) => {
-    const enabled = (e as CustomEvent).detail.enabled;
-    if (isSliderMode !== enabled) {
-      isSliderMode = enabled;
-      sliderBtn.classList.toggle('left-toolbar__btn--active', isSliderMode);
-      if (!enabled) ensureOneActive();
-    }
-  });
-
   window.addEventListener('overlay-mode:toggle', (e: Event) => {
     const enabled = (e as CustomEvent).detail.enabled;
     if (isOverlayMode !== enabled) {
@@ -105,7 +85,6 @@ export function createToolBar(): HTMLElement {
   toolbar.appendChild(normalBtn);
   toolbar.appendChild(divider);
   toolbar.appendChild(compareBtn);
-  toolbar.appendChild(sliderBtn);
   toolbar.appendChild(overlayBtn);
 
   return toolbar;
