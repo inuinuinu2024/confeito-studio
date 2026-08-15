@@ -1154,6 +1154,14 @@ export function createCanvas(): HTMLElement {
       } else {
         leftTextOverlay.style.display = 'none';
         leftCacheUrl = URL.createObjectURL(blob);
+        
+        const img = new Image();
+        img.onload = () => {
+          if (currentSourceCanvas) {
+            currentSourceCanvas.title = `${img.naturalWidth} x ${img.naturalHeight}px`;
+          }
+        };
+        img.src = leftCacheUrl;
       }
       updateCanvasLayout();
       window.dispatchEvent(new Event('document:redraw'));
@@ -1163,6 +1171,9 @@ export function createCanvas(): HTMLElement {
   window.addEventListener('tool:result-cleared', () => {
     leftCacheUrl = '';
     leftTextOverlay.style.display = 'none';
+    if (currentSourceCanvas && currentPsd) {
+      currentSourceCanvas.title = `${psdWidth} x ${psdHeight}px`;
+    }
     if (!isGlobalCompareMode && isSliderMode) {
       window.dispatchEvent(new CustomEvent('slider-mode:toggle', { detail: { enabled: false } }));
     }
@@ -1182,6 +1193,14 @@ export function createCanvas(): HTMLElement {
       } else {
         rightTextOverlay.style.display = 'none';
         rightCacheUrl = URL.createObjectURL(blob);
+
+        const img = new Image();
+        img.onload = () => {
+          if (currentResultCanvas) {
+            currentResultCanvas.title = `${img.naturalWidth} x ${img.naturalHeight}px`;
+          }
+        };
+        img.src = rightCacheUrl;
       }
       updateCanvasLayout();
       window.dispatchEvent(new Event('document:redraw'));
@@ -1191,6 +1210,9 @@ export function createCanvas(): HTMLElement {
   window.addEventListener('tool:result-cleared:right', () => {
     rightCacheUrl = '';
     rightTextOverlay.style.display = 'none';
+    if (currentResultCanvas && currentPsd) {
+      currentResultCanvas.title = `${psdWidth} x ${psdHeight}px`;
+    }
     updateCanvasLayout();
     window.dispatchEvent(new Event('document:redraw'));
   });

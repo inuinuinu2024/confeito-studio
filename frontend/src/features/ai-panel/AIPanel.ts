@@ -397,7 +397,8 @@ export function createAIPanel(): HTMLElement {
       };
 
       if (tool.renderSettings) {
-        toolSettingsSidebar.open(tool.name, tool.renderSettings.bind(tool), executeTool, executeColoringTool);
+        const hasColoring = 'executeColoring' in tool && typeof (tool as any).executeColoring === 'function';
+        toolSettingsSidebar.open(tool.name, tool.renderSettings.bind(tool), executeTool, hasColoring ? executeColoringTool : undefined);
       } else {
         await executeTool();
       }
