@@ -2,7 +2,7 @@ import { icon } from '../../../shared/utils/dom';
 
 export function createToolSettingsSidebar(): {
   overlay: HTMLElement;
-  open: (toolName: string, renderSettings: (container: HTMLElement) => void, onExecute?: () => void) => void;
+  open: (toolName: string, renderSettings: (container: HTMLElement) => void, onExecute?: () => void, onColoringExecute?: () => void) => void;
   close: () => void;
 } {
   const overlay = document.createElement('div');
@@ -73,7 +73,31 @@ export function createToolSettingsSidebar(): {
   footer.style.padding = '16px';
   footer.style.borderTop = '1px solid var(--color-outline-variant)';
   footer.style.display = 'flex';
-  footer.style.justifyContent = 'flex-end';
+  footer.style.flexDirection = 'column';
+  footer.style.gap = '8px';
+  
+  const coloringBtn = document.createElement('button');
+  coloringBtn.style.width = '100%';
+  coloringBtn.style.padding = '12px';
+  coloringBtn.style.borderRadius = '4px';
+  coloringBtn.style.border = 'none';
+  coloringBtn.style.backgroundColor = 'var(--color-primary)';
+  coloringBtn.style.color = 'var(--color-on-primary)';
+  coloringBtn.style.cursor = 'pointer';
+  coloringBtn.style.display = 'none';
+  coloringBtn.style.alignItems = 'center';
+  coloringBtn.style.justifyContent = 'center';
+  coloringBtn.style.gap = '8px';
+  coloringBtn.style.fontWeight = '600';
+  coloringBtn.appendChild(icon('palette', 18));
+  coloringBtn.appendChild(document.createTextNode('着彩する'));
+  coloringBtn.addEventListener('click', () => {
+    if (currentOnColoringExecute) {
+      currentOnColoringExecute();
+    } else {
+      alert('着彩機能は現在作成中です。');
+    }
+  });
   
   const generateBtn = document.createElement('button');
   generateBtn.style.width = '100%';
@@ -91,11 +115,13 @@ export function createToolSettingsSidebar(): {
   generateBtn.appendChild(icon('auto_awesome', 18));
   generateBtn.appendChild(document.createTextNode('生成する'));
   
+  footer.appendChild(coloringBtn);
   footer.appendChild(generateBtn);
   sidebar.appendChild(footer);
 
   let isOpen = false;
   let currentOnExecute: (() => void) | null = null;
+  let currentOnColoringExecute: (() => void) | null = null;
 
   generateBtn.addEventListener('click', () => {
     if (currentOnExecute) {
@@ -103,10 +129,19 @@ export function createToolSettingsSidebar(): {
     }
   });
 
-  const open = (toolName: string, renderSettings: (container: HTMLElement) => void, onExecute?: () => void) => {
+  const open = (toolName: string, renderSettings: (container: HTMLElement) => void, onExecute?: () => void, onColoringExecute?: () => void) => {
     title.textContent = `${toolName} 設定`;
     body.innerHTML = ''; // Clear previous settings
     currentOnExecute = onExecute || null;
+    currentOnColoringExecute = onColoringExecute || null;
+    
+    if (currentOnColoringExecute) {
+      coloringBtn.style.display = 'flex';
+      generateBtn.style.display = 'none';
+    } else {
+      coloringBtn.style.display = 'none';
+      generateBtn.style.display = 'flex';
+    }
     
     renderSettings(body);
     

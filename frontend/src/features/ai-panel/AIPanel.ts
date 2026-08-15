@@ -9,6 +9,7 @@ import { ToolRegistry } from '../../shared/utils/ToolRegistry';
 import { GrayscaleTool } from '../tools/grayscale';
 import { NanoBananaProTool } from '../tools/nano-banana-pro';
 import { NanoBanana2Tool } from '../tools/nano-banana-2';
+import { ColoringTool } from '../tools/coloring';
 
 import { createToolSettingsSidebar } from './components/ToolSettingsSidebar';
 import { DocumentManager } from '../document/DocumentManager';
@@ -20,6 +21,7 @@ import { ToolContext } from '../../shared/types/tool.types';
 ToolRegistry.register(new GrayscaleTool());
 ToolRegistry.register(new NanoBananaProTool());
 ToolRegistry.register(new NanoBanana2Tool());
+ToolRegistry.register(new ColoringTool());
 
 
 export function createAIPanel(): HTMLElement {
@@ -240,7 +242,7 @@ export function createAIPanel(): HTMLElement {
       btn.style.transform = 'scale(0.97)';
       setTimeout(() => btn.style.transform = '', 120);
 
-      const executeTool = async () => {
+      const createContext = () => {
         const docManager = DocumentManager.getInstance();
         const psd = docManager.getCurrentPsd();
         const selectedLayer = docManager.getCurrentSelectedLayer();
@@ -342,7 +344,11 @@ export function createAIPanel(): HTMLElement {
             return key;
           }
         };
+        return context;
+      };
 
+      const executeTool = async () => {
+        const context = createContext();
         try {
           window.dispatchEvent(new CustomEvent('tool:start', { detail: { toolName: tool.name } }));
           await tool.execute(context);
@@ -373,9 +379,25 @@ export function createAIPanel(): HTMLElement {
           window.dispatchEvent(new Event('tool:end'));
         }
       };
+      const executeColoringTool = async () => {
+        const context = createContext();
+        if ('executeColoring' in tool && typeof (tool as any).executeColoring === 'function') {
+          try {
+            window.dispatchEvent(new CustomEvent('tool:start', { detail: { toolName: `${tool.name} (Coloring)` } }));
+            await (tool as any).executeColoring(context);
+          } catch (err: any) {
+            console.error(err);
+            showToast(`${tool.name} coloring setup failed: ${err.message || 'Unknown error'}`, 'error');
+          } finally {
+            window.dispatchEvent(new Event('tool:end'));
+          }
+        } else {
+          showToast('このツールには着彩機能がありません。', 'error');
+        }
+      };
 
       if (tool.renderSettings) {
-        toolSettingsSidebar.open(tool.name, tool.renderSettings.bind(tool), executeTool);
+        toolSettingsSidebar.open(tool.name, tool.renderSettings.bind(tool), executeTool, executeColoringTool);
       } else {
         await executeTool();
       }
