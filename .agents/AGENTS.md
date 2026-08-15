@@ -148,6 +148,12 @@ confeito-studio/
 - **APIキー・環境変数**: フロントエンドの `localStorage` ではなく、プロジェクト直下の `.env` ファイルで一元管理される。フロントエンドは `/api/settings/*` 経由でバックエンドと通信しキーを設定・取得する。
 - 認証不要（ローカル専用ツール）
 
+### Gemini Interactions API (`v1beta/interactions`) の仕様について
+本プロジェクトでは画像生成に標準の `generateContent` ではなく、最新の Interactions API を使用しています。
+エージェントは以下の特殊な仕様に注意してください：
+1. **ペイロード構造の違い**: `contents: [{role: "user", parts: [...]}]` ではなく、`input: [{type: "image", data: "BASE64..."}, {type: "text", text: "..."}]` というフラットな配列構造を使用します。
+2. **モデル互換性の制限**: `gemini-3-pro-image` モデルでは、メディアごとの解像度指定（`resolution` パラメータ）はサポートされていません。プレビュー用関数を含め、フロントエンド側で `resolution: "ultra_high"` などを付与すると確定で400エラーとなるため注意してください。
+
 ## SW開発戦略 (TypeScript / バイブコーディング向け)
 
 ### 1. ソースコードの構成: Feature-based (Vertical Slice)

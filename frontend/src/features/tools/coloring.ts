@@ -12,6 +12,7 @@ export class ColoringTool implements Tool {
 
   private buildPayloadFn?: () => Promise<any>;
   private globalImages: { file: File, zoneTitle: string, isImportant?: boolean }[] = [];
+  private lastCropInfo: any = null;
 
   private async fileToBase64(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -581,66 +582,114 @@ export class ColoringTool implements Tool {
 
     // --- JSON Preview & Payload Builder ---
     this.buildPayloadFn = async () => {
-      const input: any[] = [];
+      const originalItem = this.globalImages.find(img => img.zoneTitle.includes('原画'));
+      if (!originalItem) {
+        throw new Error('原画が設定されていません。');
+      }
+
+      const img = new Image();
+      const blobUrl = URL.createObjectURL(originalItem.file);
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = blobUrl;
+      });
+
+      const origW = img.width;
+      const origH = img.height;
+      const origRatio = origW / origH;
+
+      const arOptions = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
+      let bestAr = arOptions[0];
+      let minDiff = Infinity;
+
+      arOptions.forEach(opt => {
+        const [wStr, hStr] = opt.split(':');
+        const ratio = parseInt(wStr, 10) / parseInt(hStr, 10);
+        const diff = Math.abs(ratio - origRatio);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestAr = opt;
+        }
+      });
+
+      this.setSetting('aspectRatio', bestAr);
+      if (typeof (this as any).updateSizeOptions === 'function') {
+        (this as any).updateSizeOptions();
+      }
+
+      const [bestW, bestH] = bestAr.split(':').map(Number);
+      const targetRatio = bestW / bestH;
+      
+      let canvasW, canvasH;
+      if (origRatio > targetRatio) {
+        canvasW = origW;
+        canvasH = origW / targetRatio;
+      } else {
+        canvasH = origH;
+        canvasW = origH * targetRatio;
+      }
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = canvasW;
+      canvas.height = canvasH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas context could not be created');
+
+      const offsetX = (canvasW - origW) / 2;
+      const offsetY = (canvasH - origH) / 2;
+      ctx.drawImage(img, offsetX, offsetY, origW, origH);
+      URL.revokeObjectURL(blobUrl);
+
+      const paddedBlob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
+      if (!paddedBlob) throw new Error('キャンバスからの画像生成に失敗しました。');
+
+      this.lastCropInfo = { canvasW, canvasH, origW, origH, offsetX, offsetY, paddedBlob };
+
+      // Payload 構築
+      const inputPayloads: any[] = [];
       let textPrompt = '';
       
-      this.globalImages.forEach((item, index) => {
-        const cleanTitle = item.zoneTitle.split(' (')[0];
-        const importantStr = item.isImportant ? 'これはユーザにより重要画像に設定されている。\n' : '';
-        textPrompt += `# Image ${index + 1}\nこの画像を${cleanTitle}画像とする。\n${importantStr}\n`;
+      const base64Padded = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(paddedBlob);
       });
       
-      for (const item of this.globalImages) {
+      inputPayloads.push({
+        type: 'image',
+        mime_type: 'image/png',
+        data: base64Padded
+      });
+      textPrompt += `# Image 1\nこの画像を原画とする。\n`;
+
+      const otherImages = this.globalImages.filter(im => !im.zoneTitle.includes('原画'));
+      let imgIndex = 2;
+      for (const item of otherImages) {
+        const cleanTitle = item.zoneTitle.split(' (')[0];
+        const importantStr = item.isImportant ? 'これはユーザにより重要画像に設定されている。\n' : '';
+        textPrompt += `# Image ${imgIndex}\nこの画像を${cleanTitle}画像とする。\n${importantStr}\n`;
+        
         const base64 = await this.fileToBase64(item.file);
         const imagePayload: any = {
           type: 'image',
           mime_type: item.file.type || 'image/png',
           data: base64
         };
-        if (item.isImportant) {
-          imagePayload.resolution = 'ultra-high';
-        }
-        input.push(imagePayload);
+        inputPayloads.push(imagePayload);
+        imgIndex++;
       }
-      
-      const defaultPrompt = this.getSetting('defaultPrompt', '着彩して');
-      const userPrompt = this.getSetting('prompt', defaultPrompt);
-      const finalPrompt = userPrompt || defaultPrompt;
+
+      const userPrompt = this.getSetting('prompt', '');
+      const finalPrompt = userPrompt || 'この画像を元に、形状・構造・線画をできるだけ正確に維持したまま着彩して。線や輪郭、構図は一切変更せず、色のみを追加すること。';
       textPrompt += `# User prompt\n${finalPrompt}`;
-      
-      input.push({
-        type: 'text',
-        text: textPrompt
-      });
-      
-      let bestAr = '1:1';
-      const originalItem = this.globalImages.find(img => img.zoneTitle.includes('原画'));
-      if (originalItem) {
-        const img = new Image();
-        const blobUrl = URL.createObjectURL(originalItem.file);
-        await new Promise((resolve, reject) => {
-          img.onload = resolve;
-          img.onerror = reject;
-          img.src = blobUrl;
-        });
-        const origRatio = img.width / img.height;
-        const arOptions = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
-        let minDiff = Infinity;
-        arOptions.forEach(opt => {
-          const [wStr, hStr] = opt.split(':');
-          const ratio = parseInt(wStr, 10) / parseInt(hStr, 10);
-          const diff = Math.abs(ratio - origRatio);
-          if (diff < minDiff) {
-            minDiff = diff;
-            bestAr = opt;
-          }
-        });
-        URL.revokeObjectURL(blobUrl);
-      }
-      
+
+      inputPayloads.push({ type: 'text', text: textPrompt });
+
       return {
         model: 'gemini-3-pro-image',
-        input: input,
+        input: inputPayloads,
         response_format: {
           type: 'image',
           mime_type: this.getSetting('mimeType', 'image/png'),
@@ -798,133 +847,24 @@ export class ColoringTool implements Tool {
   }
 
   async executeColoring(context: ToolContext): Promise<void> {
-    const originalItem = this.globalImages.find(img => img.zoneTitle.includes('原画'));
-    if (!originalItem) {
-      throw new Error('原画が設定されていません。');
+    if (!this.buildPayloadFn) {
+      throw new Error('設定画面が開かれていません。');
     }
-
-    const date = new Date();
-    const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
-    const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
-    const stampedName = `${dateStr}_${timeStr}_${this.name}`;
-
-    const mainFolderId = await createCacheFolder(stampedName);
-
-    const img = new Image();
-    const blobUrl = URL.createObjectURL(originalItem.file);
-    await new Promise((resolve, reject) => {
-      img.onload = resolve;
-      img.onerror = reject;
-      img.src = blobUrl;
-    });
-
-    const origW = img.width;
-    const origH = img.height;
-    const origRatio = origW / origH;
-
-    const arOptions = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
-    let bestAr = arOptions[0];
-    let minDiff = Infinity;
-
-    arOptions.forEach(opt => {
-      const [wStr, hStr] = opt.split(':');
-      const ratio = parseInt(wStr, 10) / parseInt(hStr, 10);
-      const diff = Math.abs(ratio - origRatio);
-      if (diff < minDiff) {
-        minDiff = diff;
-        bestAr = opt;
-      }
-    });
-
-    this.setSetting('aspectRatio', bestAr);
-    if (typeof (this as any).updateSizeOptions === 'function') {
-      (this as any).updateSizeOptions();
-    }
-
-    const [bestW, bestH] = bestAr.split(':').map(Number);
-    const targetRatio = bestW / bestH;
-    
-    let canvasW, canvasH;
-    if (origRatio > targetRatio) {
-      canvasW = origW;
-      canvasH = origW / targetRatio;
-    } else {
-      canvasH = origH;
-      canvasW = origH * targetRatio;
-    }
-    
-    const canvas = document.createElement('canvas');
-    canvas.width = canvasW;
-    canvas.height = canvasH;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const offsetX = (canvasW - origW) / 2;
-    const offsetY = (canvasH - origH) / 2;
-    ctx.drawImage(img, offsetX, offsetY, origW, origH);
-    URL.revokeObjectURL(blobUrl);
-
-    // ② 透明レイヤー追加後入力
-    const paddedBlob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
-    if (!paddedBlob) throw new Error('キャンバスからの画像生成に失敗しました。');
-
-    // --- Payload 構築 ---
-    const inputPayloads: any[] = [];
-    let textPrompt = '';
-    
-    const base64Padded = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve((reader.result as string).split(',')[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(paddedBlob);
-    });
-    
-    inputPayloads.push({
-      type: 'image',
-      mime_type: 'image/png',
-      data: base64Padded
-    });
-    textPrompt += `# Image 1\nこの画像を原画とする。\n`;
-
-    const otherImages = this.globalImages.filter(img => !img.zoneTitle.includes('原画'));
-    let imgIndex = 2;
-    for (const item of otherImages) {
-      const cleanTitle = item.zoneTitle.split(' (')[0];
-      const importantStr = item.isImportant ? 'これはユーザにより重要画像に設定されている。\n' : '';
-      textPrompt += `# Image ${imgIndex}\nこの画像を${cleanTitle}画像とする。\n${importantStr}\n`;
-      
-      const base64 = await this.fileToBase64(item.file);
-      const imagePayload: any = {
-        type: 'image',
-        mime_type: item.file.type || 'image/png',
-        data: base64
-      };
-      if (item.isImportant) {
-        imagePayload.resolution = 'ultra-high';
-      }
-      inputPayloads.push(imagePayload);
-      imgIndex++;
-    }
-
-    const userPrompt = this.getSetting('prompt', '');
-    const finalPrompt = userPrompt || 'この画像を元に、形状・構造・線画をできるだけ正確に維持したまま着彩して。線や輪郭、構図は一切変更せず、色のみを追加すること。';
-    textPrompt += `# User prompt\n${finalPrompt}`;
-
-    inputPayloads.push({ type: 'text', text: textPrompt });
-
-    const payload = {
-      model: 'gemini-3-pro-image',
-      input: inputPayloads,
-      response_format: {
-        type: 'image',
-        mime_type: this.getSetting('mimeType', 'image/png'),
-        aspect_ratio: bestAr,
-        image_size: this.getSetting('imageSize', '1K')
-      }
-    };
 
     let progressInterval: number | undefined;
     try {
+      const payload = await this.buildPayloadFn();
+      const cropInfo = this.lastCropInfo;
+      if (!cropInfo) throw new Error('クロップ情報が見つかりません。');
+      const { canvasW, canvasH, origW, origH, offsetX, offsetY, paddedBlob } = cropInfo;
+
+      const date = new Date();
+      const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+      const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
+      const stampedName = `${dateStr}_${timeStr}_${this.name}`;
+
+      const mainFolderId = await createCacheFolder(stampedName);
+
       const startTime = Date.now();
       progressInterval = window.setInterval(() => {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);

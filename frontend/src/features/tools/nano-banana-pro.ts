@@ -675,9 +675,6 @@ export class NanoBananaProTool implements Tool {
           mime_type: item.file.type || 'image/png',
           data: base64
         };
-        if (item.isImportant) {
-          imagePayload.resolution = 'ultra-high';
-        }
         input.push(imagePayload);
       }
       
@@ -782,10 +779,12 @@ export class NanoBananaProTool implements Tool {
         let errorText = await response.text();
         try {
           const json = JSON.parse(errorText);
-          if (json.detail) errorText = json.detail;
+          if (json.detail) {
+            errorText = typeof json.detail === 'string' ? json.detail : JSON.stringify(json.detail);
+          }
         } catch (e) {}
         
-        if (errorText.includes('GEMINI_API_KEY is not set')) {
+        if (typeof errorText === 'string' && errorText.includes('GEMINI_API_KEY is not set')) {
           errorText = 'Gemini API Key が設定されていません。右上の設定アイコンから設定してください。';
         }
         throw new Error(errorText);

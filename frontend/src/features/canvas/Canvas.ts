@@ -787,6 +787,30 @@ export function createCanvas(): HTMLElement {
         currentResultCanvas.height = canvasDrawHeight;
       }
     }
+    updateCanvasTooltips();
+  }
+
+  function updateCanvasTooltips() {
+    if (!currentSourceCanvas || !currentResultCanvas || !currentPsd) return;
+
+    let sourceW = psdWidth;
+    let sourceH = psdHeight;
+    let resultW = psdWidth;
+    let resultH = psdHeight;
+
+    if (!isOverlayMode) {
+      if (isGlobalCompareMode) {
+        if (leftCacheCanvas) { sourceW = leftCacheCanvas.width; sourceH = leftCacheCanvas.height; }
+        if (rightCacheCanvas) { resultW = rightCacheCanvas.width; resultH = rightCacheCanvas.height; }
+      } else {
+        if (leftCacheCanvas) { resultW = leftCacheCanvas.width; resultH = leftCacheCanvas.height; }
+      }
+    } else {
+      if (leftCacheCanvas) { resultW = leftCacheCanvas.width; resultH = leftCacheCanvas.height; }
+    }
+
+    currentSourceCanvas.title = `${sourceW} x ${sourceH}px`;
+    currentResultCanvas.title = `${resultW} x ${resultH}px`;
   }
 
   async function loadCacheImg(key: string | null): Promise<HTMLCanvasElement | null> {
@@ -1301,6 +1325,8 @@ export function createCanvas(): HTMLElement {
       const ctxResult = currentResultCanvas.getContext('2d');
       if (ctxResult) renderSideContext(ctxResult, rightSelectedLayer, rightHiddenLayers);
 
+      updateCanvasTooltips();
+
       const styleCanvas = (c: HTMLCanvasElement) => {
         c.style.width = '100%';
         c.style.height = '100%';
@@ -1426,9 +1452,6 @@ export function createCanvas(): HTMLElement {
           if (ctx) ctx.drawImage(img, 0, 0);
           URL.revokeObjectURL(url);
           
-          if (currentSourceCanvas) {
-            currentSourceCanvas.title = `${img.naturalWidth} x ${img.naturalHeight}px`;
-          }
           updateCanvasDrawSize();
           updateCanvasLayout();
           window.dispatchEvent(new Event('document:redraw'));
@@ -1441,9 +1464,6 @@ export function createCanvas(): HTMLElement {
   window.addEventListener('tool:result-cleared', () => {
     leftCacheCanvas = null;
     leftTextOverlay.style.display = 'none';
-    if (currentSourceCanvas && currentPsd) {
-      currentSourceCanvas.title = `${psdWidth} x ${psdHeight}px`;
-    }
     updateCanvasDrawSize();
     updateCanvasLayout();
     window.dispatchEvent(new Event('document:redraw'));
@@ -1474,9 +1494,6 @@ export function createCanvas(): HTMLElement {
           if (ctx) ctx.drawImage(img, 0, 0);
           URL.revokeObjectURL(url);
           
-          if (currentResultCanvas) {
-            currentResultCanvas.title = `${img.naturalWidth} x ${img.naturalHeight}px`;
-          }
           updateCanvasDrawSize();
           updateCanvasLayout();
           window.dispatchEvent(new Event('document:redraw'));
@@ -1489,9 +1506,6 @@ export function createCanvas(): HTMLElement {
   window.addEventListener('tool:result-cleared:right', () => {
     rightCacheCanvas = null;
     rightTextOverlay.style.display = 'none';
-    if (currentResultCanvas && currentPsd) {
-      currentResultCanvas.title = `${psdWidth} x ${psdHeight}px`;
-    }
     updateCanvasDrawSize();
     updateCanvasLayout();
     window.dispatchEvent(new Event('document:redraw'));
