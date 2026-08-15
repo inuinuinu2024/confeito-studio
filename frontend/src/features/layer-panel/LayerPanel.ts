@@ -24,90 +24,12 @@ interface LayerDef {
 }
 
 export let globalIsOverlayMode = false;
-export let globalULayerId: string | null = null;
-export let globalTLayerId: string | null = null;
-export let globalULayerObj: any = null;
-export let globalTLayerObj: any = null;
-export let globalUCacheKey: string | null = null;
-export let globalTCacheKey: string | null = null;
 
 window.addEventListener('overlay-mode:toggle', (e: Event) => {
   globalIsOverlayMode = (e as CustomEvent).detail.enabled;
   window.dispatchEvent(new Event('overlay-mode:changed'));
   window.dispatchEvent(new Event('document:redraw'));
 });
-window.addEventListener('overlay:select-u', (e: Event) => {
-  const d = (e as CustomEvent).detail;
-  globalULayerId = d.id;
-  globalULayerObj = d.layer;
-  globalUCacheKey = d.cacheKey;
-  window.dispatchEvent(new Event('overlay-mode:changed'));
-  window.dispatchEvent(new Event('document:redraw'));
-});
-window.addEventListener('overlay:select-t', (e: Event) => {
-  const d = (e as CustomEvent).detail;
-  globalTLayerId = d.id;
-  globalTLayerObj = d.layer;
-  globalTCacheKey = d.cacheKey;
-  window.dispatchEvent(new Event('overlay-mode:changed'));
-  window.dispatchEvent(new Event('document:redraw'));
-});
-
-function createUTBoxes(id: string, layerObj: any, cacheKey: string | null) {
-  const container = document.createElement('div');
-  container.className = 'layer-item__ut-boxes';
-  container.style.display = globalIsOverlayMode ? 'flex' : 'none';
-  container.style.gap = '4px';
-  container.style.marginLeft = 'auto';
-  container.style.marginRight = '8px';
-  
-  const uBox = document.createElement('div');
-  const tBox = document.createElement('div');
-  
-  const updateBox = (box: HTMLDivElement, label: 'U' | 'T', isSelected: boolean) => {
-    box.textContent = label;
-    box.style.width = '14px';
-    box.style.height = '14px';
-    box.style.display = 'flex';
-    box.style.alignItems = 'center';
-    box.style.justifyContent = 'center';
-    box.style.border = '1px solid var(--color-on-surface-variant)';
-    box.style.borderRadius = '2px';
-    box.style.cursor = 'pointer';
-    box.style.fontSize = '10px';
-    box.style.fontWeight = 'bold';
-    box.style.color = isSelected ? 'var(--color-on-surface)' : 'transparent';
-    box.style.backgroundColor = 'transparent';
-  };
-
-  const sync = () => {
-    container.style.display = globalIsOverlayMode ? 'flex' : 'none';
-    updateBox(uBox, 'U', globalULayerId === id);
-    updateBox(tBox, 'T', globalTLayerId === id);
-  };
-  sync();
-  
-  uBox.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isSelected = globalULayerId === id;
-    const detail = isSelected ? { id: null, layer: null, cacheKey: null } : { id, layer: layerObj, cacheKey };
-    window.dispatchEvent(new CustomEvent('overlay:select-u', { detail }));
-  });
-  tBox.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isSelected = globalTLayerId === id;
-    const detail = isSelected ? { id: null, layer: null, cacheKey: null } : { id, layer: layerObj, cacheKey };
-    window.dispatchEvent(new CustomEvent('overlay:select-t', { detail }));
-  });
-  
-  container.appendChild(uBox);
-  container.appendChild(tBox);
-  
-  const listener = () => sync();
-  window.addEventListener('overlay-mode:changed', listener);
-  
-  return container;
-}
 
 interface CacheDef {
   item: CachedImage;
@@ -143,6 +65,91 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   let currentLayerDefs: LayerDef[] = options.initialState 
     ? options.initialState.layerDefs.map((l: any) => ({...l})) 
     : [...layers];
+
+  let uLayerId: string | null = null;
+  let tLayerId: string | null = null;
+  let uLayerObj: any = null;
+  let tLayerObj: any = null;
+  let uCacheKey: string | null = null;
+  let tCacheKey: string | null = null;
+
+  const overlayUEvent = options.panelType === 'right' ? 'overlay:select-u:right' : 'overlay:select-u';
+  const overlayTEvent = options.panelType === 'right' ? 'overlay:select-t:right' : 'overlay:select-t';
+
+  window.addEventListener(overlayUEvent, (e: Event) => {
+    const d = (e as CustomEvent).detail;
+    uLayerId = d.id;
+    uLayerObj = d.layer;
+    uCacheKey = d.cacheKey;
+    window.dispatchEvent(new Event('overlay-mode:changed'));
+    window.dispatchEvent(new Event('document:redraw'));
+  });
+
+  window.addEventListener(overlayTEvent, (e: Event) => {
+    const d = (e as CustomEvent).detail;
+    tLayerId = d.id;
+    tLayerObj = d.layer;
+    tCacheKey = d.cacheKey;
+    window.dispatchEvent(new Event('overlay-mode:changed'));
+    window.dispatchEvent(new Event('document:redraw'));
+  });
+
+  function createUTBoxes(id: string, layerObj: any, cacheKey: string | null) {
+    const container = document.createElement('div');
+    container.className = 'layer-item__ut-boxes';
+    container.style.display = globalIsOverlayMode ? 'flex' : 'none';
+    container.style.gap = '4px';
+    container.style.marginLeft = 'auto';
+    container.style.marginRight = '8px';
+    
+    const uBox = document.createElement('div');
+    const tBox = document.createElement('div');
+    
+    const updateBox = (box: HTMLDivElement, label: 'U' | 'T', isSelected: boolean) => {
+      box.textContent = label;
+      box.style.width = '14px';
+      box.style.height = '14px';
+      box.style.display = 'flex';
+      box.style.alignItems = 'center';
+      box.style.justifyContent = 'center';
+      box.style.border = '1px solid var(--color-on-surface-variant)';
+      box.style.borderRadius = '2px';
+      box.style.cursor = 'pointer';
+      box.style.fontSize = '10px';
+      box.style.fontWeight = 'bold';
+      box.style.color = isSelected ? 'var(--color-on-surface)' : 'transparent';
+      box.style.backgroundColor = 'transparent';
+    };
+
+    const sync = () => {
+      container.style.display = globalIsOverlayMode ? 'flex' : 'none';
+      updateBox(uBox, 'U', uLayerId === id);
+      updateBox(tBox, 'T', tLayerId === id);
+    };
+    sync();
+    
+    uBox.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isSelected = uLayerId === id;
+      const detail = isSelected ? { id: null, layer: null, cacheKey: null } : { id, layer: layerObj, cacheKey };
+      window.dispatchEvent(new CustomEvent(overlayUEvent, { detail }));
+    });
+    tBox.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isSelected = tLayerId === id;
+      const detail = isSelected ? { id: null, layer: null, cacheKey: null } : { id, layer: layerObj, cacheKey };
+      window.dispatchEvent(new CustomEvent(overlayTEvent, { detail }));
+    });
+    
+    container.appendChild(uBox);
+    container.appendChild(tBox);
+    
+    const listener = () => sync();
+    window.addEventListener('overlay-mode:changed', listener);
+    
+    return container;
+  }
+
 
 
   const aside = document.createElement('aside');
