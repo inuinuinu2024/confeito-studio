@@ -89,7 +89,7 @@ export function createToolSettingsSidebar(): {
   coloringBtn.style.justifyContent = 'center';
   coloringBtn.style.gap = '8px';
   coloringBtn.style.fontWeight = '600';
-  coloringBtn.appendChild(icon('palette', 18));
+  coloringBtn.appendChild(icon('auto_awesome', 18));
   coloringBtn.appendChild(document.createTextNode('着彩する'));
   coloringBtn.addEventListener('click', () => {
     if (currentOnColoringExecute) {
@@ -130,7 +130,7 @@ export function createToolSettingsSidebar(): {
   });
 
   const open = (toolName: string, renderSettings: (container: HTMLElement) => void, onExecute?: () => void, onColoringExecute?: () => void) => {
-    title.textContent = `${toolName} 設定`;
+    title.textContent = toolName;
     body.innerHTML = ''; // Clear previous settings
     currentOnExecute = onExecute || null;
     currentOnColoringExecute = onColoringExecute || null;

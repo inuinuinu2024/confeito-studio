@@ -2,6 +2,7 @@ import { Tool, ToolContext } from '../../shared/types/tool.types';
 import { showToast } from '../../shared/utils/toast';
 import { createCacheFolder, moveCacheItem, setImageCache } from '../../shared/utils/idb';
 import { DocumentManager } from '../document/DocumentManager';
+import { icon } from '../../shared/utils/dom';
 
 export class NanoBananaProTool implements Tool {
   id = 'nano-banana-pro';
@@ -53,19 +54,143 @@ export class NanoBananaProTool implements Tool {
     };
     
     // --- Input (Prompt) ---
+    const promptHeader = document.createElement('div');
+    promptHeader.style.display = 'flex';
+    promptHeader.style.justifyContent = 'space-between';
+    promptHeader.style.alignItems = 'center';
+    
+    const promptLabel = document.createElement('label');
+    promptLabel.textContent = 'プロンプト';
+    promptLabel.style.fontSize = '12px';
+    promptLabel.style.color = 'var(--color-on-surface-variant)';
+    
+    const editBtn = document.createElement('button');
+    editBtn.appendChild(icon('edit', 14));
+    editBtn.style.background = 'none';
+    editBtn.style.border = 'none';
+    editBtn.style.color = 'var(--color-on-surface-variant)';
+    editBtn.style.cursor = 'pointer';
+    editBtn.style.padding = '4px';
+    editBtn.style.display = 'flex';
+    editBtn.style.alignItems = 'center';
+    editBtn.style.justifyContent = 'center';
+    editBtn.title = 'デフォルトプロンプトを編集';
+    
+    promptHeader.appendChild(promptLabel);
+    promptHeader.appendChild(editBtn);
+
+    const defaultPrompt = this.getSetting('defaultPrompt', 'この画像を元に、形状・構造・線画をできるだけ正確に維持したまま着彩して。線や輪郭、構図は一切変更せず、色のみを追加すること。');
+
     const promptInput = document.createElement('textarea');
-    promptInput.value = this.getSetting('prompt', '');
-    promptInput.placeholder = 'プロンプトを入力...';
+    promptInput.value = this.getSetting('prompt', defaultPrompt);
+    promptInput.placeholder = defaultPrompt;
     promptInput.style.padding = '8px';
     promptInput.style.borderRadius = '4px';
     promptInput.style.border = '1px solid var(--color-outline)';
     promptInput.style.backgroundColor = 'var(--color-surface-container-lowest)';
     promptInput.style.color = 'var(--color-on-surface)';
-    promptInput.style.height = '120px';
+    promptInput.style.height = '240px';
     promptInput.style.resize = 'vertical';
+
+    editBtn.addEventListener('click', () => {
+      // Create Modal Window
+      const overlay = document.createElement('div');
+      overlay.style.position = 'fixed';
+      overlay.style.top = '0';
+      overlay.style.left = '0';
+      overlay.style.width = '100vw';
+      overlay.style.height = '100vh';
+      overlay.style.backgroundColor = 'rgba(0,0,0,0.5)';
+      overlay.style.display = 'flex';
+      overlay.style.alignItems = 'center';
+      overlay.style.justifyContent = 'center';
+      overlay.style.zIndex = '10000';
+
+      const modal = document.createElement('div');
+      modal.style.backgroundColor = 'var(--color-surface-container-high)';
+      modal.style.padding = '16px';
+      modal.style.borderRadius = '8px';
+      modal.style.width = '400px';
+      modal.style.display = 'flex';
+      modal.style.flexDirection = 'column';
+      modal.style.gap = '12px';
+      modal.style.boxShadow = '0 8px 32px rgba(0,0,0,0.5)';
+
+      const title = document.createElement('h3');
+      title.textContent = 'デフォルトプロンプト';
+      title.style.margin = '0';
+      title.style.fontSize = '14px';
+      title.style.color = 'var(--color-on-surface)';
+
+      const input = document.createElement('textarea');
+      input.value = this.getSetting('defaultPrompt', 'この画像を元に、形状・構造・線画をできるだけ正確に維持したまま着彩して。線や輪郭、構図は一切変更せず、色のみを追加すること。');
+      input.style.width = '100%';
+      input.style.height = '240px';
+      input.style.padding = '8px';
+      input.style.borderRadius = '4px';
+      input.style.border = '1px solid var(--color-outline)';
+      input.style.backgroundColor = 'var(--color-surface-container-lowest)';
+      input.style.color = 'var(--color-on-surface)';
+      input.style.resize = 'vertical';
+
+      const btnRow = document.createElement('div');
+      btnRow.style.display = 'flex';
+      btnRow.style.justifyContent = 'flex-end';
+      btnRow.style.gap = '8px';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'キャンセル';
+      cancelBtn.style.padding = '6px 12px';
+      cancelBtn.style.borderRadius = '4px';
+      cancelBtn.style.border = '1px solid var(--color-outline)';
+      cancelBtn.style.background = 'transparent';
+      cancelBtn.style.color = 'var(--color-on-surface)';
+      cancelBtn.style.cursor = 'pointer';
+
+      const saveBtn = document.createElement('button');
+      saveBtn.textContent = '保存';
+      saveBtn.style.padding = '6px 12px';
+      saveBtn.style.borderRadius = '4px';
+      saveBtn.style.border = 'none';
+      saveBtn.style.background = 'var(--color-primary)';
+      saveBtn.style.color = 'var(--color-on-primary)';
+      saveBtn.style.cursor = 'pointer';
+
+      cancelBtn.addEventListener('click', () => {
+        document.body.removeChild(overlay);
+      });
+
+      saveBtn.addEventListener('click', () => {
+        this.setSetting('defaultPrompt', input.value);
+        if (promptInput.value === this.getSetting('prompt', '')) {
+            // If user hasn't modified current prompt yet, update it
+            promptInput.value = input.value;
+            this.setSetting('prompt', input.value);
+        }
+        promptInput.placeholder = input.value;
+        document.body.removeChild(overlay);
+      });
+
+      btnRow.appendChild(cancelBtn);
+      btnRow.appendChild(saveBtn);
+
+      modal.appendChild(title);
+      modal.appendChild(input);
+      modal.appendChild(btnRow);
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+      input.focus();
+    });
     promptInput.addEventListener('input', () => this.setSetting('prompt', promptInput.value));
     
-    container.appendChild(createField('プロンプト', promptInput));
+    const promptWrapper = document.createElement('div');
+    promptWrapper.style.display = 'flex';
+    promptWrapper.style.flexDirection = 'column';
+    promptWrapper.style.gap = '4px';
+    promptWrapper.appendChild(promptHeader);
+    promptWrapper.appendChild(promptInput);
+    
+    container.appendChild(promptWrapper);
 
     // --- Image References ---
     const dropZones: { updateUI: () => void }[] = [];
@@ -124,7 +249,7 @@ export class NanoBananaProTool implements Tool {
       headerRight.style.alignItems = 'center';
 
       const addCanvasBtn = document.createElement('button');
-      addCanvasBtn.textContent = 'キャンバス画像を追加';
+      addCanvasBtn.textContent = 'キャンバス追加';
       addCanvasBtn.style.fontSize = '10px';
       addCanvasBtn.style.padding = '2px 6px';
       addCanvasBtn.style.borderRadius = '4px';
@@ -161,9 +286,10 @@ export class NanoBananaProTool implements Tool {
       dropArea.style.justifyContent = 'center';
       dropArea.style.alignItems = 'center';
       dropArea.style.minHeight = '48px';
+      dropArea.style.backgroundColor = 'var(--color-surface-container-lowest)';
       
       const placeholder = document.createElement('div');
-      placeholder.textContent = 'クリックまたは画像をドラッグ＆ドロップ';
+      placeholder.textContent = 'クリック または 画像をドラッグ＆ドロップ';
       placeholder.style.pointerEvents = 'none';
       dropArea.appendChild(placeholder);
       
@@ -555,8 +681,9 @@ export class NanoBananaProTool implements Tool {
         input.push(imagePayload);
       }
       
-      const userPrompt = this.getSetting('prompt', '');
-      const finalPrompt = userPrompt || 'この画像を元に、形状・構造・線画をできるだけ正確に維持したまま着彩して。線や輪郭、構図は一切変更せず、色のみを追加すること。';
+      const defaultPrompt = this.getSetting('defaultPrompt', 'この画像を元に、形状・構造・線画をできるだけ正確に維持したまま着彩して。線や輪郭、構図は一切変更せず、色のみを追加すること。');
+      const userPrompt = this.getSetting('prompt', defaultPrompt);
+      const finalPrompt = userPrompt || defaultPrompt;
       textPrompt += `# User prompt\n${finalPrompt}`;
       
       input.push({
