@@ -431,31 +431,13 @@ export function createCanvas(): HTMLElement {
   let isSliderMode = false;
   let splitPct = 50;
 
-  let leftCacheUrl = '';
-  let rightCacheUrl = '';
+  let leftCacheCanvas: HTMLCanvasElement | null = null;
+  let rightCacheCanvas: HTMLCanvasElement | null = null;
 
-  const leftCacheOverlay = document.createElement('div');
-  const rightCacheOverlay = document.createElement('div');
   const leftTextOverlay = document.createElement('div');
   const rightTextOverlay = document.createElement('div');
 
   let currentBgColor = '#B3B3B3'; // Light Gray 2
-
-  function styleOverlay(overlay: HTMLDivElement) {
-    overlay.style.position = 'absolute';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.width = '100%';
-    overlay.style.height = '100%';
-    overlay.style.backgroundSize = 'contain';
-    overlay.style.backgroundPosition = 'center';
-    overlay.style.backgroundRepeat = 'no-repeat';
-    overlay.style.zIndex = '1';
-    overlay.style.pointerEvents = 'none';
-  }
-  
-  styleOverlay(leftCacheOverlay);
-  styleOverlay(rightCacheOverlay);
 
   function styleTextOverlay(overlay: HTMLDivElement) {
     overlay.style.position = 'absolute';
@@ -483,7 +465,7 @@ export function createCanvas(): HTMLElement {
     compareGroup.style.display = isSliderMode ? 'flex' : 'none';
     toolbar.style.display = (isSliderMode || isOverlayMode) ? 'flex' : 'none';
     
-    const hasLeftCache = leftCacheUrl !== '';
+    const hasLeftCache = leftCacheCanvas !== null;
     const showTwoPanes = isGlobalCompareMode || (!isGlobalCompareMode && hasLeftCache);
 
     if (showTwoPanes) {
@@ -570,19 +552,6 @@ export function createCanvas(): HTMLElement {
       sourcePanel.style.clipPath = 'none';
       sourcePanel.style.opacity = '1';
     }
-
-    if (isGlobalCompareMode) {
-      leftCacheOverlay.style.backgroundImage = leftCacheUrl ? `url('${leftCacheUrl}')` : 'none';
-      rightCacheOverlay.style.backgroundImage = rightCacheUrl ? `url('${rightCacheUrl}')` : 'none';
-    } else {
-      if (hasLeftCache) {
-        leftCacheOverlay.style.backgroundImage = 'none';
-        rightCacheOverlay.style.backgroundImage = leftCacheUrl ? `url('${leftCacheUrl}')` : 'none';
-      } else {
-        leftCacheOverlay.style.backgroundImage = 'none';
-        rightCacheOverlay.style.backgroundImage = 'none';
-      }
-    }
   }
 
   window.addEventListener('compare-mode:toggle', (e: Event) => {
@@ -592,7 +561,7 @@ export function createCanvas(): HTMLElement {
     if (isGlobalCompareMode) {
       rightSelectedLayer = leftSelectedLayer;
       rightHiddenLayers = new Set(leftHiddenLayers);
-      rightCacheUrl = leftCacheUrl;
+      rightCacheCanvas = leftCacheCanvas;
       
       if (currentResultCanvas) {
         const ctx = currentResultCanvas.getContext('2d');
@@ -606,7 +575,7 @@ export function createCanvas(): HTMLElement {
   window.addEventListener('slider-mode:toggle', (e: Event) => {
     const requestedEnabled = (e as CustomEvent).detail.enabled;
 
-    if (requestedEnabled && !isGlobalCompareMode && leftCacheUrl === '') {
+    if (requestedEnabled && !isGlobalCompareMode && !leftCacheCanvas) {
       showToast('比較するキャッシュが選択されていません', 'error');
       // Revert the toolbar button state asynchronously to avoid state conflict
       setTimeout(() => {
@@ -638,6 +607,8 @@ export function createCanvas(): HTMLElement {
   let currentResultCanvas: HTMLCanvasElement | null = null;
   let psdWidth = 0;
   let psdHeight = 0;
+  let canvasDrawWidth = 0;
+  let canvasDrawHeight = 0;
   let currentPsd: any = null;
 
   let leftSelectedLayer: any = null;
@@ -663,6 +634,43 @@ export function createCanvas(): HTMLElement {
   let overlayTCacheKey: string | null = null;
   let overlayUCacheImg: HTMLCanvasElement | null = null;
   let overlayTCacheImg: HTMLCanvasElement | null = null;
+
+  function updateCanvasDrawSize() {
+    if (!currentPsd) return;
+    
+    let mw = psdWidth;
+    let mh = psdHeight;
+
+    if (leftCacheCanvas) {
+      mw = Math.max(mw, leftCacheCanvas.width);
+      mh = Math.max(mh, leftCacheCanvas.height);
+    }
+    if (rightCacheCanvas) {
+      mw = Math.max(mw, rightCacheCanvas.width);
+      mh = Math.max(mh, rightCacheCanvas.height);
+    }
+    if (overlayUCacheImg) {
+      mw = Math.max(mw, overlayUCacheImg.width);
+      mh = Math.max(mh, overlayUCacheImg.height);
+    }
+    if (overlayTCacheImg) {
+      mw = Math.max(mw, overlayTCacheImg.width);
+      mh = Math.max(mh, overlayTCacheImg.height);
+    }
+
+    if (canvasDrawWidth !== mw || canvasDrawHeight !== mh) {
+      canvasDrawWidth = mw;
+      canvasDrawHeight = mh;
+      if (currentSourceCanvas) {
+        currentSourceCanvas.width = canvasDrawWidth;
+        currentSourceCanvas.height = canvasDrawHeight;
+      }
+      if (currentResultCanvas) {
+        currentResultCanvas.width = canvasDrawWidth;
+        currentResultCanvas.height = canvasDrawHeight;
+      }
+    }
+  }
 
   async function loadCacheImg(key: string | null): Promise<HTMLCanvasElement | null> {
     if (!key) return null;
@@ -690,6 +698,7 @@ export function createCanvas(): HTMLElement {
     overlayULayer = d.layer;
     overlayUCacheKey = d.cacheKey;
     overlayUCacheImg = await loadCacheImg(overlayUCacheKey);
+    updateCanvasDrawSize();
     window.dispatchEvent(new Event('document:redraw'));
   });
 
@@ -698,6 +707,7 @@ export function createCanvas(): HTMLElement {
     overlayTLayer = d.layer;
     overlayTCacheKey = d.cacheKey;
     overlayTCacheImg = await loadCacheImg(overlayTCacheKey);
+    updateCanvasDrawSize();
     window.dispatchEvent(new Event('document:redraw'));
   });
   
@@ -729,9 +739,9 @@ export function createCanvas(): HTMLElement {
 
     if (isOverlayMode && currentSourceCanvas) {
       const rect = currentSourceCanvas.getBoundingClientRect();
-      const scale = Math.min(rect.width / psdWidth, rect.height / psdHeight);
-      const imgW = psdWidth * scale;
-      const imgH = psdHeight * scale;
+      const scale = Math.min(rect.width / canvasDrawWidth, rect.height / canvasDrawHeight);
+      const imgW = canvasDrawWidth * scale;
+      const imgH = canvasDrawHeight * scale;
       const offsetX = (rect.width - imgW) / 2;
       const offsetY = (rect.height - imgH) / 2;
       const mouseX = (e.clientX - rect.left - offsetX) / scale;
@@ -742,12 +752,19 @@ export function createCanvas(): HTMLElement {
       let topW = 0;
       let topH = 0;
 
+      const cx = canvasDrawWidth / 2;
+      const cy = canvasDrawHeight / 2;
+      const psdOffsetX = cx - psdWidth / 2;
+      const psdOffsetY = cy - psdHeight / 2;
+
       if (overlayTCacheImg) {
+        topX += cx - overlayTCacheImg.width / 2;
+        topY += cy - overlayTCacheImg.height / 2;
         topW = overlayTCacheImg.width;
         topH = overlayTCacheImg.height;
       } else if (overlayTLayer && overlayTLayer.canvas) {
-        topX += overlayTLayer.left || 0;
-        topY += overlayTLayer.top || 0;
+        topX += psdOffsetX + (overlayTLayer.left || 0);
+        topY += psdOffsetY + (overlayTLayer.top || 0);
         topW = overlayTLayer.canvas.width;
         topH = overlayTLayer.canvas.height;
       }
@@ -787,9 +804,9 @@ export function createCanvas(): HTMLElement {
 
     if (isOverlayMode && currentSourceCanvas) {
       const rect = currentSourceCanvas.getBoundingClientRect();
-      const scale = Math.min(rect.width / psdWidth, rect.height / psdHeight);
-      const imgW = psdWidth * scale;
-      const imgH = psdHeight * scale;
+      const scale = Math.min(rect.width / canvasDrawWidth, rect.height / canvasDrawHeight);
+      const imgW = canvasDrawWidth * scale;
+      const imgH = canvasDrawHeight * scale;
       const offsetX = (rect.width - imgW) / 2;
       const offsetY = (rect.height - imgH) / 2;
       const mouseX = (e.clientX - rect.left - offsetX) / scale;
@@ -800,12 +817,19 @@ export function createCanvas(): HTMLElement {
       let topW = 0;
       let topH = 0;
 
+      const cx = canvasDrawWidth / 2;
+      const cy = canvasDrawHeight / 2;
+      const psdOffsetX = cx - psdWidth / 2;
+      const psdOffsetY = cy - psdHeight / 2;
+
       if (overlayTCacheImg) {
+        topX += cx - overlayTCacheImg.width / 2;
+        topY += cy - overlayTCacheImg.height / 2;
         topW = overlayTCacheImg.width;
         topH = overlayTCacheImg.height;
       } else if (overlayTLayer && overlayTLayer.canvas) {
-        topX += overlayTLayer.left || 0;
-        topY += overlayTLayer.top || 0;
+        topX += psdOffsetX + (overlayTLayer.left || 0);
+        topY += psdOffsetY + (overlayTLayer.top || 0);
         topW = overlayTLayer.canvas.width;
         topH = overlayTLayer.canvas.height;
       }
@@ -824,7 +848,7 @@ export function createCanvas(): HTMLElement {
   window.addEventListener('mousemove', (e) => {
     if (isDraggingOverlay && currentSourceCanvas) {
       const rect = currentSourceCanvas.getBoundingClientRect();
-      const scale = Math.min(rect.width / psdWidth, rect.height / psdHeight);
+      const scale = Math.min(rect.width / canvasDrawWidth, rect.height / canvasDrawHeight);
       
       overlayTopOffsetX = initialOffsetX + (e.clientX - dragStartX) / scale;
       overlayTopOffsetY = initialOffsetY + (e.clientY - dragStartY) / scale;
@@ -884,7 +908,17 @@ export function createCanvas(): HTMLElement {
   function renderSideContext(ctx: CanvasRenderingContext2D, selectedLayer: any, hiddenLayers: Set<any>) {
     if (!currentPsd) return;
 
-    ctx.clearRect(0, 0, psdWidth, psdHeight);
+    ctx.clearRect(0, 0, canvasDrawWidth, canvasDrawHeight);
+
+    const cx = canvasDrawWidth / 2;
+    const cy = canvasDrawHeight / 2;
+    const psdOffsetX = cx - psdWidth / 2;
+    const psdOffsetY = cy - psdHeight / 2;
+
+    let bgDrawW = psdWidth;
+    let bgDrawH = psdHeight;
+    let bgDrawX = psdOffsetX;
+    let bgDrawY = psdOffsetY;
 
     let shouldDrawBg = true;
     if (isOverlayMode) {
@@ -911,16 +945,34 @@ export function createCanvas(): HTMLElement {
         }
       }
       
-      if (ctx.canvas === currentSourceCanvas) {
-        const bg = leftCacheOverlay.style.backgroundImage;
-        if ((bg && bg !== 'none') || leftTextOverlay.style.display === 'block') {
-          hasVisibleLayer = true;
+      let cacheToDraw: HTMLCanvasElement | null = null;
+      let textToShow = false;
+      if (isGlobalCompareMode) {
+        if (ctx.canvas === currentSourceCanvas) {
+           cacheToDraw = leftCacheCanvas;
+           textToShow = leftTextOverlay.style.display === 'block';
         }
-      } else if (ctx.canvas === currentResultCanvas) {
-        const bg = rightCacheOverlay.style.backgroundImage;
-        if ((bg && bg !== 'none') || rightTextOverlay.style.display === 'block') {
-          hasVisibleLayer = true;
+        if (ctx.canvas === currentResultCanvas) {
+           cacheToDraw = rightCacheCanvas;
+           textToShow = rightTextOverlay.style.display === 'block';
         }
+      } else {
+        if (ctx.canvas === currentSourceCanvas) {
+           // left side is original psd, no cache overlay
+        } else if (ctx.canvas === currentResultCanvas) {
+           cacheToDraw = leftCacheCanvas;
+           textToShow = leftTextOverlay.style.display === 'block';
+        }
+      }
+
+      if (cacheToDraw || textToShow) {
+        hasVisibleLayer = true;
+      }
+      if (cacheToDraw) {
+        bgDrawW = cacheToDraw.width;
+        bgDrawH = cacheToDraw.height;
+        bgDrawX = cx - cacheToDraw.width / 2;
+        bgDrawY = cy - cacheToDraw.height / 2;
       }
       
       if (!hasVisibleLayer) {
@@ -930,7 +982,7 @@ export function createCanvas(): HTMLElement {
 
     if (shouldDrawBg && currentBgColor && currentBgColor !== 'transparent') {
       ctx.fillStyle = currentBgColor;
-      ctx.fillRect(0, 0, psdWidth, psdHeight);
+      ctx.fillRect(bgDrawX, bgDrawY, bgDrawW, bgDrawH);
     }
 
     if (isOverlayMode) {
@@ -941,8 +993,11 @@ export function createCanvas(): HTMLElement {
           let drawTop = 0;
           
           if (!overlayUCacheImg && overlayULayer) {
-             drawLeft = overlayULayer.left || 0;
-             drawTop = overlayULayer.top || 0;
+             drawLeft = psdOffsetX + (overlayULayer.left || 0);
+             drawTop = psdOffsetY + (overlayULayer.top || 0);
+          } else if (overlayUCacheImg) {
+             drawLeft = cx - overlayUCacheImg.width / 2;
+             drawTop = cy - overlayUCacheImg.height / 2;
           }
           
           if (overlayUnderdrawingColor) {
@@ -969,12 +1024,14 @@ export function createCanvas(): HTMLElement {
           let drawH = 0;
 
           if (overlayTCacheImg) {
+             drawLeft += cx - overlayTCacheImg.width / 2;
+             drawTop += cy - overlayTCacheImg.height / 2;
              ctx.drawImage(overlayTCacheImg, drawLeft, drawTop);
              drawW = overlayTCacheImg.width;
              drawH = overlayTCacheImg.height;
           } else if (overlayTLayer && overlayTLayer.canvas) {
-             drawLeft += (overlayTLayer.left || 0);
-             drawTop += (overlayTLayer.top || 0);
+             drawLeft += psdOffsetX + (overlayTLayer.left || 0);
+             drawTop += psdOffsetY + (overlayTLayer.top || 0);
              ctx.drawImage(overlayTLayer.canvas, drawLeft, drawTop);
              drawW = overlayTLayer.canvas.width;
              drawH = overlayTLayer.canvas.height;
@@ -993,8 +1050,32 @@ export function createCanvas(): HTMLElement {
     }
 
     if (currentPsd.children) {
+      ctx.save();
+      ctx.translate(psdOffsetX, psdOffsetY);
       for (let i = currentPsd.children.length - 1; i >= 0; i--) {
         drawNode(ctx, currentPsd.children[i], hiddenLayers);
+      }
+      ctx.restore();
+    }
+
+    // Draw cache images directly on canvas
+    if (!isOverlayMode) {
+      let cacheToDraw: HTMLCanvasElement | null = null;
+      if (isGlobalCompareMode) {
+        if (ctx.canvas === currentSourceCanvas) cacheToDraw = leftCacheCanvas;
+        if (ctx.canvas === currentResultCanvas) cacheToDraw = rightCacheCanvas;
+      } else {
+        if (ctx.canvas === currentSourceCanvas) {
+          // No cache
+        } else if (ctx.canvas === currentResultCanvas) {
+          cacheToDraw = leftCacheCanvas;
+        }
+      }
+
+      if (cacheToDraw) {
+        const offsetX = cx - cacheToDraw.width / 2;
+        const offsetY = cy - cacheToDraw.height / 2;
+        ctx.drawImage(cacheToDraw, offsetX, offsetY);
       }
     }
   }
@@ -1022,17 +1103,19 @@ export function createCanvas(): HTMLElement {
 
       psdWidth = psd.width;
       psdHeight = psd.height;
+      canvasDrawWidth = psdWidth;
+      canvasDrawHeight = psdHeight;
 
       currentSourceCanvas = document.createElement('canvas');
-      currentSourceCanvas.width = psdWidth;
-      currentSourceCanvas.height = psdHeight;
+      currentSourceCanvas.width = canvasDrawWidth;
+      currentSourceCanvas.height = canvasDrawHeight;
       currentSourceCanvas.title = `${psdWidth} x ${psdHeight}px`;
       const ctxSource = currentSourceCanvas.getContext('2d');
       if (ctxSource) renderSideContext(ctxSource, leftSelectedLayer, leftHiddenLayers);
 
       currentResultCanvas = document.createElement('canvas');
-      currentResultCanvas.width = psdWidth;
-      currentResultCanvas.height = psdHeight;
+      currentResultCanvas.width = canvasDrawWidth;
+      currentResultCanvas.height = canvasDrawHeight;
       currentResultCanvas.title = `${psdWidth} x ${psdHeight}px`;
       const ctxResult = currentResultCanvas.getContext('2d');
       if (ctxResult) renderSideContext(ctxResult, rightSelectedLayer, rightHiddenLayers);
@@ -1050,18 +1133,13 @@ export function createCanvas(): HTMLElement {
       styleCanvas(currentSourceCanvas);
       styleCanvas(currentResultCanvas);
       
-      styleOverlay(leftCacheOverlay);
-      styleOverlay(rightCacheOverlay);
-      
       sourcePanel.style.position = 'relative';
       resultPanel.style.position = 'relative';
 
       sourceContentWrapper.appendChild(currentSourceCanvas);
-      sourceContentWrapper.appendChild(leftCacheOverlay);
       sourceContentWrapper.appendChild(leftTextOverlay);
       
       resultContentWrapper.appendChild(currentResultCanvas);
-      resultContentWrapper.appendChild(rightCacheOverlay);
       resultContentWrapper.appendChild(rightTextOverlay);
     }
   });
@@ -1150,26 +1228,36 @@ export function createCanvas(): HTMLElement {
         const text = await blob.text();
         leftTextOverlay.textContent = text;
         leftTextOverlay.style.display = 'block';
-        leftCacheUrl = '';
+        leftCacheCanvas = null;
+        updateCanvasLayout();
+        window.dispatchEvent(new Event('document:redraw'));
       } else {
         leftTextOverlay.style.display = 'none';
-        leftCacheUrl = URL.createObjectURL(blob);
         
+        const url = URL.createObjectURL(blob);
         const img = new Image();
         img.onload = () => {
+          leftCacheCanvas = document.createElement('canvas');
+          leftCacheCanvas.width = img.width;
+          leftCacheCanvas.height = img.height;
+          const ctx = leftCacheCanvas.getContext('2d');
+          if (ctx) ctx.drawImage(img, 0, 0);
+          URL.revokeObjectURL(url);
+          
           if (currentSourceCanvas) {
             currentSourceCanvas.title = `${img.naturalWidth} x ${img.naturalHeight}px`;
           }
+          updateCanvasDrawSize();
+          updateCanvasLayout();
+          window.dispatchEvent(new Event('document:redraw'));
         };
-        img.src = leftCacheUrl;
+        img.src = url;
       }
-      updateCanvasLayout();
-      window.dispatchEvent(new Event('document:redraw'));
     }
   });
 
   window.addEventListener('tool:result-cleared', () => {
-    leftCacheUrl = '';
+    leftCacheCanvas = null;
     leftTextOverlay.style.display = 'none';
     if (currentSourceCanvas && currentPsd) {
       currentSourceCanvas.title = `${psdWidth} x ${psdHeight}px`;
@@ -1177,6 +1265,7 @@ export function createCanvas(): HTMLElement {
     if (!isGlobalCompareMode && isSliderMode) {
       window.dispatchEvent(new CustomEvent('slider-mode:toggle', { detail: { enabled: false } }));
     }
+    updateCanvasDrawSize();
     updateCanvasLayout();
     window.dispatchEvent(new Event('document:redraw'));
   });
@@ -1189,30 +1278,41 @@ export function createCanvas(): HTMLElement {
         const text = await blob.text();
         rightTextOverlay.textContent = text;
         rightTextOverlay.style.display = 'block';
-        rightCacheUrl = '';
+        rightCacheCanvas = null;
+        updateCanvasLayout();
+        window.dispatchEvent(new Event('document:redraw'));
       } else {
         rightTextOverlay.style.display = 'none';
-        rightCacheUrl = URL.createObjectURL(blob);
-
+        
+        const url = URL.createObjectURL(blob);
         const img = new Image();
         img.onload = () => {
+          rightCacheCanvas = document.createElement('canvas');
+          rightCacheCanvas.width = img.width;
+          rightCacheCanvas.height = img.height;
+          const ctx = rightCacheCanvas.getContext('2d');
+          if (ctx) ctx.drawImage(img, 0, 0);
+          URL.revokeObjectURL(url);
+          
           if (currentResultCanvas) {
             currentResultCanvas.title = `${img.naturalWidth} x ${img.naturalHeight}px`;
           }
+          updateCanvasDrawSize();
+          updateCanvasLayout();
+          window.dispatchEvent(new Event('document:redraw'));
         };
-        img.src = rightCacheUrl;
+        img.src = url;
       }
-      updateCanvasLayout();
-      window.dispatchEvent(new Event('document:redraw'));
     }
   });
 
   window.addEventListener('tool:result-cleared:right', () => {
-    rightCacheUrl = '';
+    rightCacheCanvas = null;
     rightTextOverlay.style.display = 'none';
     if (currentResultCanvas && currentPsd) {
       currentResultCanvas.title = `${psdWidth} x ${psdHeight}px`;
     }
+    updateCanvasDrawSize();
     updateCanvasLayout();
     window.dispatchEvent(new Event('document:redraw'));
   });
