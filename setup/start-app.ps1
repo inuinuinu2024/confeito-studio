@@ -38,7 +38,7 @@ Write-Log "npmCmd: $npmCmd (exists: $(Test-Path $npmCmd))"
 # --- Launch backend using WMI (fully detached) ---
 $backendDir = Join-Path $projectRoot "backend"
 $backendLogSuffix = if ($LOG_ENABLED) { "> `"" + (Join-Path $scriptDir "backend.log") + "`" 2> `"" + (Join-Path $scriptDir "backend-err.log") + "`"" } else { "> NUL 2>&1" }
-$backendCmd = "cmd.exe /c cd /d `"$backendDir`" && `"$uvPath`" run python -m uvicorn src.app.main:app --port 8000 $backendLogSuffix"
+$backendCmd = "cmd.exe /c cd /d `"$backendDir`" && `"$uvPath`" run python -m uvicorn src.app.main:app --port 48000 $backendLogSuffix"
 
 try {
     $startup = ([wmiclass]"Win32_ProcessStartup").CreateInstance()

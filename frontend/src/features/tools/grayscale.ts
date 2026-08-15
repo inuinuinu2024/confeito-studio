@@ -1,5 +1,5 @@
 import { Tool, ToolContext } from '../../shared/types/tool.types';
-import { createCacheFolder } from '../../shared/utils/idb';
+import { saveArchive } from '../../shared/utils/archives';
 
 export class GrayscaleTool implements Tool {
   id = 'grayscale';
@@ -42,13 +42,16 @@ export class GrayscaleTool implements Tool {
     const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
     const folderName = `${dateStr}_${timeStr}_${this.name}`;
 
-    // Create the folder
-    const folderId = await createCacheFolder(folderName);
-
     // Save the original composite image as 'origin.png'
-    await context.cacheResult(originalCanvas, this.name, { name: 'origin', folderId });
-    
+    const originBlob = await new Promise<Blob | null>(res => originalCanvas.toBlob(res));
     // Save the grayscale image as 'gray.png'
-    await context.cacheResult(grayCanvas, this.name, { name: 'gray', folderId });
+    const grayBlob = await new Promise<Blob | null>(res => grayCanvas.toBlob(res));
+    
+    const archiveFiles: {blob: Blob, path: string}[] = [];
+    if (originBlob) archiveFiles.push({blob: originBlob, path: 'origin.png'});
+    if (grayBlob) archiveFiles.push({blob: grayBlob, path: 'gray.png'});
+    
+    await saveArchive(folderName, archiveFiles);
+    window.dispatchEvent(new Event('tool:cache-updated'));
   }
 }

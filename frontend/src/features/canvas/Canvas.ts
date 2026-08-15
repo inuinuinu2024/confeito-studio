@@ -2,7 +2,7 @@
  * Canvas — Central workspace with split compare view and floating toolbar.
  */
 import { icon } from '../../shared/utils/dom';
-import { getImageCache } from '../../shared/utils/idb';
+import { extractArchiveFile } from '../../shared/utils/archives';
 import { showToast } from '../../shared/utils/toast';
 
 export function createCanvas(): HTMLElement {
@@ -744,6 +744,9 @@ export function createCanvas(): HTMLElement {
   let rightOverlayUCacheImg: HTMLCanvasElement | null = null;
   let rightOverlayTCacheImg: HTMLCanvasElement | null = null;
 
+  let leftIsInputImage = false;
+  let rightIsInputImage = false;
+
   function updateCanvasDrawSize() {
     if (!currentPsd) return;
     
@@ -813,9 +816,21 @@ export function createCanvas(): HTMLElement {
     currentResultCanvas.title = `${resultW} x ${resultH}px`;
   }
 
+  async function getArchiveImage(key: string): Promise<Blob | null> {
+    const parts = key.split('/');
+    if (parts.length < 2) return null;
+    const zipName = parts[0];
+    const path = parts.slice(1).join('/');
+    try {
+      return await extractArchiveFile(zipName, path);
+    } catch {
+      return null;
+    }
+  }
+
   async function loadCacheImg(key: string | null): Promise<HTMLCanvasElement | null> {
     if (!key) return null;
-    const blob = await getImageCache(key);
+    const blob = await getArchiveImage(key);
     if (!blob || !blob.type.startsWith('image/')) return null;
     return new Promise((resolve) => {
       const url = URL.createObjectURL(blob);
@@ -1125,69 +1140,73 @@ export function createCanvas(): HTMLElement {
     const topOffsetY = isLeft ? leftOverlayTopOffsetY : rightOverlayTopOffsetY;
     const isTopSelected = isLeft ? leftIsOverlayTopSelected : rightIsOverlayTopSelected;
 
-    let shouldDrawBg = true;
-    if (isOverlayMode) {
-      const hasU = !!(uCacheImg || (uLayer && uLayer.canvas));
-      const hasT = !!(tCacheImg || (tLayer && tLayer.canvas));
-      if (!hasU && !hasT) {
-        shouldDrawBg = false;
-      }
-    } else {
-      let hasVisibleLayer = false;
-      if (currentPsd && currentPsd.children) {
-        const checkVisibility = (node: any) => {
-          if (hasVisibleLayer || hiddenLayers.has(node)) return;
-          if (node.children) {
-            for (let i = 0; i < node.children.length; i++) {
-              checkVisibility(node.children[i]);
-            }
-          } else if (node.canvas) {
-            hasVisibleLayer = true;
-          }
-        };
-        for (let i = 0; i < currentPsd.children.length; i++) {
-          checkVisibility(currentPsd.children[i]);
-        }
-      }
-      
-      let cacheToDraw: HTMLCanvasElement | null = null;
-      let textToShow = false;
+    let cacheToDraw: HTMLCanvasElement | null = null;
+    let textToShow = false;
+
+    if (!isOverlayMode) {
       if (isGlobalCompareMode) {
         if (ctx.canvas === currentSourceCanvas) {
            cacheToDraw = leftCacheCanvas;
            textToShow = leftTextOverlay.style.display === 'block';
-        }
-        if (ctx.canvas === currentResultCanvas) {
+        } else if (ctx.canvas === currentResultCanvas) {
            cacheToDraw = rightCacheCanvas;
            textToShow = rightTextOverlay.style.display === 'block';
         }
       } else {
-        if (ctx.canvas === currentSourceCanvas) {
-           // left side is original psd, no cache overlay
-        } else if (ctx.canvas === currentResultCanvas) {
+        if (ctx.canvas === currentResultCanvas) {
            cacheToDraw = leftCacheCanvas;
            textToShow = leftTextOverlay.style.display === 'block';
         }
       }
+    }
 
-      if (cacheToDraw || textToShow) {
-        hasVisibleLayer = true;
+    let isInputImage = false;
+    if (isGlobalCompareMode) {
+       if (ctx.canvas === currentSourceCanvas && leftIsInputImage) isInputImage = true;
+       if (ctx.canvas === currentResultCanvas && rightIsInputImage) isInputImage = true;
+    } else {
+       if (ctx.canvas === currentResultCanvas && leftIsInputImage) isInputImage = true;
+    }
+
+    let shouldDrawBg = true;
+    let hasVisibleLayer = false;
+    
+    if (currentPsd && currentPsd.children && !isInputImage) {
+      const checkVisibility = (node: any) => {
+        if (hasVisibleLayer || hiddenLayers.has(node)) return;
+        if (node.children) {
+          for (let i = 0; i < node.children.length; i++) {
+            checkVisibility(node.children[i]);
+          }
+        } else if (node.canvas) {
+          hasVisibleLayer = true;
+        }
+      };
+      for (let i = 0; i < currentPsd.children.length; i++) {
+        checkVisibility(currentPsd.children[i]);
       }
-      if (cacheToDraw) {
-        bgDrawW = cacheToDraw.width;
-        bgDrawH = cacheToDraw.height;
-        bgDrawX = cx - cacheToDraw.width / 2;
-        bgDrawY = cy - cacheToDraw.height / 2;
-      }
-      
-      if (!hasVisibleLayer) {
-        shouldDrawBg = false;
-      }
+    }
+    
+    if (cacheToDraw || textToShow || isOverlayMode) {
+      hasVisibleLayer = true;
+    }
+    if (!hasVisibleLayer) {
+      shouldDrawBg = false;
     }
 
     if (shouldDrawBg && currentBgColor && currentBgColor !== 'transparent') {
       ctx.fillStyle = currentBgColor;
-      ctx.fillRect(bgDrawX, bgDrawY, bgDrawW, bgDrawH);
+      
+      const drawPsdBg = !isInputImage;
+      if (drawPsdBg) {
+         ctx.fillRect(psdOffsetX, psdOffsetY, psdWidth, psdHeight);
+      }
+      
+      if (cacheToDraw) {
+         const cacheDrawX = cx - cacheToDraw.width / 2;
+         const cacheDrawY = cy - cacheToDraw.height / 2;
+         ctx.fillRect(cacheDrawX, cacheDrawY, cacheToDraw.width, cacheToDraw.height);
+      }
     }
 
     if (isOverlayMode) {
@@ -1254,7 +1273,7 @@ export function createCanvas(): HTMLElement {
        return;
     }
 
-    if (currentPsd.children) {
+    if (currentPsd.children && !isInputImage) {
       ctx.save();
       ctx.translate(psdOffsetX, psdOffsetY);
       for (let i = currentPsd.children.length - 1; i >= 0; i--) {
@@ -1264,24 +1283,10 @@ export function createCanvas(): HTMLElement {
     }
 
     // Draw cache images directly on canvas
-    if (!isOverlayMode) {
-      let cacheToDraw: HTMLCanvasElement | null = null;
-      if (isGlobalCompareMode) {
-        if (ctx.canvas === currentSourceCanvas) cacheToDraw = leftCacheCanvas;
-        if (ctx.canvas === currentResultCanvas) cacheToDraw = rightCacheCanvas;
-      } else {
-        if (ctx.canvas === currentSourceCanvas) {
-          // No cache
-        } else if (ctx.canvas === currentResultCanvas) {
-          cacheToDraw = leftCacheCanvas;
-        }
-      }
-
-      if (cacheToDraw) {
-        const offsetX = cx - cacheToDraw.width / 2;
-        const offsetY = cy - cacheToDraw.height / 2;
-        ctx.drawImage(cacheToDraw, offsetX, offsetY);
-      }
+    if (!isOverlayMode && cacheToDraw) {
+      const offsetX = cx - cacheToDraw.width / 2;
+      const offsetY = cy - cacheToDraw.height / 2;
+      ctx.drawImage(cacheToDraw, offsetX, offsetY);
     }
   }
 
@@ -1441,7 +1446,8 @@ export function createCanvas(): HTMLElement {
 
   window.addEventListener('tool:result-ready', async (e: Event) => {
     const customEvent = e as CustomEvent<{ key: string, toolName: string }>;
-    const blob = await getImageCache(customEvent.detail.key);
+    leftIsInputImage = customEvent.detail.key.includes('Inputs/');
+    const blob = await getArchiveImage(customEvent.detail.key);
     if (blob) {
       if (customEvent.detail.toolName.match(/\.(json|txt|md)$/i) || blob.type.startsWith('text/') || blob.type === 'application/json') {
         const text = await blob.text();
@@ -1474,6 +1480,7 @@ export function createCanvas(): HTMLElement {
 
   window.addEventListener('tool:result-cleared', () => {
     leftCacheCanvas = null;
+    leftIsInputImage = false;
     leftTextOverlay.style.display = 'none';
     updateCanvasDrawSize();
     updateCanvasLayout();
@@ -1483,7 +1490,8 @@ export function createCanvas(): HTMLElement {
 
   window.addEventListener('tool:result-ready:right', async (e: Event) => {
     const customEvent = e as CustomEvent<{ key: string, toolName: string }>;
-    const blob = await getImageCache(customEvent.detail.key);
+    rightIsInputImage = customEvent.detail.key.includes('Inputs/');
+    const blob = await getArchiveImage(customEvent.detail.key);
     if (blob) {
       if (customEvent.detail.toolName.match(/\.(json|txt|md)$/i) || blob.type.startsWith('text/') || blob.type === 'application/json') {
         const text = await blob.text();
@@ -1516,6 +1524,7 @@ export function createCanvas(): HTMLElement {
 
   window.addEventListener('tool:result-cleared:right', () => {
     rightCacheCanvas = null;
+    rightIsInputImage = false;
     rightTextOverlay.style.display = 'none';
     updateCanvasDrawSize();
     updateCanvasLayout();

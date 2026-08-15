@@ -4,7 +4,8 @@
 import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
 import type { Psd, Layer } from 'ag-psd';
-import { getAllImageCaches, deleteImageCache, renameImageCache, setImageCache, CachedImage, createCacheFolder, moveCacheItem, updateCacheFolderCollapse } from '../../shared/utils/idb';
+import { getArchives, deleteArchive, extractArchiveFile, updateArchiveFolderCollapse, getArchiveCollapseState } from '../../shared/utils/archives';
+import { CachedImage, setImageCache } from '../../shared/utils/idb';
 import { historyManager } from '../../shared/utils/history';
 
 interface LayerDef {
@@ -40,15 +41,7 @@ interface CacheDef {
   active: boolean;
 }
 
-const layers: LayerDef[] = [
-  { name: 'sample.psd',        iconName: 'description', isGroup: true, depth: 0, isRoot: true },
-  { name: 'Character 1',       iconName: 'folder_open', isGroup: true, depth: 1, isChild: true },
-  { name: 'Inks_Clean.png',    iconName: 'image',       isChild: true, depth: 2, active: true, badge: 'Focus AI' },
-  { name: 'Rough_Sketch.png',  iconName: 'brush',       isChild: true, depth: 2 },
-  { name: 'Background',        iconName: 'folder',      isGroup: true, spaced: true, depth: 1, isChild: true },
-  { name: 'Screentones_Global', iconName: 'grid_on',     isGroup: true, spaced: true, depth: 1, isChild: true },
-  { name: 'Paper_Base.png',    iconName: 'layers',      isGroup: true, depth: 1, isChild: true },
-];
+const layers: LayerDef[] = [];
 
 export interface LayerPanelOptions {
   panelType?: 'left' | 'right';
@@ -1101,7 +1094,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
 
   const cacheTitle = document.createElement('span');
   cacheTitle.className = 'layer-cache__title';
-  cacheTitle.textContent = 'CACHE';
+  cacheTitle.textContent = 'ARCHIVES';
   cacheHeader.appendChild(cacheTitle);
 
   const promoteBtn = document.createElement('button');
@@ -1155,16 +1148,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   let currentCaches: CachedImage[] = [];
   let currentCacheDefs: CacheDef[] = [];
 
-  createFolderBtn.addEventListener('click', async () => {
-    try {
-      await createCacheFolder('新規フォルダ');
-      showToast('フォルダを作成しました', 'success');
-      await loadCacheList();
-    } catch (err) {
-      console.error(err);
-      showToast('フォルダの作成に失敗しました', 'error');
-    }
-  });
+  createFolderBtn.style.display = 'none'; // Disabled in new Zip backend
 
   promoteBtn.addEventListener('click', async () => {
     if (activeCacheItemIndices.size > 0) {
@@ -1225,10 +1209,18 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
               blendMode: 'normal'
             };
 
+            let blob = cache.blob;
+            if (!blob && cache.type === 'image') {
+              const parts = cache.key.split('/');
+              const zipName = parts[0];
+              const path = parts.slice(1).join('/');
+              blob = await extractArchiveFile(zipName, path);
+            }
+            
             if (isText) {
-              newLayer.fileBlob = cache.blob;
+              newLayer.fileBlob = blob;
             } else {
-              const bmp = await createImageBitmap(cache.blob);
+              const bmp = await createImageBitmap(blob as Blob);
               const canvas = document.createElement('canvas');
               canvas.width = bmp.width;
               canvas.height = bmp.height;
@@ -1315,22 +1307,22 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
           }
         }
         
-        const promises = deletedCaches.map(cache => deleteImageCache(cache.key));
+        const promises = deletedCaches.filter(c => c.type === 'folder' && !c.folderId).map(cache => deleteArchive(cache.key));
         await Promise.all(promises);
 
         historyManager.push({
-          label: `キャッシュ削除 (${deletedCaches.length}件)`,
+          label: `アーカイブ削除 (${deletedCaches.length}件)`,
           execute: async () => {
-            await Promise.all(deletedCaches.map(c => deleteImageCache(c.key)));
+            await Promise.all(deletedCaches.filter(c => c.type === 'folder' && !c.folderId).map(c => deleteArchive(c.key)));
             window.dispatchEvent(new Event('tool:cache-updated'));
           },
           undo: async () => {
-            await Promise.all(deletedCaches.map(c => setImageCache(c.key, c.blob, c.name, c.type, c.folderId, c.collapsed)));
+            // Undo is disabled for backend zip deletion since we don't store backups
             window.dispatchEvent(new Event('tool:cache-updated'));
           }
         });
 
-        showToast(`${deletedCaches.length}件のキャッシュを削除しました。`, 'success');
+        showToast(`${deletedCaches.length}件のアーカイブを削除しました。`, 'success');
         const eventName = options.panelType === 'right' ? 'tool:result-cleared:right' : 'tool:result-cleared';
         window.dispatchEvent(new CustomEvent(eventName));
         // Refresh the list
@@ -1360,21 +1352,24 @@ let cacheDraggedIndex: number | null = null;
     currentCacheDefs = [];
 
     try {
-      const caches = await getAllImageCaches();
+      const caches = await getArchives();
       currentCaches = caches;
       
       const defs: CacheDef[] = [];
       const rootCaches = caches.filter(c => !c.folderId);
       
+      const collapseState = getArchiveCollapseState();
+      
       function traverse(items: CachedImage[], depth: number) {
         items.forEach(item => {
           const isGroup = item.type === 'folder';
+          const collapsed = collapseState[item.key] !== undefined ? collapseState[item.key] : (item.collapsed || false);
           const def: CacheDef = {
             item,
             depth,
             isChild: depth > 0,
             isGroup,
-            collapsed: item.collapsed || false,
+            collapsed: collapsed,
             active: false
           };
           defs.push(def);
@@ -1450,8 +1445,8 @@ let cacheDraggedIndex: number | null = null;
           chevronIcon.style.cursor = 'pointer';
           chevronIcon.addEventListener('click', async (e) => {
             e.stopPropagation();
-            c.collapsed = !c.collapsed;
-            await updateCacheFolderCollapse(c.key, c.collapsed);
+            cDef.collapsed = !cDef.collapsed;
+            updateArchiveFolderCollapse(c.key, cDef.collapsed);
             await loadCacheList();
           });
           item.appendChild(chevronIcon);
@@ -1494,69 +1489,7 @@ let cacheDraggedIndex: number | null = null;
         
         label.addEventListener('dblclick', (e) => {
            e.stopPropagation();
-           
-           const input = document.createElement('input');
-           input.type = 'text';
-           input.value = displayName;
-           input.className = 'layer-item__name-input';
-
-           const finishEditing = async () => {
-              const newName = input.value.trim() || '';
-              if (!newName || newName === displayName || newName === c.name) {
-                 if (item.contains(input)) item.replaceChild(label, input);
-                 return;
-              }
-              
-              const isDuplicate = currentCaches.some(cache => cache.key !== c.key && cache.name === newName);
-              if (isDuplicate) {
-                 showToast(`エラー: 「${newName}」は既に存在します`, 'error');
-                 if (item.contains(input)) item.replaceChild(label, input);
-                 return;
-              }
-
-              try {
-                 await renameImageCache(c.key, newName);
-                 const oldName = c.name;
-
-                 historyManager.push({
-                    label: `キャッシュ名変更: ${newName}`,
-                    execute: async () => {
-                       await renameImageCache(c.key, newName);
-                       window.dispatchEvent(new Event('tool:cache-updated'));
-                    },
-                    undo: async () => {
-                       await renameImageCache(c.key, oldName);
-                       window.dispatchEvent(new Event('tool:cache-updated'));
-                    }
-                 });
-
-                 c.name = newName;
-                 displayName = newName;
-                 if (!cDef.isGroup && !displayName.includes('.')) displayName += '.png';
-                 label.textContent = displayName;
-                 label.title = displayName;
-                 showToast(`名前を「${newName}」に変更しました`, 'success');
-              } catch (err) {
-                 console.error(err);
-                 showToast('名前の変更に失敗しました', 'error');
-              } finally {
-                 if (item.contains(input)) item.replaceChild(label, input);
-              }
-           };
-
-           input.addEventListener('blur', finishEditing, { once: true });
-           input.addEventListener('keydown', (ke) => {
-              if (ke.key === 'Enter') {
-                 ke.preventDefault();
-                 input.blur();
-              } else if (ke.key === 'Escape') {
-                 if (item.contains(input)) item.replaceChild(label, input);
-              }
-           });
-
-           item.replaceChild(input, label);
-           input.focus();
-           input.select();
+           showToast('アーカイブ名の変更は現在サポートされていません', false);
         });
         
         item.addEventListener('click', (e: MouseEvent) => {
@@ -1732,30 +1665,13 @@ let cacheDraggedIndex: number | null = null;
               if (position === 'inside') {
                 targetFolderId = cDef.item.key;
                 cDef.item.collapsed = false;
-                await updateCacheFolderCollapse(cDef.item.key, false);
+                updateArchiveFolderCollapse(cDef.item.key, false);
               } else {
                 targetFolderId = cDef.item.folderId || null;
               }
               
-              const draggedCachesToMove = [draggedDef.item];
-              // If dragged is a folder, we don't need to recursively move its children since they just point to their parent folderId, which isn't changing!
-              // But we might need to handle moving logic.
-
-              await moveCacheItem(draggedDef.item.key, targetFolderId);
-              
-              historyManager.push({
-                label: `キャッシュ移動`,
-                execute: async () => {
-                  await moveCacheItem(draggedDef.item.key, targetFolderId);
-                  window.dispatchEvent(new Event('tool:cache-updated'));
-                },
-                undo: async () => {
-                  await moveCacheItem(draggedDef.item.key, draggedDef.item.folderId || null);
-                  window.dispatchEvent(new Event('tool:cache-updated'));
-                }
-              });
-
-              await loadCacheList();
+              // Drag and drop for archives is currently disabled since the new zip backend does not support it.
+              showToast('アーカイブの移動は現在サポートされていません', 'info');
             } catch (err) {
               console.error(err);
               showToast('キャッシュの移動に失敗しました', 'error');

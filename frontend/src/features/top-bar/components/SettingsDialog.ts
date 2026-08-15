@@ -88,7 +88,7 @@ export function createSettingsDialog(): { overlay: HTMLElement; open: () => void
 
   const open = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/settings/gemini');
+      const res = await fetch('http://127.0.0.1:48000/api/settings/gemini');
       const data = await res.json();
       if (data.has_key) {
         input.placeholder = '******** (Saved in .env)';
@@ -117,7 +117,7 @@ export function createSettingsDialog(): { overlay: HTMLElement; open: () => void
     const val = input.value.trim();
     if (val) {
       try {
-        await fetch('http://127.0.0.1:8000/api/settings/gemini', {
+        await fetch('http://127.0.0.1:48000/api/settings/gemini', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ api_key: val })

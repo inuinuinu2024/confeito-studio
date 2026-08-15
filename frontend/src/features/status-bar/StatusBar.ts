@@ -51,7 +51,7 @@ export function createStatusBar(): HTMLElement {
   backendStatus.appendChild(backendText);
   right.appendChild(backendStatus);
 
-  const backendUrl = 'http://127.0.0.1:8000';
+  const backendUrl = 'http://127.0.0.1:48000';
 
   const updateBackendStatus = async () => {
     try {
@@ -112,7 +112,7 @@ export function createStatusBar(): HTMLElement {
 
   const updateGeminiStatus = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/settings/gemini');
+      const res = await fetch('http://127.0.0.1:48000/api/settings/gemini');
       const data = await res.json();
       if (data.has_key) {
         geminiDot.style.backgroundColor = 'var(--color-success, #4ade80)';

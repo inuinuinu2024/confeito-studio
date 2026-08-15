@@ -20,7 +20,7 @@ function closeOnDisconnectPlugin(): Plugin {
             timeoutId = setTimeout(async () => {
               console.log('\nAll browser tabs closed. Shutting down servers...');
               try {
-                await fetch('http://localhost:8000/api/shutdown', { method: 'POST' });
+                await fetch('http://localhost:48000/api/shutdown', { method: 'POST' });
               } catch (e) {
                 // Ignore errors if backend is already down
               }
@@ -36,4 +36,8 @@ function closeOnDisconnectPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [closeOnDisconnectPlugin()],
+  server: {
+    port: 45173,
+    strictPort: true,
+  },
 });

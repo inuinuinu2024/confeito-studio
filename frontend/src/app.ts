@@ -25,9 +25,15 @@ import { createStatusBar } from './features/status-bar/StatusBar';
 import { initDocumentManager } from './features/document/DocumentManager';
 import { createToolBar } from './features/tool-bar/ToolBar';
 
-function initApp(): void {
+import { initializeSettings } from './shared/utils/settings';
+import { migrateOldCachesToArchives } from './shared/utils/archives';
+
+async function initApp(): Promise<void> {
   const app = document.getElementById('app');
   if (!app) return;
+
+  await initializeSettings();
+  migrateOldCachesToArchives(); // Run async without blocking startup
 
   // Main workspace grid
   const workspace = document.createElement('div');

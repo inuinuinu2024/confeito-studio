@@ -1,9 +1,9 @@
 import { Tool, ToolContext } from '../../shared/types/tool.types';
 import { showToast } from '../../shared/utils/toast';
-import { createCacheFolder, moveCacheItem, setImageCache } from '../../shared/utils/idb';
+import { saveArchive } from '../../shared/utils/archives';
 import { DocumentManager } from '../document/DocumentManager';
 import { icon } from '../../shared/utils/dom';
-
+import { getGlobalSetting, setGlobalSetting } from '../../shared/utils/settings';
 export class NanoBananaProTool implements Tool {
   id = 'nano-banana-pro';
   name = 'Nano Banana Pro';
@@ -28,12 +28,12 @@ export class NanoBananaProTool implements Tool {
 
   // Retrieve setting or default
   private getSetting(key: string, defaultValue: string): string {
-    return localStorage.getItem(`nanoBananaPro_${key}`) || defaultValue;
+    return getGlobalSetting(`nanoBananaPro_${key}`, defaultValue);
   }
 
   // Set setting
   private setSetting(key: string, value: string): void {
-    localStorage.setItem(`nanoBananaPro_${key}`, value);
+    setGlobalSetting(`nanoBananaPro_${key}`, value);
   }
 
   renderSettings(container: HTMLElement): void {
@@ -714,34 +714,73 @@ export class NanoBananaProTool implements Tool {
     
     previewBtn.addEventListener('click', async () => {
        if (this.buildPayloadFn) {
-         const payload = await this.buildPayloadFn();
-         // Truncate base64 for display
-         const displayPayload = JSON.parse(JSON.stringify(payload));
-         if (displayPayload.input && displayPayload.input.length > 0) {
-           displayPayload.input.forEach((p: any) => {
-              if (p.type === 'image' && p.data) {
-                  p.data = "BASE64_IMAGE_DATA";
-              }
+         try {
+           const payload = await this.buildPayloadFn();
+           // Truncate base64 for display
+           const displayPayload = JSON.parse(JSON.stringify(payload));
+           if (displayPayload.input && displayPayload.input.length > 0) {
+             displayPayload.input.forEach((p: any) => {
+                if (p.type === 'image' && p.data) {
+                    p.data = "BASE64_IMAGE_DATA";
+                }
+             });
+           }
+           
+           const dialog = document.createElement('dialog');
+           dialog.style.width = '80vw';
+           dialog.style.height = '80vh';
+           dialog.style.backgroundColor = 'var(--color-surface-container-high)';
+           dialog.style.color = 'var(--color-on-surface)';
+           dialog.style.border = '1px solid var(--color-outline)';
+           dialog.style.borderRadius = '8px';
+           dialog.style.padding = '16px';
+           dialog.style.display = 'flex';
+           dialog.style.flexDirection = 'column';
+           
+           const header = document.createElement('div');
+           header.style.display = 'flex';
+           header.style.justifyContent = 'space-between';
+           header.style.alignItems = 'center';
+           header.style.marginBottom = '16px';
+           
+           const title = document.createElement('h3');
+           title.textContent = 'JSON Preview';
+           title.style.margin = '0';
+           
+           const closeBtn = document.createElement('button');
+           closeBtn.textContent = '閉じる';
+           closeBtn.style.padding = '4px 12px';
+           closeBtn.style.cursor = 'pointer';
+           closeBtn.style.background = 'var(--color-surface-container-highest)';
+           closeBtn.style.color = 'var(--color-on-surface)';
+           closeBtn.style.border = '1px solid var(--color-outline-variant)';
+           closeBtn.style.borderRadius = '4px';
+           closeBtn.onclick = () => dialog.close();
+           
+           header.appendChild(title);
+           header.appendChild(closeBtn);
+           
+           const pre = document.createElement('pre');
+           pre.style.flex = '1';
+           pre.style.overflow = 'auto';
+           pre.style.margin = '0';
+           pre.style.whiteSpace = 'pre-wrap';
+           pre.style.wordWrap = 'break-word';
+           pre.style.fontFamily = 'monospace';
+           pre.style.fontSize = '13px';
+           pre.textContent = JSON.stringify(displayPayload, null, 2);
+           
+           dialog.appendChild(header);
+           dialog.appendChild(pre);
+           
+           dialog.addEventListener('close', () => {
+             dialog.remove();
            });
-         }
-         
-         const newWin = window.open('', '_blank', 'width=800,height=600');
-         if (newWin) {
-           newWin.document.write(`
-             <html>
-               <head>
-                 <title>JSON Preview</title>
-                 <style>
-                   body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 16px; margin: 0; }
-                   pre { white-space: pre-wrap; word-wrap: break-word; }
-                 </style>
-               </head>
-               <body>
-                 <pre>${JSON.stringify(displayPayload, null, 2)}</pre>
-               </body>
-             </html>
-           `);
-           newWin.document.close();
+           
+           document.body.appendChild(dialog);
+           dialog.showModal();
+         } catch (e: any) {
+           alert(e.message || 'ペイロードの生成に失敗しました。');
          }
        }
     });
@@ -766,7 +805,7 @@ export class NanoBananaProTool implements Tool {
         }));
       }, 1000);
 
-      const response = await fetch('http://127.0.0.1:8000/api/nano-banana-pro', {
+      const response = await fetch('http://127.0.0.1:48000/api/nano-banana-pro', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -792,33 +831,25 @@ export class NanoBananaProTool implements Tool {
 
       const blob = await response.blob();
 
-      // --- Structured cache output ---
+      // --- Structured archive output ---
       const date = new Date();
       const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
       const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
       const stampedName = `${dateStr}_${timeStr}_${this.name}`;
 
-      // 1) Create main folder
-      const mainFolderId = await createCacheFolder(stampedName);
-
-      // 2) Save generated image inside main folder
       const mimeType = payload.response_format?.mime_type || 'image/png';
       const ext = mimeType === 'image/jpeg' ? '.jpg' : '.png';
-      await context.cacheResult(blob, this.id, { name: `${stampedName}${ext}`, folderId: mainFolderId });
+      
+      const archiveFiles: {blob: Blob, path: string}[] = [];
+      archiveFiles.push({ blob, path: `${stampedName}${ext}` });
 
-      // 3) Create Inputs subfolder
-      const inputsFolderId = await createCacheFolder('Inputs');
-      await moveCacheItem(inputsFolderId, mainFolderId);
-
-      // 4) Save reference images as Image1, Image2, ... inside Inputs
       for (let i = 0; i < this.globalImages.length; i++) {
         const item = this.globalImages[i];
         const imgBlob = item.file as Blob;
         const imgExt = (item.file.type || 'image/png').includes('jpeg') ? '.jpg' : '.png';
-        await context.cacheResult(imgBlob, this.id, { name: `Image${i + 1}${imgExt}`, folderId: inputsFolderId });
+        archiveFiles.push({ blob: imgBlob, path: `Inputs/Image${i + 1}${imgExt}` });
       }
 
-      // 5) Save payload.json inside Inputs
       const payloadForSave = JSON.parse(JSON.stringify(payload));
       if (payloadForSave.input) {
         payloadForSave.input.forEach((p: any) => {
@@ -828,9 +859,9 @@ export class NanoBananaProTool implements Tool {
         });
       }
       const jsonBlob = new Blob([JSON.stringify(payloadForSave, null, 2)], { type: 'application/json' });
-      const jsonKey = `ToolResult_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-      await setImageCache(jsonKey, jsonBlob, 'payload.json', 'image', inputsFolderId);
-      
+      archiveFiles.push({ blob: jsonBlob, path: `Inputs/payload.json` });
+
+      await saveArchive(stampedName, archiveFiles);
       window.dispatchEvent(new Event('tool:cache-updated'));
       
     } catch (e: any) {

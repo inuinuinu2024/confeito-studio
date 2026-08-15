@@ -12,3 +12,6 @@
 
 # Environment / secrets
 .env
+
+# User Data
+archives/

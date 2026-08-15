@@ -40,3 +40,31 @@ async def set_gemini_key(request: GeminiKeyRequest):
             f.write(f"{k}={v}\n")
             
     return {"status": "success", "message": "API Key saved to .env"}
+
+PROJECT_ROOT = ENV_FILE_PATH.parent
+SETTINGS_DIR = PROJECT_ROOT / "settings"
+SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+PROMPTS_FILE_PATH = SETTINGS_DIR / "default_prompts.json"
+
+@router.get("/prompts")
+async def get_default_prompts():
+    """Get the saved default prompts for AI tools"""
+    if not PROMPTS_FILE_PATH.exists():
+        return {}
+    try:
+        import json
+        with open(PROMPTS_FILE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+@router.post("/prompts")
+async def set_default_prompts(prompts: dict):
+    """Save the default prompts for AI tools"""
+    try:
+        import json
+        with open(PROMPTS_FILE_PATH, "w", encoding="utf-8") as f:
+            json.dump(prompts, f, ensure_ascii=False, indent=2)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save prompts: {e}")

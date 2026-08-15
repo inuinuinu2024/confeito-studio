@@ -12,9 +12,6 @@ export interface ToolContext {
 
   // Get the positive and negative prompts from AI Panel
   getPrompts(toolName?: string): { prompt: string };
-
-  // Cache the result and return a cache key
-  cacheResult(image: HTMLCanvasElement | Blob, toolName: string, options?: { name?: string, folderId?: string }): Promise<string>;
 }
 
 export interface Tool {

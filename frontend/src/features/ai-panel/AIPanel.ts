@@ -3,17 +3,20 @@
  * prompts, parameter sliders, ControlNet adapters, and generate button.
  */
 import { icon } from '../../shared/utils/dom';
+
+import { saveArchive } from '../../shared/utils/archives';
 import { showToast } from '../../shared/utils/toast';
 import { ToolRegistry } from '../../shared/utils/ToolRegistry';
 
 import { GrayscaleTool } from '../tools/grayscale';
+import { getGlobalSetting } from '../../shared/utils/settings';
 import { NanoBananaProTool } from '../tools/nano-banana-pro';
 import { NanoBanana2Tool } from '../tools/nano-banana-2';
 import { ColoringTool } from '../tools/coloring';
 
 import { createToolSettingsSidebar } from './components/ToolSettingsSidebar';
 import { DocumentManager } from '../document/DocumentManager';
-import { setImageCache, deleteImageCache, createCacheFolder } from '../../shared/utils/idb';
+
 import { historyManager } from '../../shared/utils/history';
 import { ToolContext } from '../../shared/types/tool.types';
 
@@ -221,22 +224,7 @@ export function createAIPanel(): HTMLElement {
     }
     btn.appendChild(document.createTextNode(tool.name));
 
-    if (tool.name === 'Nano Banana Pro') {
-      const helpIcon = document.createElement('span');
-      helpIcon.className = 'material-symbols-outlined';
-      helpIcon.textContent = 'help';
-      helpIcon.style.fontSize = '14px';
-      helpIcon.style.color = 'var(--color-on-surface-variant)';
-      helpIcon.style.marginLeft = 'auto';
-      helpIcon.style.cursor = 'help';
-      helpIcon.title = '高品質な画像生成を行う汎用ツールです';
-      
-      helpIcon.addEventListener('click', (e) => {
-        e.stopPropagation();
-      });
-      
-      btn.appendChild(helpIcon);
-    }
+
 
     btn.addEventListener('click', async () => {
       btn.style.transform = 'scale(0.97)';
@@ -290,59 +278,11 @@ export function createAIPanel(): HTMLElement {
           getPrompts: (toolName?: string) => {
             let pos = '';
             if (toolName) {
-              pos = localStorage.getItem(`toolPrompt_${toolName}`) || '';
+              pos = getGlobalSetting(`toolPrompt_${toolName}`, '');
             }
             return { prompt: pos };
           },
-          cacheResult: async (image: HTMLCanvasElement | Blob, toolName: string, options?: { name?: string, folderId?: string }) => {
-            let canvasToAdd: HTMLCanvasElement;
-            let blob: Blob;
 
-            if (image instanceof HTMLCanvasElement) {
-              canvasToAdd = image;
-              blob = await new Promise<Blob | null>(res => image.toBlob(res)) as Blob;
-            } else {
-              blob = image;
-              canvasToAdd = await new Promise((resolve, reject) => {
-                const img = new Image();
-                img.onload = () => {
-                  const cvs = document.createElement('canvas');
-                  cvs.width = img.width;
-                  cvs.height = img.height;
-                  cvs.getContext('2d')?.drawImage(img, 0, 0);
-                  resolve(cvs);
-                };
-                img.onerror = reject;
-                img.src = URL.createObjectURL(blob);
-              });
-            }
-
-            if (!blob) throw new Error('Failed to create blob from canvas');
-            
-            const date = new Date();
-            const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
-            const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
-            const displayName = options?.name ?? `${dateStr}_${timeStr}_${toolName}`;
-            
-            const key = `ToolResult_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-            await setImageCache(key, blob, displayName, 'image', options?.folderId || null);
-            
-            historyManager.push({
-               label: `AI生成結果を追加: ${displayName}`,
-               execute: async () => {
-                  await setImageCache(key, blob, displayName, 'image', options?.folderId || null);
-                  window.dispatchEvent(new Event('tool:cache-updated'));
-               },
-               undo: async () => {
-                  await deleteImageCache(key);
-                  window.dispatchEvent(new Event('tool:cache-updated'));
-               }
-            });
-            
-            window.dispatchEvent(new CustomEvent('tool:result-ready', { detail: { key, toolName: displayName } }));
-            window.dispatchEvent(new CustomEvent('tool:cache-updated', { detail: { autoSelectKey: key } }));
-            return key;
-          }
         };
         return context;
       };
@@ -362,14 +302,11 @@ export function createAIPanel(): HTMLElement {
             const date = new Date();
             const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
             const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
-            const folderName = `${dateStr}_${timeStr}_${tool.name}`;
-            const folderId = await createCacheFolder(folderName);
+            const folderName = `${dateStr}_${timeStr}_${tool.name}_error`;
             const errorText = `${tool.name} Execution Error\n\nDate: ${date.toLocaleString()}\nError: ${err.message || 'Unknown error'}\nStack: ${err.stack || ''}`;
             const errorBlob = new Blob([errorText], { type: 'text/plain' });
-            const fileName = `error_${dateStr}_${timeStr}.txt`;
             
-            const key = `ToolError_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-            await setImageCache(key, errorBlob, fileName, 'image', folderId);
+            await saveArchive(folderName, [{ blob: errorBlob, path: 'error.txt' }]);
             
             window.dispatchEvent(new Event('tool:cache-updated'));
           } catch (cacheErr) {

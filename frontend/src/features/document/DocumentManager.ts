@@ -128,7 +128,7 @@ export class DocumentManager {
         formData.append('file', blob, saveFilename);
         formData.append('state', JSON.stringify(layerStates));
         
-        const response = await fetch('http://localhost:8000/api/psd/save', {
+        const response = await fetch('http://localhost:48000/api/psd/save', {
           method: 'POST',
           body: formData
         });
