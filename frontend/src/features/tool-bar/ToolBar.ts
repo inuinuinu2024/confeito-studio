@@ -15,9 +15,6 @@ export function createToolBar(): HTMLElement {
   normalBtn.title = 'Normal Mode';
   normalBtn.appendChild(icon('image', 24));
 
-  // Divider
-  const divider = document.createElement('div');
-  divider.className = 'left-toolbar__divider';
 
   // Compare Mode Button
   const compareBtn = document.createElement('div');
@@ -83,7 +80,6 @@ export function createToolBar(): HTMLElement {
   });
 
   toolbar.appendChild(normalBtn);
-  toolbar.appendChild(divider);
   toolbar.appendChild(compareBtn);
   toolbar.appendChild(overlayBtn);
 

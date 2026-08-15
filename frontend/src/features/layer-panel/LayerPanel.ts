@@ -934,7 +934,12 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
       
       item.appendChild(name);
 
-      if (!layerDef.isGroup) {
+      let isLayerText = false;
+      if (!layerDef.isGroup && layerDef.name.match(/\.(json|txt|md)$/i)) {
+        isLayerText = true;
+      }
+
+      if (!layerDef.isGroup && !isLayerText) {
         if (!layerDef._utId) {
           layerDef._utId = 'psd_' + Math.random().toString(36).substr(2, 9);
         }
@@ -1477,7 +1482,7 @@ let cacheDraggedIndex: number | null = null;
         if (cDef.active) label.style.color = 'var(--color-on-surface)';
         item.appendChild(label);
         
-        if (!cDef.isGroup) {
+        if (!cDef.isGroup && !isText) {
           item.appendChild(createUTBoxes(`cache_${c.key}`, null, c.key));
         }
         

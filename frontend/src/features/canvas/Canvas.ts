@@ -121,7 +121,7 @@ export function createCanvas(): HTMLElement {
   underdrawingLabel.textContent = 'Underdrawing';
   overlayGroup.appendChild(underdrawingLabel);
 
-  let currentUnderdrawingColor: string | null = null;
+  let currentUnderdrawingColor: string | null = 'blue';
   
   const underdrawingColorGroup = document.createElement('div');
   underdrawingColorGroup.style.display = 'flex';
@@ -146,6 +146,9 @@ export function createCanvas(): HTMLElement {
     btn.style.borderRadius = '4px';
     btn.style.cursor = 'pointer';
     btn.style.boxSizing = 'border-box';
+    if (currentUnderdrawingColor === c.id) {
+      btn.style.borderColor = 'var(--color-on-surface)';
+    }
     
     btn.addEventListener('click', () => {
       if (currentUnderdrawingColor === c.id) {
@@ -505,10 +508,10 @@ export function createCanvas(): HTMLElement {
 
   function updateCanvasLayout() {
     const hasLeftCache = leftCacheCanvas !== null;
-    const showTwoPanes = isGlobalCompareMode || (!isGlobalCompareMode && hasLeftCache);
+    const showTwoPanes = isGlobalCompareMode || (!isGlobalCompareMode && hasLeftCache && !isOverlayMode);
 
-    compareGroup.style.display = showTwoPanes ? 'flex' : 'none';
-    toolbar.style.display = (showTwoPanes || isOverlayMode) ? 'flex' : 'none';
+    compareGroup.style.display = isGlobalCompareMode ? 'flex' : 'none';
+    toolbar.style.display = (isGlobalCompareMode || isOverlayMode) ? 'flex' : 'none';
     
     const displayStyle = isSliderMode ? '' : 'none';
     sliderSpacer.style.display = displayStyle;
@@ -668,6 +671,18 @@ export function createCanvas(): HTMLElement {
       if (currentResultCanvas) {
         const ctx = currentResultCanvas.getContext('2d');
         if (ctx) renderSideContext(ctx, rightSelectedLayer, rightHiddenLayers);
+      }
+    } else {
+      if (isSliderMode) {
+        isSliderMode = false;
+        sliderToggle.classList.remove('toggle--on');
+        sliderToggle.classList.add('toggle--off');
+        isVerticalSplit = false;
+        switchToggle.classList.remove('toggle--on');
+        switchToggle.classList.add('toggle--off');
+        isFlipped = false;
+        reverseToggle.classList.remove('toggle--on');
+        reverseToggle.classList.add('toggle--off');
       }
     }
     updateCanvasLayout();
@@ -837,7 +852,7 @@ export function createCanvas(): HTMLElement {
     window.dispatchEvent(new Event('document:redraw'));
   });
   
-  let overlayUnderdrawingColor: string | null = null;
+  let overlayUnderdrawingColor: string | null = 'blue';
   window.addEventListener('overlay:underdrawing-color', (e: Event) => {
     overlayUnderdrawingColor = (e as CustomEvent).detail.color;
     window.dispatchEvent(new Event('document:redraw'));
