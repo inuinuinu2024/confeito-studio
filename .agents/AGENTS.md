@@ -106,6 +106,7 @@ confeito-studio/
 
 ### PSD処理の役割分担（ハイブリッド方式）
 - **フロントエンド (ag-psd)**: PSD読み込み、プレビュー表示、レイヤー操作UI、**PSDファイルの保存(.psd)**
+  - *Note*: `ag-psd` はデフォルトで展開後のピクセルデータ総量に2GBのメモリ制限(`totalMemoryLimit`)を設けており、レイヤー数が膨大なPSDファイル（例：200レイヤー以上等）を読み込むとエラーになります。そのため、`DocumentManager.ts` での読み込み時には `{ totalMemoryLimit: undefined }` を指定して制限を無効化しています。
 - **バックエンド (psd-tools)**: ZIPエクスポート (各レイヤーのPNG分解出力)、高品質レンダリング
 
 ### 生成AIプロバイダーパターン

@@ -345,7 +345,8 @@ export class DocumentManager {
       await addRecentFile(file.name, this.currentFileHandle);
 
       // ag-psd expects a Uint8Array or ArrayBuffer
-      const psd = readPsd(arrayBuffer);
+      // 巨大なPSDファイル(レイヤー数が多い等)でメモリ制限エラーになるのを防ぐため、totalMemoryLimitを無効化
+      const psd = readPsd(arrayBuffer, { totalMemoryLimit: undefined });
       this.sanitizePsd(psd);
       
       this.currentPsd = psd;
