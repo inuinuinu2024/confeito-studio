@@ -35,13 +35,13 @@ export function createBgColorDialog(): { overlay: HTMLElement; open: () => void;
 
   const colors = [
     { label: 'White', hex: '#FFFFFF' },
-    { label: 'Light Gray 1', hex: '#D9D9D9' },
-    { label: 'Light Gray 2', hex: '#B3B3B3' },
-    { label: 'Gray', hex: '#8C8C8C' },
-    { label: 'Dark Gray 1', hex: '#666666' },
-    { label: 'Dark Gray 2', hex: '#404040' },
-    { label: 'Dark Gray 3', hex: '#1A1A1A' },
+    { label: 'Light Gray', hex: '#B3B3B3' },
+    { label: 'Dark Gray', hex: '#666666' },
     { label: 'Black', hex: '#000000' },
+    { label: 'Checkerboard', hex: 'checkerboard' },
+    { label: 'Blue', hex: '#0000FF' },
+    { label: 'Green', hex: '#00FF00' },
+    { label: 'Red', hex: '#FF0000' },
   ];
 
   const palette = document.createElement('div');
@@ -55,7 +55,14 @@ export function createBgColorDialog(): { overlay: HTMLElement; open: () => void;
     btn.style.aspectRatio = '1 / 1';
     btn.style.borderRadius = '4px';
     btn.style.border = '1px solid var(--color-outline)';
-    btn.style.backgroundColor = color.hex;
+    if (color.hex === 'checkerboard') {
+      btn.style.backgroundImage = 'conic-gradient(#D9D9D9 90deg, #FFFFFF 90deg 180deg, #D9D9D9 180deg 270deg, #FFFFFF 270deg)';
+      btn.style.backgroundSize = '16px 16px';
+      btn.style.backgroundPosition = 'center';
+      btn.style.backgroundRepeat = 'repeat';
+    } else {
+      btn.style.backgroundColor = color.hex;
+    }
     btn.style.cursor = 'pointer';
     btn.title = color.label;
     btn.style.transition = 'transform 0.1s ease';

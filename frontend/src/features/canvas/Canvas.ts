@@ -482,7 +482,7 @@ export function createCanvas(): HTMLElement {
   const leftTextOverlay = document.createElement('div');
   const rightTextOverlay = document.createElement('div');
 
-  let currentBgColor = '#B3B3B3'; // Light Gray 2
+  let currentBgColor = 'checkerboard'; // Default to Checkerboard
 
   function styleTextOverlay(overlay: HTMLDivElement) {
     overlay.style.position = 'absolute';
@@ -1192,7 +1192,25 @@ export function createCanvas(): HTMLElement {
     }
 
     if (shouldDrawBg && currentBgColor && currentBgColor !== 'transparent') {
-      ctx.fillStyle = currentBgColor;
+      if (currentBgColor === 'checkerboard') {
+        const patternCanvas = document.createElement('canvas');
+        patternCanvas.width = 16;
+        patternCanvas.height = 16;
+        const pCtx = patternCanvas.getContext('2d');
+        if (pCtx) {
+          pCtx.fillStyle = '#FFFFFF';
+          pCtx.fillRect(0, 0, 16, 16);
+          pCtx.fillStyle = '#D9D9D9';
+          pCtx.fillRect(0, 0, 8, 8);
+          pCtx.fillRect(8, 8, 8, 8);
+          const pattern = ctx.createPattern(patternCanvas, 'repeat');
+          ctx.fillStyle = pattern || '#FFFFFF';
+        } else {
+          ctx.fillStyle = '#FFFFFF';
+        }
+      } else {
+        ctx.fillStyle = currentBgColor;
+      }
       
       const drawPsdBg = !skipPsdDraw;
       if (drawPsdBg) {
