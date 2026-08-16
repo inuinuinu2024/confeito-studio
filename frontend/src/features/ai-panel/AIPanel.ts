@@ -327,6 +327,21 @@ export function createAIPanel(): HTMLElement {
           } catch (err: any) {
             console.error(err);
             showToast(`${tool.name} coloring setup failed: ${err.message || 'Unknown error'}`, 'error');
+
+            try {
+              const date = new Date();
+              const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+              const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
+              const folderName = `${dateStr}_${timeStr}_${tool.name}_Coloring_error`;
+              const errorText = `${tool.name} (Coloring) Execution Error\n\nDate: ${date.toLocaleString()}\nError: ${err.message || 'Unknown error'}\nStack: ${err.stack || ''}`;
+              const errorBlob = new Blob([errorText], { type: 'text/plain' });
+              
+              await saveArchive(folderName, [{ blob: errorBlob, path: 'error.txt' }]);
+              
+              window.dispatchEvent(new Event('tool:cache-updated'));
+            } catch (cacheErr) {
+              console.error('Failed to save error cache:', cacheErr);
+            }
           } finally {
             window.dispatchEvent(new Event('tool:end'));
           }
