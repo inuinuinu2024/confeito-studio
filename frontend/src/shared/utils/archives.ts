@@ -2,13 +2,23 @@ import { CachedImage } from './idb'; // Reusing the type
 
 const API_BASE = 'http://127.0.0.1:48000/api';
 
-export async function getArchives(): Promise<CachedImage[]> {
-  const res = await fetch(`${API_BASE}/archives`);
-  if (!res.ok) {
-    console.error('Failed to fetch archives');
-    return [];
+export async function getArchives(retries = 5, delayMs = 1000): Promise<CachedImage[]> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(`${API_BASE}/archives`);
+      if (res.ok) {
+        return await res.json();
+      }
+      console.error(`Failed to fetch archives (status: ${res.status})`);
+    } catch (err) {
+      console.error(`Failed to fetch archives (attempt ${i + 1}/${retries}):`, err);
+    }
+    
+    if (i < retries - 1) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
   }
-  return await res.json();
+  return [];
 }
 
 export async function extractArchiveFile(zipName: string, path: string): Promise<Blob> {

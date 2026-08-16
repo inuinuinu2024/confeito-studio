@@ -6,5 +6,6 @@
   "nanoBananaPro_aspectRatio": "4:3",
   "nanoBananaPro_imageSize": "4K",
   "nanoBananaPro_mimeType": "image/jpeg",
-  "coloring_aspectRatio": "3:4"
+  "coloring_aspectRatio": "3:4",
+  "coloring_mimeType": "image/jpeg"
 }

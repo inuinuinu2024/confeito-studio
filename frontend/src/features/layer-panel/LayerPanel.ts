@@ -1195,7 +1195,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
             const cacheDef = currentCacheDefs[sortedIndices[i]];
             if (!cacheDef) continue;
             const cache = cacheDef.item;
-            if (cache.type === 'folder' || !cache.blob) continue;
+            if (cache.type === 'folder') continue;
             
             let isText = false;
             if (cache.name.match(/\.(json|txt|md)$/i)) {
