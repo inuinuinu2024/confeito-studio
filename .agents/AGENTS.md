@@ -124,6 +124,12 @@ confeito-studio/
 1. **ペイロード構造の違い**: `contents: [{role: "user", parts: [...]}]` ではなく、`input: [{type: "image", data: "BASE64..."}, {type: "text", text: "..."}]` というフラットな配列構造を使用します。
 2. **モデル互換性の制限**: `gemini-3-pro-image` モデルでは、メディアごとの解像度指定（`resolution` パラメータ）はサポートされていません。プレビュー用関数を含め、フロントエンド側で `resolution: "ultra_high"` などを付与すると確定で400エラーとなるため注意してください。
 
+### 背景除去ツール (rembg)
+- バックエンドの `rembg[cpu]` パッケージを使用し、選択レイヤー（または全体画像）の背景除去を行います。
+- 推論モデルのダウンロード先は、プロジェクトごとの管理を容易にするため、ルートの `.env` で `U2NET_HOME` にプロジェクト直下の `models/` ディレクトリを指定しています。
+- エンドポイント: `POST /api/image/remove-bg`
+- フロントエンド: `frontend/src/features/tools/remove-background.ts`
+
 ## SW開発戦略 (TypeScript / バイブコーディング向け)
 
 ### 1. ソースコードの構成: Feature-based (Vertical Slice)

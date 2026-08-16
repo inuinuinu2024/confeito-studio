@@ -1160,18 +1160,15 @@ export function createCanvas(): HTMLElement {
       }
     }
 
-    let isInputImage = false;
-    if (isGlobalCompareMode) {
-       if (ctx.canvas === currentSourceCanvas && leftIsInputImage) isInputImage = true;
-       if (ctx.canvas === currentResultCanvas && rightIsInputImage) isInputImage = true;
-    } else {
-       if (ctx.canvas === currentResultCanvas && leftIsInputImage) isInputImage = true;
+    let skipPsdDraw = false;
+    if (cacheToDraw || textToShow) {
+       skipPsdDraw = true;
     }
 
     let shouldDrawBg = true;
     let hasVisibleLayer = false;
     
-    if (currentPsd && currentPsd.children && !isInputImage) {
+    if (currentPsd && currentPsd.children && !skipPsdDraw) {
       const checkVisibility = (node: any) => {
         if (hasVisibleLayer || hiddenLayers.has(node)) return;
         if (node.children) {
@@ -1197,7 +1194,7 @@ export function createCanvas(): HTMLElement {
     if (shouldDrawBg && currentBgColor && currentBgColor !== 'transparent') {
       ctx.fillStyle = currentBgColor;
       
-      const drawPsdBg = !isInputImage;
+      const drawPsdBg = !skipPsdDraw;
       if (drawPsdBg) {
          ctx.fillRect(psdOffsetX, psdOffsetY, psdWidth, psdHeight);
       }
@@ -1273,7 +1270,7 @@ export function createCanvas(): HTMLElement {
        return;
     }
 
-    if (currentPsd.children && !isInputImage) {
+    if (currentPsd.children && !skipPsdDraw) {
       ctx.save();
       ctx.translate(psdOffsetX, psdOffsetY);
       for (let i = currentPsd.children.length - 1; i >= 0; i--) {

@@ -13,6 +13,7 @@ import { getGlobalSetting } from '../../shared/utils/settings';
 import { NanoBananaProTool } from '../tools/nano-banana-pro';
 import { NanoBanana2Tool } from '../tools/nano-banana-2';
 import { ColoringTool } from '../tools/coloring';
+import { RemoveBackgroundTool } from '../tools/remove-background';
 
 import { createToolSettingsSidebar } from './components/ToolSettingsSidebar';
 import { DocumentManager } from '../document/DocumentManager';
@@ -25,6 +26,7 @@ ToolRegistry.register(new GrayscaleTool());
 ToolRegistry.register(new NanoBananaProTool());
 ToolRegistry.register(new NanoBanana2Tool());
 ToolRegistry.register(new ColoringTool());
+ToolRegistry.register(new RemoveBackgroundTool());
 
 
 export function createAIPanel(): HTMLElement {

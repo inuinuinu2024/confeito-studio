@@ -14,7 +14,11 @@ if root_env.exists():
             if "=" in line and not line.strip().startswith("#"):
                 k, v = line.strip().split("=", 1)
                 if k.strip() not in os.environ:
-                    os.environ[k.strip()] = v.strip()
+                    val = v.strip()
+                    if k.strip() == "U2NET_HOME" and not os.path.isabs(val):
+                        # Make U2NET_HOME absolute relative to project root
+                        val = str((root_env.parent / val).resolve())
+                    os.environ[k.strip()] = val
 
 
 
@@ -39,11 +43,12 @@ app.add_middleware(
 )
 
 # ── Routers ──
-from .routers import health, psd, generate, settings, archives
+from .routers import health, psd, generate, settings, archives, image
 
 app.include_router(health.router, prefix="/api")
 app.include_router(psd.router, prefix="/api")
 app.include_router(generate.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(archives.router, prefix="/api")
+app.include_router(image.router, prefix="/api")
 

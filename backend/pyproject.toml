@@ -10,10 +10,12 @@ dependencies = [
     "pydantic-settings>=2.0",
     "python-multipart>=0.0.9",
     "requests>=2.34.2",
+    "rembg[cpu]>=2.0.50",
+    "pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]
-dev = ["ruff", "pytest", "httpx"]
+dev = ["ruff", "pytest", "httpx", "jupyter", "ipykernel"]
 
 [tool.ruff]
 line-length = 100
