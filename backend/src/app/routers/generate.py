@@ -1,10 +1,16 @@
-from typing import Annotated, Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Header
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from ..providers import provider_factory
+from ..services.generation_service import (
+    generate_image as svc_generate_image,
+    generate_nano_banana_pro as svc_generate_nano_banana_pro,
+    GenerationProviderNotFoundError,
+    GenerationConfigError,
+    GenerationServiceError
+)
 
 router = APIRouter()
 
@@ -23,24 +29,24 @@ async def generate_image(
     """
     Generate an image using the specified provider.
     """
-    gen_provider = provider_factory.get_provider(provider)
-    if not gen_provider:
-        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
-
     try:
-        # If an image was uploaded, read it
         image_bytes = None
         if image:
             image_bytes = await image.read()
 
-        result = await gen_provider.generate(
+        result_bytes = await svc_generate_image(
+            provider=provider,
             prompt=prompt,
             image_bytes=image_bytes,
-            api_key=api_key,
+            api_key=api_key
         )
         
-        return Response(content=result.image_bytes, media_type="image/png")
+        return Response(content=result_bytes, media_type="image/png")
     
+    except GenerationProviderNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except GenerationServiceError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -53,22 +59,21 @@ async def generate_nano_banana_pro(
     """
     Generate an image using the multimodal Interactions API format (Nano Banana Pro).
     """
-    gen_provider = provider_factory.get_provider(provider)
-    if not gen_provider:
-        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
-
     try:
-        # Require the provider to support multimodal generation
-        if not hasattr(gen_provider, "generate_multimodal"):
-            raise RuntimeError(f"Provider {provider} does not support multimodal generation.")
-            
-        result = await gen_provider.generate_multimodal(
+        result_bytes = await svc_generate_nano_banana_pro(
+            provider=provider,
             payload=request.dict(exclude_none=True),
-            api_key=api_key,
+            api_key=api_key
         )
         
         mime_type = request.response_format.get("mime_type", "image/png")
-        return Response(content=result.image_bytes, media_type=mime_type)
+        return Response(content=result_bytes, media_type=mime_type)
     
+    except GenerationProviderNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except GenerationConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except GenerationServiceError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

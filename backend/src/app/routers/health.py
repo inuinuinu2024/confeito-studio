@@ -1,13 +1,9 @@
 """Health check endpoint."""
 
-import os
-import signal
-import threading
-import time
 from fastapi import APIRouter
+from ..services.system_service import trigger_shutdown
 
 router = APIRouter(tags=["health"])
-
 
 @router.get("/health")
 async def health_check() -> dict:
@@ -29,13 +25,5 @@ async def shutdown():
     バックエンドサーバーを安全に終了させるエンドポイント。
     フロントエンドが閉じられた際に呼び出されます。
     """
-    def suicide():
-        time.sleep(0.5)
-        # WindowsやUnix環境で安全にプロセスを終了させる
-        try:
-            os.kill(os.getpid(), signal.SIGTERM)
-        except Exception:
-            pass
-
-    threading.Thread(target=suicide, daemon=True).start()
+    trigger_shutdown(delay=0.5)
     return {"status": "shutting down"}
