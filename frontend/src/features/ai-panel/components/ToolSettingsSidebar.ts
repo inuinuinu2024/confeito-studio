@@ -24,7 +24,7 @@ export function createToolSettingsSidebar(): {
   sidebar.style.right = '0';
   sidebar.style.width = '360px';
   sidebar.style.height = 'calc(100vh - 48px)';
-  sidebar.style.backgroundColor = 'var(--color-surface-container-highest)';
+  sidebar.style.backgroundColor = '#201e22';
   sidebar.style.borderLeft = '1px solid var(--color-outline-variant)';
   sidebar.style.boxShadow = '-4px 0 16px rgba(0,0,0,0.5)';
   sidebar.style.transform = 'translateX(100%)';
@@ -129,11 +129,25 @@ export function createToolSettingsSidebar(): {
     }
   });
 
-  const open = (toolName: string, renderSettings: (container: HTMLElement) => void, onExecute?: () => void, onColoringExecute?: () => void) => {
+  const open = (
+    toolName: string, 
+    renderSettings: (container: HTMLElement) => void, 
+    onExecute?: () => void, 
+    onColoringExecute?: () => void,
+    executeLabel?: string,
+    executeIcon?: string | null
+  ) => {
     title.textContent = toolName;
     body.innerHTML = ''; // Clear previous settings
     currentOnExecute = onExecute || null;
     currentOnColoringExecute = onColoringExecute || null;
+    
+    // Update generate button text and icon
+    generateBtn.innerHTML = '';
+    if (executeIcon !== null) {
+      generateBtn.appendChild(icon(executeIcon || 'auto_awesome', 18));
+    }
+    generateBtn.appendChild(document.createTextNode(executeLabel || '生成する'));
     
     if (currentOnColoringExecute) {
       coloringBtn.style.display = 'flex';

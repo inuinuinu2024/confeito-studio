@@ -7,5 +7,9 @@
   "nanoBananaPro_imageSize": "4K",
   "nanoBananaPro_mimeType": "image/jpeg",
   "coloring_aspectRatio": "3:4",
-  "coloring_mimeType": "image/jpeg"
+  "coloring_mimeType": "image/jpeg",
+  "removeBg_alpha_matting": "true",
+  "removeBg_bg_threshold": "41",
+  "removeBg_fg_threshold": "240",
+  "removeBg_erode_size": "10"
 }
