@@ -722,7 +722,7 @@ export function createCanvas(): HTMLElement {
   function drawNode(ctx: CanvasRenderingContext2D, node: any, hiddenLayers: Set<any>) {
     if (hiddenLayers.has(node)) return;
     if (node.children) {
-      for (let i = node.children.length - 1; i >= 0; i--) {
+      for (let i = 0; i < node.children.length; i++) {
         drawNode(ctx, node.children[i], hiddenLayers);
       }
     } else if (node.canvas) {
@@ -1291,7 +1291,7 @@ export function createCanvas(): HTMLElement {
     if (currentPsd.children && !skipPsdDraw) {
       ctx.save();
       ctx.translate(psdOffsetX, psdOffsetY);
-      for (let i = currentPsd.children.length - 1; i >= 0; i--) {
+      for (let i = 0; i < currentPsd.children.length; i++) {
         drawNode(ctx, currentPsd.children[i], hiddenLayers);
       }
       ctx.restore();

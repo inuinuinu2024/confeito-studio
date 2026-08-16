@@ -244,6 +244,18 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   addImageBtn.title = '画像を追加';
   addImageBtn.appendChild(icon('add', 16));
   
+  window.addEventListener('compare-mode:toggle', (e: Event) => {
+    const enabled = (e as CustomEvent).detail.enabled;
+    addImageBtn.disabled = enabled;
+    if (enabled) {
+      addImageBtn.style.opacity = '0.5';
+      addImageBtn.style.cursor = 'not-allowed';
+    } else {
+      addImageBtn.style.opacity = '';
+      addImageBtn.style.cursor = '';
+    }
+  });
+  
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
   fileInput.accept = 'image/*';
@@ -1712,9 +1724,9 @@ let cacheDraggedIndex: number | null = null;
 function mapPsdLayers(psdLayers: Layer[], depth = 0): LayerDef[] {
   const result: LayerDef[] = [];
   
-  // ag-psd returns layers in order from bottom to top (like Photoshop internal).
-  // Usually UI layer lists are top to bottom. So we iterate backwards.
-  for (let i = psdLayers.length - 1; i >= 0; i--) {
+  // ag-psd returns layers in order from top to bottom (index 0 is top).
+  // UI layer lists are also top to bottom, so we iterate forwards.
+  for (let i = 0; i < psdLayers.length; i++) {
     const layer = psdLayers[i];
     const isGroup = layer.children !== undefined;
     let layerName = layer.name || 'Unnamed Layer';
@@ -1769,14 +1781,5 @@ function rebuildPsdHierarchy(items: LayerDef[]): Layer[] {
     }
   }
 
-  function reverseLayers(layers: Layer[]) {
-    layers.reverse();
-    for (const l of layers) {
-      if (l.children) reverseLayers(l.children);
-    }
-  }
-  
-  reverseLayers(rootLayers);
-  
   return rootLayers;
 }
