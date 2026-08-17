@@ -523,7 +523,7 @@
   width: 4px;
 }
 .layer-cache__list::-webkit-scrollbar-thumb {
-  background-color: var(--color-outline-variant);
+  background-color: var(--color-outline);
   border-radius: 4px;
 }
 

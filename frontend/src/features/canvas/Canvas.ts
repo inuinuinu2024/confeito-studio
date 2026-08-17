@@ -247,6 +247,7 @@ export function createCanvas(): HTMLElement {
   // ── Split View ──
   const splitView = document.createElement('div');
   splitView.className = 'canvas-split';
+  splitView.style.overflow = 'auto';
 
   // Source panel
   const sourcePanel = document.createElement('div');
@@ -311,11 +312,12 @@ export function createCanvas(): HTMLElement {
 
   // Inner container to avoid padding issues with absolute positioning
   const splitViewInner = document.createElement('div');
-  splitViewInner.style.flex = '1';
+  splitViewInner.style.flexShrink = '0';
   splitViewInner.style.display = 'flex';
   splitViewInner.style.position = 'relative';
   splitViewInner.style.width = '100%';
   splitViewInner.style.height = '100%';
+  splitViewInner.style.margin = 'auto';
   
   const sourceContentWrapper = document.createElement('div');
   sourceContentWrapper.className = 'canvas-split__content-wrapper';
@@ -333,8 +335,6 @@ export function createCanvas(): HTMLElement {
 
   // ── Zoom & Pan ──
   let currentZoom = 100;
-  let panX = 0;
-  let panY = 0;
 
   let isPanning = false;
   let panStartX = 0;
@@ -346,9 +346,10 @@ export function createCanvas(): HTMLElement {
 
   window.addEventListener('mousemove', (e) => {
     if (isPanning) {
-      panX = panInitialX + (e.clientX - panStartX);
-      panY = panInitialY + (e.clientY - panStartY);
-      updateZoom(currentZoom, true);
+      const dx = panStartX - e.clientX;
+      const dy = panStartY - e.clientY;
+      splitView.scrollLeft = panInitialX + dx;
+      splitView.scrollTop = panInitialY + dy;
     }
   });
 
@@ -356,8 +357,6 @@ export function createCanvas(): HTMLElement {
     if (isPanning) {
       isPanning = false;
       document.body.style.cursor = '';
-      sourceContentWrapper.style.transition = 'transform 0.1s ease-out';
-      resultContentWrapper.style.transition = 'transform 0.1s ease-out';
     }
   });
 
@@ -371,7 +370,7 @@ export function createCanvas(): HTMLElement {
   const zoomSlider = document.createElement('input');
   zoomSlider.type = 'range';
   zoomSlider.min = '10';
-  zoomSlider.max = '500';
+  zoomSlider.max = '1000';
   zoomSlider.value = '100';
   
   const zoomInBtn = document.createElement('button');
@@ -391,15 +390,11 @@ export function createCanvas(): HTMLElement {
   resetZoomBtn.addEventListener('click', () => {
     const oldZoom = currentZoom;
     currentZoom = 100;
-    panX = 0;
-    panY = 0;
-    sourceContentWrapper.style.transition = 'transform 0.2s ease-out';
-    resultContentWrapper.style.transition = 'transform 0.2s ease-out';
     updateZoom(oldZoom);
   });
 
-  function updateZoom(oldZoom: number, forcePanUpdate: boolean = false) {
-    if (oldZoom === currentZoom && !forcePanUpdate) return;
+  function updateZoom(oldZoom: number, focusX?: number, focusY?: number) {
+    if (oldZoom === currentZoom) return;
 
     zoomSlider.value = currentZoom.toString();
     zoomLabel.textContent = `${currentZoom}%`;
@@ -407,70 +402,145 @@ export function createCanvas(): HTMLElement {
     const oldScale = oldZoom / 100;
     const newScale = currentZoom / 100;
 
-    if (oldScale !== newScale) {
-      panX = panX * (newScale / oldScale);
-      panY = panY * (newScale / oldScale);
-    }
+    const innerRect = splitViewInner.getBoundingClientRect();
+    const splitRect = splitView.getBoundingClientRect();
+
+    const cx = focusX !== undefined ? focusX : splitRect.width / 2;
+    const cy = focusY !== undefined ? focusY : splitRect.height / 2;
     
-    sourceContentWrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${newScale})`;
-    resultContentWrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${newScale})`;
+    const screenFocusX = splitRect.left + cx;
+    const screenFocusY = splitRect.top + cy;
+    
+    const contentFocusX = screenFocusX - innerRect.left;
+    const contentFocusY = screenFocusY - innerRect.top;
+
+    const ratio = newScale / oldScale;
+
+    let pctW = newScale * 100;
+    let pctH = newScale * 100;
+    
+    if (canvasDrawWidth && canvasDrawHeight) {
+      const pad = 64;
+      const availableW = Math.max(1, splitView.clientWidth - pad);
+      const availableH = Math.max(1, splitView.clientHeight - pad);
+      
+      const scale = Math.min(availableW / canvasDrawWidth, availableH / canvasDrawHeight);
+      const fitW = canvasDrawWidth * scale;
+      const fitH = canvasDrawHeight * scale;
+      
+      pctW = (fitW / availableW) * 100 * newScale;
+      pctH = (fitH / availableH) * 100 * newScale;
+    }
+
+    splitViewInner.style.width = `${pctW}%`;
+    splitViewInner.style.height = `${pctH}%`;
+    
+    splitViewInner.style.marginTop = pctH > 100 ? '0' : 'auto';
+    splitViewInner.style.marginBottom = pctH > 100 ? '0' : 'auto';
+    splitViewInner.style.marginLeft = pctW > 100 ? '0' : 'auto';
+    splitViewInner.style.marginRight = pctW > 100 ? '0' : 'auto';
+
+    const newContentFocusX = contentFocusX * ratio;
+    const newContentFocusY = contentFocusY * ratio;
+
+    splitView.scrollLeft = newContentFocusX - cx;
+    splitView.scrollTop = newContentFocusY - cy;
   }
 
   zoomOutBtn.addEventListener('click', () => {
     const oldZoom = currentZoom;
     currentZoom = Math.max(10, currentZoom - 10);
-    sourceContentWrapper.style.transition = 'transform 0.1s ease-out';
-    resultContentWrapper.style.transition = 'transform 0.1s ease-out';
     updateZoom(oldZoom);
   });
 
   zoomInBtn.addEventListener('click', () => {
     const oldZoom = currentZoom;
-    currentZoom = Math.min(500, currentZoom + 10);
-    sourceContentWrapper.style.transition = 'transform 0.1s ease-out';
-    resultContentWrapper.style.transition = 'transform 0.1s ease-out';
+    currentZoom = Math.min(1000, currentZoom + 10);
     updateZoom(oldZoom);
   });
 
   zoomSlider.addEventListener('input', (e) => {
     const oldZoom = currentZoom;
     currentZoom = parseInt((e.target as HTMLInputElement).value, 10);
-    sourceContentWrapper.style.transition = 'none';
-    resultContentWrapper.style.transition = 'none';
     updateZoom(oldZoom);
   });
   
   zoomSlider.addEventListener('change', () => {
-    sourceContentWrapper.style.transition = 'transform 0.1s ease-out';
-    resultContentWrapper.style.transition = 'transform 0.1s ease-out';
   });
 
   // Enable mouse wheel zooming with Ctrl key
   main.addEventListener('wheel', (e) => {
     if (e.ctrlKey) {
       e.preventDefault();
+      
+      const rect = splitView.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
       const oldZoom = currentZoom;
       if (e.deltaY < 0) {
-        currentZoom = Math.min(500, currentZoom + 10);
+        currentZoom = Math.min(1000, currentZoom + 10);
       } else {
         currentZoom = Math.max(10, currentZoom - 10);
       }
-      sourceContentWrapper.style.transition = 'none';
-      resultContentWrapper.style.transition = 'none';
-      updateZoom(oldZoom);
-      
-      clearTimeout((main as any)._wheelTimeout);
-      (main as any)._wheelTimeout = setTimeout(() => {
-        sourceContentWrapper.style.transition = 'transform 0.1s ease-out';
-        resultContentWrapper.style.transition = 'transform 0.1s ease-out';
-      }, 150);
+      updateZoom(oldZoom, mouseX, mouseY);
     }
   }, { passive: false });
+
+  const fitWidthBtn = document.createElement('button');
+  fitWidthBtn.appendChild(icon('width', 16));
+  fitWidthBtn.title = 'Fit Width';
+  fitWidthBtn.style.display = 'flex';
+  fitWidthBtn.style.alignItems = 'center';
+  fitWidthBtn.style.justifyContent = 'center';
+  
+  fitWidthBtn.addEventListener('click', () => {
+    if (!canvasDrawWidth || !canvasDrawHeight) return;
+    const oldZoom = currentZoom;
+    const pad = 64;
+    const availableW = Math.max(1, splitView.clientWidth - pad);
+    const availableH = Math.max(1, splitView.clientHeight - pad);
+    const scale = Math.min(availableW / canvasDrawWidth, availableH / canvasDrawHeight);
+    const fitW = canvasDrawWidth * scale;
+    
+    currentZoom = Math.max(10, Math.min(1000, Math.floor(100 * availableW / fitW)));
+    updateZoom(oldZoom);
+    
+    // Explicitly align center to screen center
+    splitView.scrollLeft = (splitView.scrollWidth - splitView.clientWidth) / 2;
+    splitView.scrollTop = (splitView.scrollHeight - splitView.clientHeight) / 2;
+  });
+
+  const fitHeightBtn = document.createElement('button');
+  fitHeightBtn.appendChild(icon('height', 16));
+  fitHeightBtn.title = 'Fit Height';
+  fitHeightBtn.style.display = 'flex';
+  fitHeightBtn.style.alignItems = 'center';
+  fitHeightBtn.style.justifyContent = 'center';
+  
+  fitHeightBtn.addEventListener('click', () => {
+    if (!canvasDrawWidth || !canvasDrawHeight) return;
+    const oldZoom = currentZoom;
+    const pad = 64;
+    const availableW = Math.max(1, splitView.clientWidth - pad);
+    const availableH = Math.max(1, splitView.clientHeight - pad);
+    const scale = Math.min(availableW / canvasDrawWidth, availableH / canvasDrawHeight);
+    const fitH = canvasDrawHeight * scale;
+    
+    currentZoom = Math.max(10, Math.min(1000, Math.floor(100 * availableH / fitH)));
+    updateZoom(oldZoom);
+    
+    // Explicitly align center to screen center
+    splitView.scrollLeft = (splitView.scrollWidth - splitView.clientWidth) / 2;
+    splitView.scrollTop = (splitView.scrollHeight - splitView.clientHeight) / 2;
+  });
 
   zoomBar.appendChild(zoomOutBtn);
   zoomBar.appendChild(zoomSlider);
   zoomBar.appendChild(zoomInBtn);
   zoomBar.appendChild(zoomLabel);
+  zoomBar.appendChild(fitWidthBtn);
+  zoomBar.appendChild(fitHeightBtn);
   zoomBar.appendChild(resetZoomBtn);
   main.appendChild(zoomBar);
 
@@ -978,11 +1048,10 @@ export function createCanvas(): HTMLElement {
     isPanning = true;
     panStartX = e.clientX;
     panStartY = e.clientY;
-    panInitialX = panX;
-    panInitialY = panY;
+    panInitialX = splitView.scrollLeft;
+    panInitialY = splitView.scrollTop;
     document.body.style.cursor = 'grabbing';
-    sourceContentWrapper.style.transition = 'none';
-    resultContentWrapper.style.transition = 'none';
+    splitViewInner.style.transition = 'none';
   });
 
   splitView.addEventListener('dblclick', (e) => {

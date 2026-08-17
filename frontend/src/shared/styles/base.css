@@ -173,12 +173,12 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-outline-variant);
+  background: var(--color-outline);
   border-radius: var(--radius-full);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-outline);
+  background: var(--color-on-surface-variant);
 }
 
 /* ── Toast Notification ───────────────────────────────────── */
