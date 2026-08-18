@@ -8,7 +8,6 @@ import { saveArchive } from '../../shared/utils/archives';
 import { showToast } from '../../shared/utils/toast';
 import { ToolRegistry } from '../../shared/utils/ToolRegistry';
 
-import { GrayscaleTool } from '../tools/grayscale';
 import { getGlobalSetting } from '../../shared/utils/settings';
 import { NanoBananaProTool } from '../tools/nano-banana-pro';
 import { NanoBanana2Tool } from '../tools/nano-banana-2';
@@ -22,7 +21,6 @@ import { historyManager } from '../../shared/utils/history';
 import { ToolContext } from '../../shared/types/tool.types';
 
 // Register built-in tools
-ToolRegistry.register(new GrayscaleTool());
 ToolRegistry.register(new NanoBananaProTool());
 ToolRegistry.register(new NanoBanana2Tool());
 ToolRegistry.register(new ColoringTool());

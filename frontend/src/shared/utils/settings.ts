@@ -22,7 +22,8 @@ export function getGlobalSetting(key: string, defaultValue: string = ''): string
   if (!isInitialized) {
     console.warn(`getGlobalSetting called for ${key} before initialization.`);
   }
-  return settingsCache[key] ?? defaultValue;
+  const val = settingsCache[key];
+  return (val === undefined || val === null || val === '') ? defaultValue : val;
 }
 
 export async function setGlobalSetting(key: string, value: string): Promise<void> {

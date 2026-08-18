@@ -4,7 +4,7 @@ import { getGlobalSetting, setGlobalSetting } from '../../shared/utils/settings'
 
 export class RemoveBackgroundTool implements Tool {
   id = 'remove-background';
-  name = 'Remove Background';
+  name = '背景除去';
   icon = '';
   hasSettings = true;
   executeLabel = '背景除去する';

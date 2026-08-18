@@ -6,7 +6,7 @@ import { icon } from '../../shared/utils/dom';
 import { getGlobalSetting, setGlobalSetting } from '../../shared/utils/settings';
 export class ColoringTool implements Tool {
   id = 'coloring';
-  name = 'Coloring';
+  name = '着彩';
   icon = 'auto_awesome';
   hasSettings = true;
 
