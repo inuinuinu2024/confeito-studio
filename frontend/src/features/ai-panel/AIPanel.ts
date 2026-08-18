@@ -260,7 +260,7 @@ export function createAIPanel(): HTMLElement {
             const drawNode = (node: any) => {
               if (hiddenLayers.has(node) || node.hidden) return;
               if (node.children) {
-                for (let i = node.children.length - 1; i >= 0; i--) {
+                for (let i = 0; i < node.children.length; i++) {
                   drawNode(node.children[i]);
                 }
               } else if (node.canvas) {
@@ -269,7 +269,7 @@ export function createAIPanel(): HTMLElement {
             };
 
             if (psd.children) {
-              for (let i = psd.children.length - 1; i >= 0; i--) {
+              for (let i = 0; i < psd.children.length; i++) {
                 drawNode(psd.children[i]);
               }
             }

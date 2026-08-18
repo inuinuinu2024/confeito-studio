@@ -273,7 +273,7 @@ export class NanoBananaProTool implements Tool {
       header.appendChild(headerRight);
       
       const dropArea = document.createElement('div');
-      dropArea.style.border = '1px dashed var(--color-outline-variant)';
+      dropArea.style.border = '1px solid var(--color-outline)';
       dropArea.style.borderRadius = '4px';
       dropArea.style.padding = '12px';
       dropArea.style.textAlign = 'center';
@@ -420,7 +420,7 @@ export class NanoBananaProTool implements Tool {
             addMore.style.display = 'flex';
             addMore.style.alignItems = 'center';
             addMore.style.justifyContent = 'center';
-            addMore.style.border = '1px dashed var(--color-outline-variant)';
+            addMore.style.border = '1px solid var(--color-outline)';
             addMore.style.borderRadius = '4px';
             addMore.style.cursor = 'pointer';
             addMore.style.fontSize = '24px';
@@ -493,12 +493,12 @@ export class NanoBananaProTool implements Tool {
       });
 
       dropArea.addEventListener('dragleave', () => {
-        dropArea.style.borderColor = 'var(--color-outline-variant)';
+        dropArea.style.borderColor = 'var(--color-outline)';
       });
 
       dropArea.addEventListener('drop', (e) => {
         e.preventDefault();
-        dropArea.style.borderColor = 'var(--color-outline-variant)';
+        dropArea.style.borderColor = 'var(--color-outline)';
         if (e.dataTransfer?.files) {
           handleFiles(e.dataTransfer.files);
         }
@@ -515,13 +515,16 @@ export class NanoBananaProTool implements Tool {
     const arContainer = document.createElement('div');
     arContainer.style.display = 'grid';
     arContainer.style.gridTemplateColumns = 'repeat(5, 1fr)';
-    arContainer.style.gap = '8px';
+    arContainer.style.gap = '0';
+    arContainer.style.borderRadius = '4px';
+    arContainer.style.border = '1px solid var(--color-outline)';
+    arContainer.style.overflow = 'hidden';
 
     let currentAr = this.getSetting('aspectRatio', '1:1');
     const arButtons: HTMLElement[] = [];
     const arOptions = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
 
-    arOptions.forEach(opt => {
+    arOptions.forEach((opt, i) => {
       const btn = document.createElement('button');
       btn.style.display = 'flex';
       btn.style.flexDirection = 'column';
@@ -529,9 +532,11 @@ export class NanoBananaProTool implements Tool {
       btn.style.justifyContent = 'center';
       btn.style.gap = '4px';
       btn.style.padding = '8px 4px';
-      btn.style.borderRadius = '4px';
-      btn.style.border = '1px solid var(--color-outline-variant)';
-      btn.style.backgroundColor = currentAr === opt ? 'var(--color-surface-container-high)' : 'transparent';
+      btn.style.borderRadius = '0';
+      btn.style.border = 'none';
+      if (i % 5 !== 4) btn.style.borderRight = '1px solid var(--color-outline)';
+      if (i < 5) btn.style.borderBottom = '1px solid var(--color-outline)';
+      btn.style.backgroundColor = currentAr === opt ? 'var(--color-surface-container-high)' : 'var(--color-surface-container-lowest)';
       btn.style.color = currentAr === opt ? 'var(--color-primary)' : 'var(--color-on-surface-variant)';
       btn.style.cursor = 'pointer';
 
@@ -566,7 +571,7 @@ export class NanoBananaProTool implements Tool {
         arButtons.forEach((b, i) => {
            const bOpt = arOptions[i];
            const isSelected = bOpt === currentAr;
-           b.style.backgroundColor = isSelected ? 'var(--color-surface-container-high)' : 'transparent';
+           b.style.backgroundColor = isSelected ? 'var(--color-surface-container-high)' : 'var(--color-surface-container-lowest)';
            b.style.color = isSelected ? 'var(--color-primary)' : 'var(--color-on-surface-variant)';
            const icon = b.firstChild as HTMLElement;
            icon.style.borderColor = isSelected ? 'var(--color-primary)' : 'var(--color-on-surface-variant)';

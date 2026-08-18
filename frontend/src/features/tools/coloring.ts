@@ -282,7 +282,7 @@ export class ColoringTool implements Tool {
       header.appendChild(headerRight);
       
       const dropArea = document.createElement('div');
-      dropArea.style.border = '1px dashed var(--color-outline-variant)';
+      dropArea.style.border = '1px solid var(--color-outline)';
       dropArea.style.borderRadius = '4px';
       dropArea.style.padding = '12px';
       dropArea.style.textAlign = 'center';
@@ -429,7 +429,7 @@ export class ColoringTool implements Tool {
             addMore.style.display = 'flex';
             addMore.style.alignItems = 'center';
             addMore.style.justifyContent = 'center';
-            addMore.style.border = '1px dashed var(--color-outline-variant)';
+            addMore.style.border = '1px solid var(--color-outline)';
             addMore.style.borderRadius = '4px';
             addMore.style.cursor = 'pointer';
             addMore.style.fontSize = '24px';
@@ -503,12 +503,12 @@ export class ColoringTool implements Tool {
       });
 
       dropArea.addEventListener('dragleave', () => {
-        dropArea.style.borderColor = 'var(--color-outline-variant)';
+        dropArea.style.borderColor = 'var(--color-outline)';
       });
 
       dropArea.addEventListener('drop', (e) => {
         e.preventDefault();
-        dropArea.style.borderColor = 'var(--color-outline-variant)';
+        dropArea.style.borderColor = 'var(--color-outline)';
         if (e.dataTransfer?.files) {
           handleFiles(e.dataTransfer.files);
         }

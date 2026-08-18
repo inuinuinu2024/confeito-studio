@@ -3,7 +3,7 @@
   "coloring_prompt": "## 依頼\n原画に線画を渡すので、着彩して。\n出力は原画を忠実に再現し、元の線に自然な掠れや途切れがある場合もそれを再現して。\n背景は描かない。\n",
   "nanoBananaPro_defaultPrompt": "",
   "nanoBananaPro_prompt": "このキャラの三面図を作成して。正面側面背面の正立と顔アップと目元アップの画像で構成して。特に顔と目元は別途添付画像もよく参考にすること。",
-  "nanoBananaPro_aspectRatio": "4:3",
+  "nanoBananaPro_aspectRatio": "1:1",
   "nanoBananaPro_imageSize": "4K",
   "nanoBananaPro_mimeType": "image/jpeg",
   "coloring_aspectRatio": "3:4",
