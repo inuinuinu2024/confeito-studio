@@ -55,19 +55,28 @@ async def generate_nano_banana_pro(
     request: NanoBananaProRequest,
     provider: str = Header(default="gemini", alias="X-Provider"),
     api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+    return_json: bool = False,
 ):
     """
     Generate an image using the multimodal Interactions API format (Nano Banana Pro).
     """
     try:
-        result_bytes = await svc_generate_nano_banana_pro(
+        result = await svc_generate_nano_banana_pro(
             provider=provider,
             payload=request.dict(exclude_none=True),
             api_key=api_key
         )
         
-        mime_type = request.response_format.get("mime_type", "image/png")
-        return Response(content=result_bytes, media_type=mime_type)
+        if return_json:
+            import base64
+            image_b64 = base64.b64encode(result.image_bytes).decode("utf-8")
+            return {
+                "image_base64": image_b64,
+                "metadata": result.metadata
+            }
+        else:
+            mime_type = request.response_format.get("mime_type", "image/png")
+            return Response(content=result.image_bytes, media_type=mime_type)
     
     except GenerationProviderNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))

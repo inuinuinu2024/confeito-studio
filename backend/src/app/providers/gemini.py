@@ -49,7 +49,19 @@ class GeminiProvider(ImageGenerationProvider):
         def _post():
             response = requests.post(url, headers=headers, json=payload, timeout=300)
             if response.status_code != 200:
-                raise RuntimeError(f"API Error ({response.status_code}): {response.text}")
+                error_msg = response.text
+                try:
+                    import json
+                    err_data = json.loads(response.text)
+                    if "error" in err_data and "message" in err_data["error"]:
+                        error_msg = err_data["error"]["message"]
+                except Exception:
+                    pass
+                
+                if "high demand" in error_msg.lower():
+                    error_msg = f"{error_msg}\n(Google側のサーバーにリクエストが殺到しており高負荷状態です。しばらく待ってから再度お試しください)"
+                    
+                raise RuntimeError(f"API Error ({response.status_code}): {error_msg}")
             
             # The interactions API might return raw image bytes directly if response_format.type = image
             content_type = response.headers.get("Content-Type", "")
@@ -116,7 +128,7 @@ class GeminiProvider(ImageGenerationProvider):
                     image_bytes=base64.b64decode(b64_data),
                     width=1024,
                     height=1024,
-                    metadata={"model": model_name}
+                    metadata={"model": model_name, "raw_response": data}
                 )
             
             raise RuntimeError(f"No image data found in response. Response keys: {list(data.keys())}")

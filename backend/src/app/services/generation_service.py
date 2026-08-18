@@ -1,5 +1,6 @@
 from typing import Optional, Dict, Any
 from ..providers import provider_factory
+from ..providers.base import GenerationResult
 
 class GenerationServiceError(Exception):
     pass
@@ -34,7 +35,7 @@ async def generate_nano_banana_pro(
     provider: str,
     payload: Dict[str, Any],
     api_key: Optional[str]
-) -> bytes:
+) -> GenerationResult:
     gen_provider = provider_factory.get_provider(provider)
     if not gen_provider:
         raise GenerationProviderNotFoundError(f"Unsupported provider: {provider}")
@@ -47,6 +48,6 @@ async def generate_nano_banana_pro(
             payload=payload,
             api_key=api_key,
         )
-        return result.image_bytes
+        return result
     except Exception as e:
         raise GenerationServiceError(str(e))

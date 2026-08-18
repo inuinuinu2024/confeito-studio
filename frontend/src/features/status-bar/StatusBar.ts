@@ -132,6 +132,7 @@ export function createStatusBar(): HTMLElement {
 
   window.addEventListener('settings:updated', updateGeminiStatus);
   updateGeminiStatus();
+  setInterval(updateGeminiStatus, 10000);
 
   footer.appendChild(right);
 

@@ -810,7 +810,7 @@ export class ColoringTool implements Tool {
         }));
       }, 1000);
 
-      const response = await fetch('http://127.0.0.1:48000/api/nano-banana-pro', {
+      const response = await fetch('http://127.0.0.1:48000/api/nano-banana-pro?return_json=true', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -832,7 +832,20 @@ export class ColoringTool implements Tool {
         throw new Error(errorText);
       }
 
-      const blob = await response.blob();
+      const jsonResponse = await response.json();
+      const base64Data = jsonResponse.image_base64;
+      const metadata = jsonResponse.metadata || {};
+      const rawResponse = metadata.raw_response || {};
+
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const mimeType = payload.response_format?.mime_type || 'image/png';
+      const ext = mimeType === 'image/jpeg' ? '.jpg' : '.png';
+      const blob = new Blob([byteArray], {type: mimeType});
 
       // --- Structured archive output ---
       const date = new Date();
@@ -840,9 +853,6 @@ export class ColoringTool implements Tool {
       const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
       const stampedName = `${dateStr}_${timeStr}_${this.name}`;
 
-      const mimeType = payload.response_format?.mime_type || 'image/png';
-      const ext = mimeType === 'image/jpeg' ? '.jpg' : '.png';
-      
       const archiveFiles: {blob: Blob, path: string}[] = [];
       archiveFiles.push({ blob, path: `${stampedName}${ext}` });
 
@@ -869,6 +879,29 @@ export class ColoringTool implements Tool {
       }
       const jsonBlob = new Blob([JSON.stringify(payloadForSave, null, 2)], { type: 'application/json' });
       archiveFiles.push({ blob: jsonBlob, path: `Inputs/payload.json` });
+
+      // Save response.json with required fields
+      const finishReason = rawResponse.candidates?.[0]?.finishReason;
+      const safetyRatings = rawResponse.candidates?.[0]?.safetyRatings;
+      const promptFeedback = rawResponse.promptFeedback;
+
+      const filteredResponse = {
+        finishReason,
+        safetyRatings: safetyRatings ? safetyRatings.map((r: any) => ({
+          category: r.category,
+          probability: r.probability,
+          probabilityScore: r.probabilityScore,
+          severity: r.severity,
+          severityScore: r.severityScore
+        })) : undefined,
+        promptFeedback: promptFeedback ? {
+          safetyRatings: promptFeedback.safetyRatings,
+          blockReason: promptFeedback.blockReason
+        } : undefined
+      };
+
+      const fullResponseJsonBlob = new Blob([JSON.stringify(filteredResponse, null, 2)], { type: 'application/json' });
+      archiveFiles.push({ blob: fullResponseJsonBlob, path: `response.json` });
 
       await saveArchive(stampedName, archiveFiles);
       
@@ -910,7 +943,7 @@ export class ColoringTool implements Tool {
         }));
       }, 1000);
 
-      const response = await fetch('http://127.0.0.1:48000/api/nano-banana-pro', {
+      const response = await fetch('http://127.0.0.1:48000/api/nano-banana-pro?return_json=true', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -933,8 +966,19 @@ export class ColoringTool implements Tool {
       }
 
       // ③ Gemini生成後クロップ前出力
-      const geminiBlob = await response.blob();
+      const jsonResponse = await response.json();
+      const base64Data = jsonResponse.image_base64;
+      const metadata = jsonResponse.metadata || {};
+      const rawResponse = metadata.raw_response || {};
+
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
       const ext = payload.response_format.mime_type === 'image/jpeg' ? '.jpg' : '.png';
+      const geminiBlob = new Blob([byteArray], {type: payload.response_format.mime_type});
 
       // --- クロップ処理 ---
       const geminiImg = new Image();
@@ -995,6 +1039,30 @@ export class ColoringTool implements Tool {
       }
       const jsonBlob = new Blob([JSON.stringify(payloadForSave, null, 2)], { type: 'application/json' });
       archiveFiles.push({ blob: jsonBlob, path: `Inputs/payload.json` });
+
+      // Save response.json with required fields
+      const finishReason = rawResponse.candidates?.[0]?.finishReason;
+      const safetyRatings = rawResponse.candidates?.[0]?.safetyRatings;
+      const promptFeedback = rawResponse.promptFeedback;
+
+      const filteredResponse = {
+        finishReason,
+        safetyRatings: safetyRatings ? safetyRatings.map((r: any) => ({
+          category: r.category,
+          probability: r.probability,
+          probabilityScore: r.probabilityScore,
+          severity: r.severity,
+          severityScore: r.severityScore
+        })) : undefined,
+        promptFeedback: promptFeedback ? {
+          safetyRatings: promptFeedback.safetyRatings,
+          blockReason: promptFeedback.blockReason
+        } : undefined
+      };
+
+      // Also include the full raw response just in case the structure is different
+      const fullResponseJsonBlob = new Blob([JSON.stringify(filteredResponse, null, 2)], { type: 'application/json' });
+      archiveFiles.push({ blob: fullResponseJsonBlob, path: `response.json` });
 
       await saveArchive(stampedName, archiveFiles);
 

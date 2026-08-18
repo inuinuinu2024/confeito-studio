@@ -113,6 +113,9 @@ export class DocumentManager {
         // Save locally using ag-psd
         const arrayBuffer = writePsd(this.currentPsd);
         resultBlob = new Blob([arrayBuffer], { type: 'application/vnd.adobe.photoshop' });
+        
+        // 保存時にキャッシュも最新状態に更新する
+        await setPsdCache(this.currentFilename, arrayBuffer, this.currentFileHandle);
       } else {
         // Fallback to backend for ZIP exports
         const cache = await getPsdCache();
