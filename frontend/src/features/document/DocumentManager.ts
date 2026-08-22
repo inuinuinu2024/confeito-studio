@@ -115,7 +115,7 @@ export class DocumentManager {
         resultBlob = new Blob([arrayBuffer], { type: 'application/vnd.adobe.photoshop' });
         
         // 保存時にキャッシュも最新状態に更新する
-        await setPsdCache(this.currentFilename, arrayBuffer, this.currentFileHandle);
+        await setPsdCache(this.currentFilename, this.currentFileHandle);
       } else {
         // Fallback to backend for ZIP exports
         const cache = await getPsdCache();
@@ -192,19 +192,32 @@ export class DocumentManager {
   private async loadCachedPsd() {
     try {
       const cache = await getPsdCache();
-      if (cache) {
+      if (cache && cache.fileHandle) {
         showToast(`Restoring ${cache.filename}...`);
-        const psd = readPsd(cache.buffer);
-        this.sanitizePsd(psd);
-        this.currentPsd = psd;
-        this.currentFilename = cache.filename;
-        if (cache.fileHandle) {
+        try {
+          if ((await cache.fileHandle.queryPermission({ mode: 'read' })) !== 'granted') {
+            const perm = await cache.fileHandle.requestPermission({ mode: 'read' });
+            if (perm !== 'granted') {
+              showToast('Permission to read cached PSD denied.', 'error');
+              return;
+            }
+          }
+          const file = await cache.fileHandle.getFile();
+          const arrayBuffer = await file.arrayBuffer();
+          const psd = readPsd(arrayBuffer, { totalMemoryLimit: undefined });
+          this.sanitizePsd(psd);
+          this.currentPsd = psd;
+          this.currentFilename = cache.filename;
           this.currentFileHandle = cache.fileHandle;
+          window.dispatchEvent(new CustomEvent('document:loaded', { 
+            detail: { psd, filename: cache.filename } 
+          }));
+          showToast(`${cache.filename} restored.`);
+        } catch (e) {
+          console.warn('Failed to read from file handle on load', e);
+          // 起動直後はUser Activationが無いためここでエラーになることが多い
+          showToast(`Please open ${cache.filename} manually or click it in Recent Files.`, 'error');
         }
-        window.dispatchEvent(new CustomEvent('document:loaded', { 
-          detail: { psd, filename: cache.filename } 
-        }));
-        showToast(`${cache.filename} restored.`);
       }
     } catch (e) {
       console.error('Failed to load cached PSD', e);
@@ -242,7 +255,7 @@ export class DocumentManager {
     
     try {
       const buffer = writePsd(rootPsd);
-      await setPsdCache(filename, buffer, null);
+      await setPsdCache(filename, null);
     } catch (e) {
       console.error('Error saving new psd to cache', e);
     }
@@ -342,9 +355,8 @@ export class DocumentManager {
     try {
       const arrayBuffer = await file.arrayBuffer();
       
-      // Save a copy to cache before parsing to avoid any detachment issues
-      const bufferCopy = arrayBuffer.slice(0);
-      await setPsdCache(file.name, bufferCopy, this.currentFileHandle);
+      // Update cache handle
+      await setPsdCache(file.name, this.currentFileHandle);
       await addRecentFile(file.name, this.currentFileHandle);
 
       // ag-psd expects a Uint8Array or ArrayBuffer
@@ -400,7 +412,7 @@ export class DocumentManager {
 
     // Write to buffer and update cache
     const arrayBuffer = writePsd(this.currentPsd);
-    await setPsdCache(this.currentFilename, arrayBuffer, this.currentFileHandle);
+    await setPsdCache(this.currentFilename, this.currentFileHandle);
 
     // Notify others
     window.dispatchEvent(new CustomEvent('document:loaded', {

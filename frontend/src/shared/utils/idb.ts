@@ -16,18 +16,19 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-export async function setPsdCache(filename: string, buffer: ArrayBuffer, fileHandle?: any): Promise<void> {
+export async function setPsdCache(filename: string, fileHandle?: any): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
-    const request = store.put({ filename, buffer, fileHandle }, 'lastPsd');
+    // Note: buffer is no longer saved
+    const request = store.put({ filename, fileHandle }, 'lastPsd');
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
 }
 
-export async function getPsdCache(): Promise<{ filename: string; buffer: ArrayBuffer; fileHandle?: any } | null> {
+export async function getPsdCache(): Promise<{ filename: string; fileHandle?: any } | null> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, 'readonly');

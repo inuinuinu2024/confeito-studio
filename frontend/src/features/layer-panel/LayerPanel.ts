@@ -5,7 +5,7 @@ import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
 import type { Psd, Layer } from 'ag-psd';
 import { getArchives, deleteArchive, extractArchiveFile, updateArchiveFolderCollapse, getArchiveCollapseState } from '../../shared/utils/archives';
-import { CachedImage, setImageCache } from '../../shared/utils/idb';
+import { CachedImage } from '../../shared/utils/idb';
 import { historyManager } from '../../shared/utils/history';
 
 interface LayerDef {
