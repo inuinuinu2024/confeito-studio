@@ -42,59 +42,71 @@ def list_archives() -> List[Dict[str, Any]]:
         archive_name = file_path.stem
         timestamp = int(file_path.stat().st_mtime * 1000)
         
-        # Add the root zip folder
+        # Add the root zip folder (collapsed by default)
         archives.append({
             "key": zip_name,
             "name": archive_name,
             "type": "folder",
             "folderId": None,
             "timestamp": timestamp,
-            "collapsed": False
+            "collapsed": True
         })
+            
+    return archives
+
+def list_archive_contents(zip_name: str) -> List[Dict[str, Any]]:
+    if ".." in zip_name or "/" in zip_name or "\\" in zip_name:
+        raise ArchiveValidationError("Invalid archive name")
+    
+    zip_path = ARCHIVES_DIR / zip_name
+    if not zip_path.exists():
+        raise ArchiveNotFoundError("Archive not found")
         
-        try:
-            with zipfile.ZipFile(file_path, "r") as zf:
-                info_list = zf.infolist()
+    archives = []
+    timestamp = int(zip_path.stat().st_mtime * 1000)
+    
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            info_list = zf.infolist()
+            
+            # We need to map directories to 'folder' items as well
+            # Some zip files don't have explicit directory entries, so we must infer them
+            added_folders = set()
+            
+            for info in info_list:
+                path_parts = info.filename.rstrip("/").split("/")
                 
-                # We need to map directories to 'folder' items as well
-                # Some zip files don't have explicit directory entries, so we must infer them
-                added_folders = set()
-                
-                for info in info_list:
-                    path_parts = info.filename.rstrip("/").split("/")
+                # Ensure intermediate folders exist
+                current_path = ""
+                for i in range(len(path_parts) - 1):
+                    parent_folder_id = f"{zip_name}/{current_path}" if current_path else zip_name
+                    current_path = f"{current_path}/{path_parts[i]}" if current_path else path_parts[i]
+                    folder_key = f"{zip_name}/{current_path}"
                     
-                    # Ensure intermediate folders exist
-                    current_path = ""
-                    for i in range(len(path_parts) - 1):
-                        parent_folder_id = f"{zip_name}/{current_path}" if current_path else zip_name
-                        current_path = f"{current_path}/{path_parts[i]}" if current_path else path_parts[i]
-                        folder_key = f"{zip_name}/{current_path}"
-                        
-                        if folder_key not in added_folders:
-                            archives.append({
-                                "key": folder_key,
-                                "name": path_parts[i],
-                                "type": "folder",
-                                "folderId": parent_folder_id,
-                                "timestamp": timestamp,
-                                "collapsed": False
-                            })
-                            added_folders.add(folder_key)
-                    
-                    if not info.is_dir():
-                        parent_folder_id = f"{zip_name}/{'/'.join(path_parts[:-1])}" if len(path_parts) > 1 else zip_name
+                    if folder_key not in added_folders:
                         archives.append({
-                            "key": f"{zip_name}/{info.filename}",
-                            "name": path_parts[-1],
-                            "type": "image",
+                            "key": folder_key,
+                            "name": path_parts[i],
+                            "type": "folder",
                             "folderId": parent_folder_id,
                             "timestamp": timestamp,
-                            "blob": None  # Blob is not returned here, must be extracted
+                            "collapsed": False
                         })
-        except Exception:
-            # Skip corrupted zips
-            continue
-            
+                        added_folders.add(folder_key)
+                
+                if not info.is_dir():
+                    parent_folder_id = f"{zip_name}/{'/'.join(path_parts[:-1])}" if len(path_parts) > 1 else zip_name
+                    archives.append({
+                        "key": f"{zip_name}/{info.filename}",
+                        "name": path_parts[-1],
+                        "type": "image",
+                        "folderId": parent_folder_id,
+                        "timestamp": timestamp,
+                        "blob": None  # Blob is not returned here, must be extracted
+                    })
+    except Exception as e:
+        raise ArchiveServiceError(f"Failed to read archive contents: {str(e)}")
+        
     return archives
 
 def extract_file(zip_name: str, path: str) -> Tuple[bytes, str]:

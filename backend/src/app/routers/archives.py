@@ -5,6 +5,7 @@ from fastapi.responses import Response
 from ..services.archive_service import (
     save_archive as svc_save_archive,
     list_archives as svc_list_archives,
+    list_archive_contents as svc_list_archive_contents,
     extract_file as svc_extract_file,
     delete_archive as svc_delete_archive,
     ArchiveNotFoundError,
@@ -39,8 +40,20 @@ async def save_archive(
 
 @router.get("/archives")
 async def list_archives():
-    """List all zip archives and their contents mimicking the IDB CachedImage structure."""
+    """List all zip archives mimicking the IDB CachedImage structure."""
     return svc_list_archives()
+
+@router.get("/archives/{zip_name}/contents")
+async def list_archive_contents(zip_name: str):
+    """List contents of a specific zip archive."""
+    try:
+        return svc_list_archive_contents(zip_name)
+    except ArchiveValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ArchiveNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ArchiveServiceError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/archives/{zip_name}/extract")
 async def extract_file(zip_name: str, path: str):

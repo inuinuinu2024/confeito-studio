@@ -21,6 +21,25 @@ export async function getArchives(retries = 5, delayMs = 1000): Promise<CachedIm
   return [];
 }
 
+export async function getArchiveContents(zipName: string, retries = 5, delayMs = 1000): Promise<CachedImage[]> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(zipName)}/contents`);
+      if (res.ok) {
+        return await res.json();
+      }
+      console.error(`Failed to fetch archive contents (status: ${res.status})`);
+    } catch (err) {
+      console.error(`Failed to fetch archive contents (attempt ${i + 1}/${retries}):`, err);
+    }
+    
+    if (i < retries - 1) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+  return [];
+}
+
 export async function extractArchiveFile(zipName: string, path: string): Promise<Blob> {
   const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(zipName)}/extract?path=${encodeURIComponent(path)}`);
   if (!res.ok) {
@@ -57,20 +76,15 @@ export async function saveArchive(name: string, files: { blob: Blob, path: strin
   }
 }
 
-// Keep track of folder collapsed states in localStorage
+// Keep track of folder collapsed states in-memory so they reset on app startup
+const collapseState: Record<string, boolean> = {};
+
 export function getArchiveCollapseState(): Record<string, boolean> {
-  try {
-    const data = localStorage.getItem('archives-collapse-state');
-    return data ? JSON.parse(data) : {};
-  } catch {
-    return {};
-  }
+  return collapseState;
 }
 
 export function updateArchiveFolderCollapse(key: string, collapsed: boolean) {
-  const state = getArchiveCollapseState();
-  state[key] = collapsed;
-  localStorage.setItem('archives-collapse-state', JSON.stringify(state));
+  collapseState[key] = collapsed;
 }
 
 import { getAllImageCaches, deleteImageCache } from './idb';

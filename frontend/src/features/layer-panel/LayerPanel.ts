@@ -4,7 +4,7 @@
 import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
 import type { Psd, Layer } from 'ag-psd';
-import { getArchives, deleteArchive, extractArchiveFile, updateArchiveFolderCollapse, getArchiveCollapseState } from '../../shared/utils/archives';
+import { getArchives, deleteArchive, extractArchiveFile, updateArchiveFolderCollapse, getArchiveCollapseState, getArchiveContents } from '../../shared/utils/archives';
 import { CachedImage } from '../../shared/utils/idb';
 import { historyManager } from '../../shared/utils/history';
 
@@ -559,6 +559,24 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
         window.dispatchEvent(new CustomEvent(eventName, {
           detail: { layer: layerDef.active ? layerDef.layer : null }
         }));
+        
+        // Clear archive selection if a layer is selected
+        if (layerDef.active && activeCacheItemIndices.size > 0) {
+          activeCacheItemIndices.clear();
+          const allCaches = cacheList.querySelectorAll('.layer-item');
+          allCaches.forEach(el => {
+             el.classList.remove('layer-item--active');
+             const nameSpan = el.querySelector('.layer-item__name') as HTMLElement;
+             if (nameSpan) nameSpan.style.color = '';
+             const tActive = el.querySelector('.layer-item__icon--type-active');
+             if (tActive) {
+                tActive.classList.remove('layer-item__icon--type-active');
+                tActive.classList.add('layer-item__icon--type');
+             }
+          });
+          const clearEventName = options.panelType === 'right' ? 'tool:result-cleared:right' : 'tool:result-cleared';
+          window.dispatchEvent(new CustomEvent(clearEventName));
+        }
       });
 
       // Drag and drop
@@ -1348,6 +1366,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
     }
   });
 
+const loadedArchiveContents: Record<string, CachedImage[]> = {};
 let cacheDraggedIndex: number | null = null;
 
   async function loadCacheList(autoSelectKey?: string) {
@@ -1364,18 +1383,29 @@ let cacheDraggedIndex: number | null = null;
     currentCacheDefs = [];
 
     try {
-      const caches = await getArchives();
-      currentCaches = caches;
-      
-      const defs: CacheDef[] = [];
-      const rootCaches = caches.filter(c => !c.folderId);
+      const rootCaches = await getArchives();
+      const allCaches = [...rootCaches];
       
       const collapseState = getArchiveCollapseState();
+      
+      for (const root of rootCaches) {
+        const isCollapsed = collapseState[root.key] !== undefined ? collapseState[root.key] : true;
+        if (!isCollapsed) {
+          if (!loadedArchiveContents[root.key]) {
+            loadedArchiveContents[root.key] = await getArchiveContents(root.key);
+          }
+          allCaches.push(...loadedArchiveContents[root.key]);
+        }
+      }
+      
+      currentCaches = allCaches;
+      
+      const defs: CacheDef[] = [];
       
       function traverse(items: CachedImage[], depth: number) {
         items.forEach(item => {
           const isGroup = item.type === 'folder';
-          const collapsed = collapseState[item.key] !== undefined ? collapseState[item.key] : (item.collapsed || false);
+          const collapsed = collapseState[item.key] !== undefined ? collapseState[item.key] : true;
           const def: CacheDef = {
             item,
             depth,
@@ -1386,7 +1416,7 @@ let cacheDraggedIndex: number | null = null;
           };
           defs.push(def);
           if (isGroup) {
-            const children = caches.filter(c => c.folderId === item.key);
+            const children = allCaches.filter(c => c.folderId === item.key);
             traverse(children, depth + 1);
           }
         });
@@ -1449,7 +1479,6 @@ let cacheDraggedIndex: number | null = null;
         const indent = currentDepth * 16;
         item.style.paddingLeft = `${8 + indent}px`;
 
-        // Chevron icon
         if (cDef.isGroup) {
           const chevronName = cDef.collapsed ? 'chevron_right' : 'expand_more';
           const chevronIcon = icon(chevronName, 16);
@@ -1457,7 +1486,20 @@ let cacheDraggedIndex: number | null = null;
           chevronIcon.style.cursor = 'pointer';
           chevronIcon.addEventListener('click', async (e) => {
             e.stopPropagation();
-            cDef.collapsed = !cDef.collapsed;
+            const isNowCollapsed = !cDef.collapsed;
+            
+            if (!isNowCollapsed && !c.folderId && !loadedArchiveContents[c.key]) {
+              chevronIcon.textContent = 'hourglass_empty';
+              try {
+                loadedArchiveContents[c.key] = await getArchiveContents(c.key);
+              } catch (err) {
+                showToast('読み込みに失敗しました', 'error');
+                chevronIcon.textContent = 'chevron_right';
+                return;
+              }
+            }
+            
+            cDef.collapsed = isNowCollapsed;
             updateArchiveFolderCollapse(c.key, cDef.collapsed);
             await loadCacheList();
           });
@@ -1506,6 +1548,17 @@ let cacheDraggedIndex: number | null = null;
         
         item.addEventListener('click', (e: MouseEvent) => {
            if ((e.target as HTMLElement).tagName === 'INPUT') return;
+           
+           // Clear layer selection when interacting with archives
+           const hadActiveLayer = currentLayerDefs.some(l => l.active);
+           if (hadActiveLayer) {
+             currentLayerDefs.forEach((l) => (l.active = false));
+             renderLayerTree(currentLayerDefs);
+             const eventName = options.panelType === 'right' ? 'layer:selected:right' : 'layer:selected';
+             window.dispatchEvent(new CustomEvent(eventName, {
+               detail: { layer: null }
+             }));
+           }
            
            const updateUI = () => {
               cacheItemElements.forEach((el, idx) => {

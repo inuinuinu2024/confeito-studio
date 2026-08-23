@@ -193,30 +193,45 @@ export class DocumentManager {
     try {
       const cache = await getPsdCache();
       if (cache && cache.fileHandle) {
-        showToast(`Restoring ${cache.filename}...`);
-        try {
-          if ((await cache.fileHandle.queryPermission({ mode: 'read' })) !== 'granted') {
-            const perm = await cache.fileHandle.requestPermission({ mode: 'read' });
+        const attemptLoad = async (interactive = false) => {
+          try {
+            let perm = await cache.fileHandle.queryPermission({ mode: 'read' });
             if (perm !== 'granted') {
-              showToast('Permission to read cached PSD denied.', 'error');
-              return;
+              perm = await cache.fileHandle.requestPermission({ mode: 'read' });
+            }
+            if (perm === 'granted') {
+              showToast(`Restoring ${cache.filename}...`);
+              const file = await cache.fileHandle.getFile();
+              const arrayBuffer = await file.arrayBuffer();
+              const psd = readPsd(arrayBuffer, { totalMemoryLimit: undefined });
+              this.sanitizePsd(psd);
+              this.currentPsd = psd;
+              this.currentFilename = cache.filename;
+              this.currentFileHandle = cache.fileHandle;
+              window.dispatchEvent(new CustomEvent('document:loaded', { 
+                detail: { psd, filename: cache.filename } 
+              }));
+              showToast(`${cache.filename} restored.`);
+              return true;
+            }
+          } catch (e) {
+            if (interactive) {
+              console.error('Failed to restore file interactively', e);
+              showToast(`Please open ${cache.filename} manually or click it in Recent Files.`, 'error');
             }
           }
-          const file = await cache.fileHandle.getFile();
-          const arrayBuffer = await file.arrayBuffer();
-          const psd = readPsd(arrayBuffer, { totalMemoryLimit: undefined });
-          this.sanitizePsd(psd);
-          this.currentPsd = psd;
-          this.currentFilename = cache.filename;
-          this.currentFileHandle = cache.fileHandle;
-          window.dispatchEvent(new CustomEvent('document:loaded', { 
-            detail: { psd, filename: cache.filename } 
-          }));
-          showToast(`${cache.filename} restored.`);
-        } catch (e) {
-          console.warn('Failed to read from file handle on load', e);
-          // 起動直後はUser Activationが無いためここでエラーになることが多い
-          showToast(`Please open ${cache.filename} manually or click it in Recent Files.`, 'error');
+          return false;
+        };
+
+        // Try silently first (might throw if User Activation required and not granted)
+        const success = await attemptLoad(false);
+        if (!success) {
+          // If silent fails, hook into the FIRST click anywhere on the page to trigger it with User Activation
+          const onClick = async () => {
+            document.removeEventListener('click', onClick, true);
+            await attemptLoad(true);
+          };
+          document.addEventListener('click', onClick, true);
         }
       }
     } catch (e) {
