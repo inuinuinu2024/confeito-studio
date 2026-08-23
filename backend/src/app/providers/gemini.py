@@ -50,6 +50,7 @@ class GeminiProvider(ImageGenerationProvider):
             response = requests.post(url, headers=headers, json=payload, timeout=600)
             if response.status_code != 200:
                 error_msg = response.text
+                err_data = None
                 try:
                     import json
                     err_data = json.loads(response.text)
@@ -61,7 +62,10 @@ class GeminiProvider(ImageGenerationProvider):
                 if "high demand" in error_msg.lower():
                     error_msg = f"{error_msg}\n(Google側のサーバーにリクエストが殺到しており高負荷状態です。しばらく待ってから再度お試しください)"
                     
-                raise RuntimeError(f"API Error ({response.status_code}): {error_msg}")
+                err = RuntimeError(f"API Error ({response.status_code}): {error_msg}")
+                if err_data:
+                    err.raw_response = err_data
+                raise err
             
             # The interactions API might return raw image bytes directly if response_format.type = image
             content_type = response.headers.get("Content-Type", "")
@@ -86,7 +90,9 @@ class GeminiProvider(ImageGenerationProvider):
             # Check Interactions API status
             status = data.get("status")
             if status and status not in ("completed",):
-                raise RuntimeError(f"Interaction ended with status '{status}'. Response: {data}")
+                err = RuntimeError(f"Interaction ended with status '{status}'. Response: {data}")
+                err.raw_response = data
+                raise err
             
             b64_data = None
             mime_type = "image/png"
@@ -134,4 +140,7 @@ class GeminiProvider(ImageGenerationProvider):
             raise RuntimeError(f"No image data found in response. Response keys: {list(data.keys())}")
             
         except Exception as e:
-            raise RuntimeError(f"Gemini API multimodal generation failed: {e}")
+            err = RuntimeError(f"Gemini API multimodal generation failed: {e}")
+            if hasattr(e, "raw_response"):
+                err.raw_response = e.raw_response
+            raise err

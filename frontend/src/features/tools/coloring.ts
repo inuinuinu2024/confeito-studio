@@ -825,8 +825,12 @@ export class ColoringTool implements Tool {
     const jsonBlob = new Blob([JSON.stringify(payloadForSave, null, 2)], { type: 'application/json' });
     archiveFiles.push({ blob: jsonBlob, path: `Inputs/payload.json` });
 
-    const fullResponseJsonBlob = new Blob([JSON.stringify(rawResponse, null, 2)], { type: 'application/json' });
-    archiveFiles.push({ blob: fullResponseJsonBlob, path: `response.json` });
+    const errorData = {
+      error: rawResponse?.detail?.message || rawResponse?.error || "Unknown Error",
+      raw_response: rawResponse
+    };
+    const fullResponseJsonBlob = new Blob([JSON.stringify(errorData, null, 2)], { type: 'application/json' });
+    archiveFiles.push({ blob: fullResponseJsonBlob, path: `error.json` });
 
     await saveArchive(stampedName, archiveFiles);
     window.dispatchEvent(new Event('tool:cache-updated'));
@@ -864,7 +868,16 @@ export class ColoringTool implements Tool {
         try {
           const json = JSON.parse(errorText);
           rawResponse = json;
-          if (json.detail) errorText = typeof json.detail === 'string' ? json.detail : JSON.stringify(json.detail);
+          if (json.detail) {
+            if (typeof json.detail === 'string') {
+              errorText = json.detail;
+            } else {
+              errorText = json.detail.message || JSON.stringify(json.detail);
+              if (json.detail.raw_response) {
+                rawResponse = json.detail.raw_response;
+              }
+            }
+          }
         } catch (e) {}
         
         if (errorText.includes('GEMINI_API_KEY is not set')) {
@@ -877,7 +890,9 @@ export class ColoringTool implements Tool {
           console.error("Failed to save error archive", e);
         }
 
-        throw new Error(errorText);
+        const finalError: any = new Error(errorText);
+        finalError.archiveSaved = true;
+        throw finalError;
       }
 
       const jsonResponse = await response.json();
@@ -934,6 +949,7 @@ export class ColoringTool implements Tool {
       const promptFeedback = rawResponse.promptFeedback;
 
       const filteredResponse = {
+        modelVersion: rawResponse.modelVersion || metadata.model,
         finishReason,
         safetyRatings: safetyRatings ? safetyRatings.map((r: any) => ({
           category: r.category,
@@ -945,7 +961,8 @@ export class ColoringTool implements Tool {
         promptFeedback: promptFeedback ? {
           safetyRatings: promptFeedback.safetyRatings,
           blockReason: promptFeedback.blockReason
-        } : undefined
+        } : undefined,
+        raw: rawResponse // 念のため生レスポンス全体も保持
       };
 
       const fullResponseJsonBlob = new Blob([JSON.stringify(filteredResponse, null, 2)], { type: 'application/json' });
@@ -1006,7 +1023,16 @@ export class ColoringTool implements Tool {
         try {
           const json = JSON.parse(errorText);
           rawResponse = json;
-          if (json.detail) errorText = typeof json.detail === 'string' ? json.detail : JSON.stringify(json.detail);
+          if (json.detail) {
+            if (typeof json.detail === 'string') {
+              errorText = json.detail;
+            } else {
+              errorText = json.detail.message || JSON.stringify(json.detail);
+              if (json.detail.raw_response) {
+                rawResponse = json.detail.raw_response;
+              }
+            }
+          }
         } catch (e) {}
         
         if (errorText.includes('GEMINI_API_KEY is not set')) {
@@ -1019,7 +1045,9 @@ export class ColoringTool implements Tool {
           console.error("Failed to save error archive", e);
         }
 
-        throw new Error(errorText);
+        const finalError: any = new Error(errorText);
+        finalError.archiveSaved = true;
+        throw finalError;
       }
 
       // ③ Gemini生成後クロップ前出力
@@ -1103,6 +1131,7 @@ export class ColoringTool implements Tool {
       const promptFeedback = rawResponse.promptFeedback;
 
       const filteredResponse = {
+        modelVersion: rawResponse.modelVersion || metadata.model,
         finishReason,
         safetyRatings: safetyRatings ? safetyRatings.map((r: any) => ({
           category: r.category,
@@ -1114,7 +1143,8 @@ export class ColoringTool implements Tool {
         promptFeedback: promptFeedback ? {
           safetyRatings: promptFeedback.safetyRatings,
           blockReason: promptFeedback.blockReason
-        } : undefined
+        } : undefined,
+        raw: rawResponse // 念のため生レスポンス全体も保持
       };
 
       // Also include the full raw response just in case the structure is different

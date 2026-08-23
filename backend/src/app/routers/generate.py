@@ -83,6 +83,12 @@ async def generate_nano_banana_pro(
     except GenerationConfigError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except GenerationServiceError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        detail_data: Any = str(e)
+        if hasattr(e, "raw_response") and e.raw_response:
+            detail_data = {
+                "message": str(e),
+                "raw_response": e.raw_response
+            }
+        raise HTTPException(status_code=500, detail=detail_data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

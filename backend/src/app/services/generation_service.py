@@ -3,7 +3,9 @@ from ..providers import provider_factory
 from ..providers.base import GenerationResult
 
 class GenerationServiceError(Exception):
-    pass
+    def __init__(self, message: str, raw_response: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.raw_response = raw_response
 
 class GenerationProviderNotFoundError(GenerationServiceError):
     pass
@@ -50,4 +52,5 @@ async def generate_nano_banana_pro(
         )
         return result
     except Exception as e:
-        raise GenerationServiceError(str(e))
+        raw = getattr(e, "raw_response", None)
+        raise GenerationServiceError(str(e), raw_response=raw)
