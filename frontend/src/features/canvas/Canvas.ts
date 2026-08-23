@@ -393,8 +393,8 @@ export function createCanvas(): HTMLElement {
     updateZoom(oldZoom);
   });
 
-  function updateZoom(oldZoom: number, focusX?: number, focusY?: number) {
-    if (oldZoom === currentZoom) return;
+  function updateZoom(oldZoom: number, focusX?: number, focusY?: number, force = false) {
+    if (oldZoom === currentZoom && !force) return;
 
     zoomSlider.value = currentZoom.toString();
     zoomLabel.textContent = `${currentZoom}%`;
@@ -868,6 +868,7 @@ export function createCanvas(): HTMLElement {
         currentResultCanvas.width = canvasDrawWidth;
         currentResultCanvas.height = canvasDrawHeight;
       }
+      updateZoom(currentZoom, undefined, undefined, true);
     }
     updateCanvasTooltips();
   }
@@ -1375,6 +1376,11 @@ export function createCanvas(): HTMLElement {
 
     if (currentPsd && currentPsd.children && !skipPsdDraw) {
       ctx.save();
+      
+      ctx.beginPath();
+      ctx.rect(psdOffsetX, psdOffsetY, psdWidth, psdHeight);
+      ctx.clip();
+      
       ctx.translate(psdOffsetX, psdOffsetY);
       for (let i = 0; i < currentPsd.children.length; i++) {
         drawNode(ctx, currentPsd.children[i], hiddenLayers);

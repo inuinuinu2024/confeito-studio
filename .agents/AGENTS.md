@@ -63,3 +63,7 @@ confeito-studio/
 - [全体アーキテクチャ](../docs/architecture/README.md)
 - [フロントエンド設計方針](../docs/architecture/frontend.md)
 - [バックエンド設計方針](../docs/architecture/backend.md)
+
+## 開発履歴
+
+- **2026/08/23**: Compare Modeにおけるキャンバス描画の不具合を修正。右キャンバスで別サイズの画像（アーカイブなど）を読み込んだ際に描画サイズ(`canvasDrawWidth`, `canvasDrawHeight`)が拡大された際、左キャンバスにてPSDの本来の枠をはみ出したレイヤーが描画されてしまう（クリッピング漏れ）問題と、キャンバスリサイズ時にズーム比率が再計算されずアスペクト比が歪む問題を修正。
