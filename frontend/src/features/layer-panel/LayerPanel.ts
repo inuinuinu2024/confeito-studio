@@ -4,7 +4,7 @@
 import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
 import type { Psd, Layer } from 'ag-psd';
-import { getArchives, deleteArchive, extractArchiveFile, updateArchiveFolderCollapse, getArchiveCollapseState, getArchiveContents } from '../../shared/utils/archives';
+import { getArchives, deleteArchive, restoreArchive, extractArchiveFile, updateArchiveFolderCollapse, getArchiveCollapseState, getArchiveContents } from '../../shared/utils/archives';
 import { CachedImage } from '../../shared/utils/idb';
 import { historyManager } from '../../shared/utils/history';
 
@@ -1347,7 +1347,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
             window.dispatchEvent(new Event('tool:cache-updated'));
           },
           undo: async () => {
-            // Undo is disabled for backend zip deletion since we don't store backups
+            await Promise.all(deletedCaches.filter(c => c.type === 'folder' && !c.folderId).map(c => restoreArchive(c.key)));
             window.dispatchEvent(new Event('tool:cache-updated'));
           }
         });

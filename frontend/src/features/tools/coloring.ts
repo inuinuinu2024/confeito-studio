@@ -793,6 +793,45 @@ export class ColoringTool implements Tool {
     container.appendChild(previewBtn);
   }
 
+  private async saveErrorArchive(payload: any, rawResponse: any): Promise<void> {
+    const date = new Date();
+    const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+    const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
+    const stampedName = `${dateStr}_${timeStr}_${this.name}_error`;
+
+    const archiveFiles: {blob: Blob, path: string}[] = [];
+    
+    let imgIndex = 2;
+    for (const item of this.globalImages) {
+      const imgBlob = item.file as Blob;
+      const imgExt = (item.file.type || 'image/png').includes('jpeg') ? '.jpg' : '.png';
+      let fileName = `Image${imgIndex}${imgExt}`;
+      if (item.zoneTitle.includes('原画')) {
+        fileName = `origin${imgExt}`;
+      } else {
+        imgIndex++;
+      }
+      archiveFiles.push({ blob: imgBlob, path: `Inputs/${fileName}` });
+    }
+
+    const payloadForSave = JSON.parse(JSON.stringify(payload));
+    if (payloadForSave.input) {
+      payloadForSave.input.forEach((p: any) => {
+        if (p.type === 'image' && p.data) {
+          p.data = `[Image data omitted — see Image files in this folder]`;
+        }
+      });
+    }
+    const jsonBlob = new Blob([JSON.stringify(payloadForSave, null, 2)], { type: 'application/json' });
+    archiveFiles.push({ blob: jsonBlob, path: `Inputs/payload.json` });
+
+    const fullResponseJsonBlob = new Blob([JSON.stringify(rawResponse, null, 2)], { type: 'application/json' });
+    archiveFiles.push({ blob: fullResponseJsonBlob, path: `response.json` });
+
+    await saveArchive(stampedName, archiveFiles);
+    window.dispatchEvent(new Event('tool:cache-updated'));
+  }
+
   async execute(context: ToolContext): Promise<void> {
     if (!this.buildPayloadFn) {
       throw new Error('設定画面が開かれていません。');
@@ -821,14 +860,23 @@ export class ColoringTool implements Tool {
 
       if (!response.ok) {
         let errorText = await response.text();
+        let rawResponse: any = { error: errorText };
         try {
           const json = JSON.parse(errorText);
-          if (json.detail) errorText = json.detail;
+          rawResponse = json;
+          if (json.detail) errorText = typeof json.detail === 'string' ? json.detail : JSON.stringify(json.detail);
         } catch (e) {}
         
         if (errorText.includes('GEMINI_API_KEY is not set')) {
           errorText = 'Gemini API Key が設定されていません。右上の設定アイコンから設定してください。';
         }
+
+        try {
+          await this.saveErrorArchive(payload, rawResponse);
+        } catch (e) {
+          console.error("Failed to save error archive", e);
+        }
+
         throw new Error(errorText);
       }
 
@@ -954,14 +1002,23 @@ export class ColoringTool implements Tool {
 
       if (!response.ok) {
         let errorText = await response.text();
+        let rawResponse: any = { error: errorText };
         try {
           const json = JSON.parse(errorText);
-          if (json.detail) errorText = json.detail;
+          rawResponse = json;
+          if (json.detail) errorText = typeof json.detail === 'string' ? json.detail : JSON.stringify(json.detail);
         } catch (e) {}
         
         if (errorText.includes('GEMINI_API_KEY is not set')) {
           errorText = 'Gemini API Key が設定されていません。右上の設定アイコンから設定してください。';
         }
+
+        try {
+          await this.saveErrorArchive(payload, rawResponse);
+        } catch (e) {
+          console.error("Failed to save error archive", e);
+        }
+
         throw new Error(errorText);
       }
 

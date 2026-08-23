@@ -57,6 +57,15 @@ export async function deleteArchive(zipName: string): Promise<void> {
   }
 }
 
+export async function restoreArchive(zipName: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(zipName)}/restore`, {
+    method: 'POST'
+  });
+  if (!res.ok) {
+    throw new Error('Failed to restore archive');
+  }
+}
+
 export async function saveArchive(name: string, files: { blob: Blob, path: string }[]): Promise<void> {
   const formData = new FormData();
   formData.append('name', name);

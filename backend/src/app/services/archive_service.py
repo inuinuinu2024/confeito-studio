@@ -5,9 +5,11 @@ from typing import List, Dict, Any, Tuple
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 ARCHIVES_DIR = PROJECT_ROOT / "archives"
+TRASH_DIR = ARCHIVES_DIR / ".trash"
 
 # Ensure archives directory exists
 ARCHIVES_DIR.mkdir(parents=True, exist_ok=True)
+TRASH_DIR.mkdir(parents=True, exist_ok=True)
 
 class ArchiveServiceError(Exception):
     pass
@@ -149,6 +151,19 @@ def delete_archive(zip_name: str) -> None:
         raise ArchiveNotFoundError("Archive not found")
         
     try:
-        zip_path.unlink()
+        zip_path.rename(TRASH_DIR / zip_name)
+    except Exception as e:
+        raise ArchiveServiceError(str(e))
+
+def restore_archive(zip_name: str) -> None:
+    if ".." in zip_name or "/" in zip_name or "\\" in zip_name:
+        raise ArchiveValidationError("Invalid archive name")
+    
+    trash_path = TRASH_DIR / zip_name
+    if not trash_path.exists():
+        raise ArchiveNotFoundError("Archive not found in trash")
+        
+    try:
+        trash_path.rename(ARCHIVES_DIR / zip_name)
     except Exception as e:
         raise ArchiveServiceError(str(e))

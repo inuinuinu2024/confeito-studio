@@ -8,6 +8,7 @@ from ..services.archive_service import (
     list_archive_contents as svc_list_archive_contents,
     extract_file as svc_extract_file,
     delete_archive as svc_delete_archive,
+    restore_archive as svc_restore_archive,
     ArchiveNotFoundError,
     ArchiveValidationError,
     ArchiveServiceError
@@ -73,6 +74,19 @@ async def delete_archive(zip_name: str):
     """Delete a ZIP archive."""
     try:
         svc_delete_archive(zip_name)
+        return {"status": "success"}
+    except ArchiveValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ArchiveNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ArchiveServiceError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/archives/{zip_name}/restore")
+async def restore_archive(zip_name: str):
+    """Restore a deleted ZIP archive from trash."""
+    try:
+        svc_restore_archive(zip_name)
         return {"status": "success"}
     except ArchiveValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
