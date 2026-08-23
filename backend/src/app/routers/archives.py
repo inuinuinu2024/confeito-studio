@@ -1,5 +1,6 @@
 from typing import List
 from fastapi import APIRouter, UploadFile, Form, File, HTTPException
+from pydantic import BaseModel
 from fastapi.responses import Response
 
 from ..services.archive_service import (
@@ -9,6 +10,7 @@ from ..services.archive_service import (
     extract_file as svc_extract_file,
     delete_archive as svc_delete_archive,
     restore_archive as svc_restore_archive,
+    delete_archive_contents as svc_delete_archive_contents,
     ArchiveNotFoundError,
     ArchiveValidationError,
     ArchiveServiceError
@@ -74,6 +76,22 @@ async def delete_archive(zip_name: str):
     """Delete a ZIP archive."""
     try:
         svc_delete_archive(zip_name)
+        return {"status": "success"}
+    except ArchiveValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ArchiveNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ArchiveServiceError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class DeleteContentsRequest(BaseModel):
+    paths: List[str]
+
+@router.post("/archives/{zip_name}/delete_contents")
+async def delete_archive_contents_api(zip_name: str, req: DeleteContentsRequest):
+    """Delete specific files or folders from a ZIP archive."""
+    try:
+        svc_delete_archive_contents(zip_name, req.paths)
         return {"status": "success"}
     except ArchiveValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))

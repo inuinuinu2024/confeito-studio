@@ -57,6 +57,19 @@ export async function deleteArchive(zipName: string): Promise<void> {
   }
 }
 
+export async function deleteArchiveContents(zipName: string, paths: string[]): Promise<void> {
+  const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(zipName)}/delete_contents`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ paths })
+  });
+  if (!res.ok) {
+    throw new Error('Failed to delete archive contents');
+  }
+}
+
 export async function restoreArchive(zipName: string): Promise<void> {
   const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(zipName)}/restore`, {
     method: 'POST'

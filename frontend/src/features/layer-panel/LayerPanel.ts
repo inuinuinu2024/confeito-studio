@@ -4,7 +4,7 @@
 import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
 import type { Psd, Layer } from 'ag-psd';
-import { getArchives, deleteArchive, restoreArchive, extractArchiveFile, updateArchiveFolderCollapse, getArchiveCollapseState, getArchiveContents } from '../../shared/utils/archives';
+import { getArchives, deleteArchive, restoreArchive, extractArchiveFile, updateArchiveFolderCollapse, getArchiveCollapseState, getArchiveContents, deleteArchiveContents } from '../../shared/utils/archives';
 import { CachedImage } from '../../shared/utils/idb';
 import { historyManager } from '../../shared/utils/history';
 
@@ -1320,39 +1320,79 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
           }
         });
         
-        // Find folders that will become empty after this deletion
-        let allCachesTemp = [...currentCaches];
-        let newlyDeletedCount = 1;
-        while (newlyDeletedCount > 0) {
-          newlyDeletedCount = 0;
-          const remainingCaches = allCachesTemp.filter(c => !deletedCaches.some(d => d.key === c.key));
-          const remainingFolders = remainingCaches.filter(c => c.type === 'folder');
-          
-          for (const folder of remainingFolders) {
-            const hasChildren = remainingCaches.some(c => c.folderId === folder.key);
-            if (!hasChildren) {
-              deletedCaches.push(folder);
-              newlyDeletedCount++;
+
+        
+        // Group by archive
+        const archivesToDelete = new Set<string>();
+        const filesToDeleteByArchive = new Map<string, string[]>();
+
+        for (const cache of deletedCaches) {
+          if (cache.type === 'folder' && !cache.folderId) {
+            archivesToDelete.add(cache.key);
+          } else {
+            const slashIdx = cache.key.indexOf('/');
+            if (slashIdx > -1) {
+              const zipName = cache.key.substring(0, slashIdx);
+              const path = cache.key.substring(slashIdx + 1);
+              if (!archivesToDelete.has(zipName)) {
+                let paths = filesToDeleteByArchive.get(zipName);
+                if (!paths) {
+                  paths = [];
+                  filesToDeleteByArchive.set(zipName, paths);
+                }
+                paths.push(path);
+              }
             }
           }
         }
         
-        const promises = deletedCaches.filter(c => c.type === 'folder' && !c.folderId).map(cache => deleteArchive(cache.key));
-        await Promise.all(promises);
+        // Clean up map for archives that are being fully deleted anyway
+        for (const zipName of archivesToDelete) {
+          filesToDeleteByArchive.delete(zipName);
+        }
+
+        const executeDelete = async () => {
+          const promises: Promise<void>[] = [];
+          for (const zipName of archivesToDelete) {
+            promises.push(deleteArchive(zipName));
+          }
+          for (const [zipName, paths] of filesToDeleteByArchive.entries()) {
+            promises.push(deleteArchiveContents(zipName, paths));
+          }
+          await Promise.all(promises);
+        };
+
+        await executeDelete();
 
         historyManager.push({
           label: `アーカイブ削除 (${deletedCaches.length}件)`,
           execute: async () => {
-            await Promise.all(deletedCaches.filter(c => c.type === 'folder' && !c.folderId).map(c => deleteArchive(c.key)));
+            await executeDelete();
             window.dispatchEvent(new Event('tool:cache-updated'));
           },
           undo: async () => {
-            await Promise.all(deletedCaches.filter(c => c.type === 'folder' && !c.folderId).map(c => restoreArchive(c.key)));
+            // Note: Currently we only restore full archives. Partial restores (files) are not supported.
+            await Promise.all(Array.from(archivesToDelete).map(zipName => restoreArchive(zipName)));
             window.dispatchEvent(new Event('tool:cache-updated'));
           }
         });
 
-        showToast(`${deletedCaches.length}件のアーカイブを削除しました。`, 'success');
+        const archiveCount = archivesToDelete.size;
+        let fileCount = 0;
+        for (const paths of filesToDeleteByArchive.values()) {
+          fileCount += paths.length;
+        }
+        
+        let msg = '';
+        if (archiveCount > 0 && fileCount > 0) {
+           msg = `${archiveCount}件のアーカイブと${fileCount}件のファイルを削除しました。`;
+        } else if (archiveCount > 0) {
+           msg = `${archiveCount}件のアーカイブを削除しました。`;
+        } else {
+           msg = `${fileCount}件のファイルを削除しました。`;
+        }
+
+        showToast(msg, 'success');
         const eventName = options.panelType === 'right' ? 'tool:result-cleared:right' : 'tool:result-cleared';
         window.dispatchEvent(new CustomEvent(eventName));
         // Refresh the list

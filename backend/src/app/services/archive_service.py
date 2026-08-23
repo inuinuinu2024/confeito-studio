@@ -155,6 +155,45 @@ def delete_archive(zip_name: str) -> None:
     except Exception as e:
         raise ArchiveServiceError(str(e))
 
+def delete_archive_contents(zip_name: str, paths: List[str]) -> None:
+    if ".." in zip_name or "/" in zip_name or "\\" in zip_name:
+        raise ArchiveValidationError("Invalid archive name")
+    
+    zip_path = ARCHIVES_DIR / zip_name
+    if not zip_path.exists():
+        raise ArchiveNotFoundError("Archive not found")
+        
+    temp_zip_path = zip_path.with_suffix('.zip.tmp')
+    paths_set = set(paths)
+    
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf_in:
+            infolist = zf_in.infolist()
+            
+            remaining = []
+            for info in infolist:
+                should_delete = False
+                for p in paths_set:
+                    if info.filename == p or info.filename.startswith(p + "/"):
+                        should_delete = True
+                        break
+                if not should_delete:
+                    remaining.append(info)
+            
+            if remaining:
+                with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zf_out:
+                    for info in remaining:
+                        zf_out.writestr(info, zf_in.read(info.filename))
+        
+        if not remaining:
+            zip_path.rename(TRASH_DIR / zip_name)
+        else:
+            temp_zip_path.replace(zip_path)
+    except Exception as e:
+        if temp_zip_path.exists():
+            temp_zip_path.unlink()
+        raise ArchiveServiceError(f"Failed to delete archive contents: {str(e)}")
+
 def restore_archive(zip_name: str) -> None:
     if ".." in zip_name or "/" in zip_name or "\\" in zip_name:
         raise ArchiveValidationError("Invalid archive name")
