@@ -40,7 +40,7 @@ export function createAIPanel(): HTMLElement {
   // ── Resizer ──
   const resizer = document.createElement('div');
   resizer.className = 'ai-panel__resizer';
-  
+
   let isResizing = false;
   let startX = 0;
   let startWidth = 0;
@@ -89,7 +89,7 @@ export function createAIPanel(): HTMLElement {
   toolsView.style.gap = '8px';
 
 
-  
+
   const toolSettingsSidebar = createToolSettingsSidebar();
   document.body.appendChild(toolSettingsSidebar.overlay);
 
@@ -149,18 +149,18 @@ export function createAIPanel(): HTMLElement {
     });
 
     toolWrapper.addEventListener('dragover', (e) => {
-      e.preventDefault(); 
+      e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-      
+
       if (draggedItem && draggedItem !== toolWrapper) {
         const bounding = toolWrapper.getBoundingClientRect();
         const offset = bounding.y + (bounding.height / 2);
-        
+
         // Reset borders
         toolWrapper.style.borderTop = '';
         toolWrapper.style.borderBottom = '';
         toolWrapper.style.transform = '';
-        
+
         if (e.clientY > offset) {
           toolWrapper.style.borderBottom = '2px solid var(--color-primary)';
           toolWrapper.style.transform = 'translateY(-1px)';
@@ -186,21 +186,21 @@ export function createAIPanel(): HTMLElement {
     toolWrapper.addEventListener('drop', (e) => {
       e.preventDefault();
       e.stopPropagation(); // Prevent toolsView drop from firing
-      
+
       toolWrapper.style.borderTop = '';
       toolWrapper.style.borderBottom = '';
       toolWrapper.style.transform = '';
-      
+
       if (draggedItem && draggedItem !== toolWrapper) {
         const bounding = toolWrapper.getBoundingClientRect();
         const offset = bounding.y + (bounding.height / 2);
-        
+
         if (e.clientY > offset) {
           toolWrapper.after(draggedItem);
         } else {
           toolWrapper.before(draggedItem);
         }
-        
+
         // Save new order
         const newOrder = Array.from(toolsView.children)
           .map(child => (child as HTMLElement).dataset?.toolName)
@@ -213,7 +213,7 @@ export function createAIPanel(): HTMLElement {
     const btn = document.createElement('button');
     btn.className = 'ai-tool-btn';
     btn.style.width = '100%';
-    
+
     if (tool.icon) {
       btn.appendChild(icon(tool.icon, 16));
     } else {
@@ -256,7 +256,7 @@ export function createAIPanel(): HTMLElement {
             canvas.height = psd.height;
             const ctx = canvas.getContext('2d');
             if (!ctx) return null;
-            
+
             const drawNode = (node: any) => {
               if (hiddenLayers.has(node) || node.hidden) return;
               if (node.children) {
@@ -297,7 +297,7 @@ export function createAIPanel(): HTMLElement {
         } catch (err: any) {
           console.error(err);
           showToast(`${tool.name} failed: ${err.message || 'Unknown error'}`, 'error');
-          
+
           if (!err.archiveSaved) {
             try {
               const date = new Date();
@@ -306,9 +306,9 @@ export function createAIPanel(): HTMLElement {
               const folderName = `${dateStr}_${timeStr}_${tool.name}_error`;
               const errorText = `${tool.name} Execution Error\n\nDate: ${date.toLocaleString()}\nError: ${err.message || 'Unknown error'}\nStack: ${err.stack || ''}`;
               const errorBlob = new Blob([errorText], { type: 'text/plain' });
-              
+
               await saveArchive(folderName, [{ blob: errorBlob, path: 'error.txt' }]);
-              
+
               window.dispatchEvent(new Event('tool:cache-updated'));
             } catch (cacheErr) {
               console.error('Failed to save error cache:', cacheErr);
@@ -336,9 +336,9 @@ export function createAIPanel(): HTMLElement {
                 const folderName = `${dateStr}_${timeStr}_${tool.name}_Coloring_error`;
                 const errorText = `${tool.name} (Coloring) Execution Error\n\nDate: ${date.toLocaleString()}\nError: ${err.message || 'Unknown error'}\nStack: ${err.stack || ''}`;
                 const errorBlob = new Blob([errorText], { type: 'text/plain' });
-                
+
                 await saveArchive(folderName, [{ blob: errorBlob, path: 'error.txt' }]);
-                
+
                 window.dispatchEvent(new Event('tool:cache-updated'));
               } catch (cacheErr) {
                 console.error('Failed to save error cache:', cacheErr);
@@ -355,9 +355,9 @@ export function createAIPanel(): HTMLElement {
       if (tool.renderSettings) {
         const hasColoring = 'executeColoring' in tool && typeof (tool as any).executeColoring === 'function';
         toolSettingsSidebar.open(
-          tool.name, 
-          tool.renderSettings.bind(tool), 
-          executeTool, 
+          tool.name,
+          tool.renderSettings.bind(tool),
+          executeTool,
           hasColoring ? executeColoringTool : undefined,
           tool.executeLabel,
           tool.executeIcon
@@ -375,7 +375,7 @@ export function createAIPanel(): HTMLElement {
   toolsView.addEventListener('dragover', (e) => {
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    
+
     if (draggedItem && (e.target === toolsView || (e.target as HTMLElement).classList.contains('ai-panel__view'))) {
       const children = Array.from(toolsView.children).filter(c => (c as HTMLElement).dataset?.toolName);
       if (children.length > 0) {
@@ -398,19 +398,19 @@ export function createAIPanel(): HTMLElement {
 
   toolsView.addEventListener('drop', (e) => {
     e.preventDefault();
-    
+
     // Reset border
     const children = Array.from(toolsView.children).filter(c => (c as HTMLElement).dataset?.toolName);
     if (children.length > 0) {
       const lastChild = children[children.length - 1] as HTMLElement;
       lastChild.style.borderBottom = '';
     }
-    
+
     // Only handle if we dropped directly on toolsView (e.g. empty space at the bottom)
     // and not on a specific toolWrapper which handles its own drop
     if (draggedItem && (e.target === toolsView || (e.target as HTMLElement).classList.contains('ai-panel__view'))) {
       toolsView.appendChild(draggedItem);
-      
+
       const newOrder = Array.from(toolsView.children)
         .map(child => (child as HTMLElement).dataset?.toolName)
         .filter(Boolean) as string[];

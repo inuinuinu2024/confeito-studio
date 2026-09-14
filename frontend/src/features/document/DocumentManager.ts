@@ -25,7 +25,7 @@ export class DocumentManager {
     window.addEventListener('file:close', this.handleFileClose.bind(this));
     window.addEventListener('file:open-recent', this.handleFileOpenRecent.bind(this) as unknown as EventListener);
     window.addEventListener('layer:selected', this.handleLayerSelected.bind(this) as EventListener);
-    
+
     // Load cached PSD on startup
     this.loadCachedPsd();
   }
@@ -105,7 +105,7 @@ export class DocumentManager {
     }
 
     showToast(`Saving ${saveFilename}...`);
-    
+
     try {
       let resultBlob: Blob;
 
@@ -113,7 +113,7 @@ export class DocumentManager {
         // Save locally using ag-psd
         const arrayBuffer = writePsd(this.currentPsd);
         resultBlob = new Blob([arrayBuffer], { type: 'application/vnd.adobe.photoshop' });
-        
+
         // 保存時にキャッシュも最新状態に更新する
         await setPsdCache(this.currentFilename, this.currentFileHandle);
       } else {
@@ -123,23 +123,23 @@ export class DocumentManager {
           showToast('Error: Original file not found in cache.', 'error');
           return;
         }
-        
+
         const layerStates = this.extractLayerState(this.currentPsd.children || []);
-        
+
         const formData = new FormData();
         const blob = new Blob([cache.buffer], { type: 'application/octet-stream' });
         formData.append('file', blob, saveFilename);
         formData.append('state', JSON.stringify(layerStates));
-        
+
         const response = await fetch('http://localhost:48000/api/psd/save', {
           method: 'POST',
           body: formData
         });
-        
+
         if (!response.ok) {
           throw new Error(`Server returned ${response.status}`);
         }
-        
+
         resultBlob = await response.blob();
       }
 
@@ -152,7 +152,7 @@ export class DocumentManager {
             throw new Error('Permission to write denied by user.');
           }
         }
-        
+
         // Write directly to the file chosen by the user
         const writable = await handle.createWritable();
         await writable.write(resultBlob);
@@ -168,7 +168,7 @@ export class DocumentManager {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       }
-      
+
       showToast(`${saveFilename} saved successfully!`, 'success');
     } catch (e) {
       console.error('Save failed:', e);
@@ -208,8 +208,8 @@ export class DocumentManager {
               this.currentPsd = psd;
               this.currentFilename = cache.filename;
               this.currentFileHandle = cache.fileHandle;
-              window.dispatchEvent(new CustomEvent('document:loaded', { 
-                detail: { psd, filename: cache.filename } 
+              window.dispatchEvent(new CustomEvent('document:loaded', {
+                detail: { psd, filename: cache.filename }
               }));
               showToast(`${cache.filename} restored.`);
               return true;
@@ -253,7 +253,7 @@ export class DocumentManager {
     }
 
     const filename = 'Untitled.psd';
-    
+
     const rootPsd: Psd = {
       width: 1024,
       height: 1024,
@@ -262,19 +262,19 @@ export class DocumentManager {
       colorMode: 3,
       children: []
     };
-    
+
     this.currentPsd = rootPsd;
     this.currentFilename = filename;
     this.currentFileHandle = null;
     this.currentSelectedLayer = null;
-    
+
     try {
       const buffer = writePsd(rootPsd);
       await setPsdCache(filename, null);
     } catch (e) {
       console.error('Error saving new psd to cache', e);
     }
-    
+
     window.dispatchEvent(new CustomEvent('document:loaded', {
       detail: { psd: rootPsd, filename }
     }));
@@ -359,17 +359,17 @@ export class DocumentManager {
     const file = target.files[0];
     this.currentFileHandle = null; // Clear handle since we used standard input
     await this.processFile(file);
-    
+
     // Reset the input so the same file can be selected again if needed
     target.value = '';
   }
 
   private async processFile(file: File) {
     showToast(`Loading ${file.name}...`);
-    
+
     try {
       const arrayBuffer = await file.arrayBuffer();
-      
+
       // Update cache handle
       await setPsdCache(file.name, this.currentFileHandle);
       await addRecentFile(file.name, this.currentFileHandle);
@@ -378,16 +378,16 @@ export class DocumentManager {
       // 巨大なPSDファイル(レイヤー数が多い等)でメモリ制限エラーになるのを防ぐため、totalMemoryLimitを無効化
       const psd = readPsd(arrayBuffer, { totalMemoryLimit: undefined });
       this.sanitizePsd(psd);
-      
+
       this.currentPsd = psd;
       this.currentFilename = file.name;
       console.log('PSD loaded successfully:', psd);
-      
+
       showToast(`${file.name} loaded successfully!`, 'success');
-      
+
       // Dispatch an event so other components (Canvas, LayerPanel) can react
-      window.dispatchEvent(new CustomEvent('document:loaded', { 
-        detail: { psd, filename: file.name } 
+      window.dispatchEvent(new CustomEvent('document:loaded', {
+        detail: { psd, filename: file.name }
       }));
     } catch (error) {
       console.error('Error loading PSD:', error);
