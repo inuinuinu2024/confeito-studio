@@ -6,7 +6,6 @@ import { icon } from '../../shared/utils/dom';
 import { showToast } from '../../shared/utils/toast';
 import { createSettingsDialog } from './components/SettingsDialog';
 import { createBgColorDialog } from './components/BgColorDialog';
-import { getRecentFiles, clearRecentFiles } from '../../shared/utils/idb';
 import { historyManager } from '../../shared/utils/history';
 
 type MenuItemDef = 
@@ -15,12 +14,6 @@ type MenuItemDef =
   | { type: 'submenu'; label: string; items: MenuItemDef[] };
 
 const fileMenuItems: MenuItemDef[] = [
-  { type: 'item', label: 'New Image', shortcut: 'Ctrl+N', action: () => window.dispatchEvent(new Event('file:new')) },
-  { type: 'item', label: 'Open Image', shortcut: 'Ctrl+O', action: () => window.dispatchEvent(new Event('file:open')) },
-  { type: 'submenu', label: 'Open Recent', items: [
-    { type: 'item', label: 'Loading...' }
-  ] },
-  { type: 'separator' },
   { type: 'item', label: 'Save Image', shortcut: 'Ctrl+S', action: () => window.dispatchEvent(new Event('file:save')) },
   { type: 'item', label: 'Save Image As...', shortcut: 'Ctrl+Shift+S', action: () => window.dispatchEvent(new Event('file:save-as')) },
   { type: 'separator' },
@@ -49,12 +42,6 @@ window.addEventListener('keydown', (e) => {
     } else if (e.key === 'y') {
       e.preventDefault();
       historyManager.redo();
-    } else if (e.key === 'n' || e.key === 'N') {
-      e.preventDefault();
-      window.dispatchEvent(new Event('file:new'));
-    } else if (e.key === 'o' || e.key === 'O') {
-      e.preventDefault();
-      window.dispatchEvent(new Event('file:open'));
     } else if (e.key === 's') {
       e.preventDefault();
       window.dispatchEvent(new Event('file:save'));
@@ -83,39 +70,6 @@ const topMenuDefs: { label: string; items?: MenuItemDef[] }[] = [
   { label: 'View', items: viewMenuItems },
   { label: 'Help' },
 ];
-
-async function updateRecentFilesMenu(submenu: HTMLElement) {
-  try {
-    const recents = await getRecentFiles();
-    const items: MenuItemDef[] = recents.map(r => ({
-      type: 'item',
-      label: r.filename,
-      action: () => window.dispatchEvent(new CustomEvent('file:open-recent', { 
-        detail: { handle: r.fileHandle, filename: r.filename } 
-      }))
-    }));
-
-    if (items.length > 0) {
-      items.push({ type: 'separator' });
-    }
-    
-    items.push({
-      type: 'item',
-      label: 'Clear Recent...',
-      action: async () => {
-        await clearRecentFiles();
-      }
-    });
-
-    const newDOM = buildMenuDOM(items);
-    submenu.innerHTML = '';
-    while (newDOM.firstChild) {
-      submenu.appendChild(newDOM.firstChild);
-    }
-  } catch (err) {
-    console.error('Failed to update recent files menu', err);
-  }
-}
 
 function buildMenuDOM(items: MenuItemDef[]): HTMLElement {
   const container = document.createElement('div');
@@ -173,15 +127,6 @@ function buildMenuDOM(items: MenuItemDef[]): HTMLElement {
       submenu.className = 'topbar__submenu';
       a.appendChild(submenu);
       a.classList.add('topbar__submenu-wrapper');
-
-      if (item.label === 'Open Recent') {
-        // Initial populate
-        updateRecentFilesMenu(submenu);
-        // Re-populate on updates
-        window.addEventListener('recent-files:updated', () => {
-          updateRecentFilesMenu(submenu);
-        });
-      }
     }
     
     container.appendChild(a);

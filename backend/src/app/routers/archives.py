@@ -11,6 +11,7 @@ from ..services.archive_service import (
     delete_archive as svc_delete_archive,
     restore_archive as svc_restore_archive,
     delete_archive_contents as svc_delete_archive_contents,
+    append_archive_log as svc_append_archive_log,
     ArchiveNotFoundError,
     ArchiveValidationError,
     ArchiveServiceError
@@ -24,7 +25,7 @@ async def save_archive(
     files: List[UploadFile] = File(...),
     paths: List[str] = Form(...)
 ):
-    """Save generated tool result as a ZIP archive."""
+    """Save or append files to a folder-based archive."""
     if len(files) != len(paths):
         raise HTTPException(status_code=400, detail="Mismatch between files and paths")
     
@@ -43,14 +44,14 @@ async def save_archive(
 
 @router.get("/archives")
 async def list_archives():
-    """List all zip archives mimicking the IDB CachedImage structure."""
+    """List all folder-based archives mimicking the IDB CachedImage structure."""
     return svc_list_archives()
 
-@router.get("/archives/{zip_name}/contents")
-async def list_archive_contents(zip_name: str):
-    """List contents of a specific zip archive."""
+@router.get("/archives/{archive_name}/contents")
+async def list_archive_contents(archive_name: str):
+    """List contents of a specific folder archive."""
     try:
-        return svc_list_archive_contents(zip_name)
+        return svc_list_archive_contents(archive_name)
     except ArchiveValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except ArchiveNotFoundError as e:
@@ -58,11 +59,11 @@ async def list_archive_contents(zip_name: str):
     except ArchiveServiceError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/archives/{zip_name}/extract")
-async def extract_file(zip_name: str, path: str):
-    """Extract a specific file from a ZIP archive."""
+@router.get("/archives/{archive_name}/extract")
+async def extract_file(archive_name: str, path: str):
+    """Extract a specific file from a folder archive."""
     try:
-        content, mime_type = svc_extract_file(zip_name, path)
+        content, mime_type = svc_extract_file(archive_name, path)
         return Response(content=content, media_type=mime_type)
     except ArchiveValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -71,11 +72,11 @@ async def extract_file(zip_name: str, path: str):
     except ArchiveServiceError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/archives/{zip_name}")
-async def delete_archive(zip_name: str):
-    """Delete a ZIP archive."""
+@router.delete("/archives/{archive_name}")
+async def delete_archive(archive_name: str):
+    """Delete a folder archive (moves to .trash)."""
     try:
-        svc_delete_archive(zip_name)
+        svc_delete_archive(archive_name)
         return {"status": "success"}
     except ArchiveValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -87,11 +88,11 @@ async def delete_archive(zip_name: str):
 class DeleteContentsRequest(BaseModel):
     paths: List[str]
 
-@router.post("/archives/{zip_name}/delete_contents")
-async def delete_archive_contents_api(zip_name: str, req: DeleteContentsRequest):
-    """Delete specific files or folders from a ZIP archive."""
+@router.post("/archives/{archive_name}/delete_contents")
+async def delete_archive_contents_api(archive_name: str, req: DeleteContentsRequest):
+    """Delete specific files or subdirectories from a folder archive."""
     try:
-        svc_delete_archive_contents(zip_name, req.paths)
+        svc_delete_archive_contents(archive_name, req.paths)
         return {"status": "success"}
     except ArchiveValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -100,11 +101,11 @@ async def delete_archive_contents_api(zip_name: str, req: DeleteContentsRequest)
     except ArchiveServiceError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/archives/{zip_name}/restore")
-async def restore_archive(zip_name: str):
-    """Restore a deleted ZIP archive from trash."""
+@router.post("/archives/{archive_name}/restore")
+async def restore_archive(archive_name: str):
+    """Restore a deleted folder archive from trash."""
     try:
-        svc_restore_archive(zip_name)
+        svc_restore_archive(archive_name)
         return {"status": "success"}
     except ArchiveValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -112,3 +113,22 @@ async def restore_archive(zip_name: str):
         raise HTTPException(status_code=404, detail=str(e))
     except ArchiveServiceError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class AppendLogRequest(BaseModel):
+    message: str
+
+
+@router.post("/archives/{archive_name}/log")
+async def append_archive_log_api(archive_name: str, req: AppendLogRequest):
+    """Append a log message to log.txt inside a folder archive."""
+    try:
+        svc_append_archive_log(archive_name, req.message)
+        return {"status": "success"}
+    except ArchiveValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ArchiveNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ArchiveServiceError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

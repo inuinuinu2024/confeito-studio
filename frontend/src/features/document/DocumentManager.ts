@@ -6,6 +6,7 @@ export class DocumentManager {
   private currentCanvas: HTMLCanvasElement | null = null;
   private currentFilename: string | null = null;
   private currentFileHandle: any = null;
+  private currentArchiveFolder: string | null = null;
   private fileInput: HTMLInputElement;
 
   private constructor() {
@@ -231,6 +232,7 @@ export class DocumentManager {
     this.currentCanvas = null;
     this.currentFilename = null;
     this.currentFileHandle = null;
+    this.currentArchiveFolder = null;
     window.dispatchEvent(new Event('document:closed'));
     showToast('画像を閉じました');
   }
@@ -397,23 +399,33 @@ export class DocumentManager {
     return this.currentFilename;
   }
 
+  public getCurrentArchiveFolder(): string | null {
+    return this.currentArchiveFolder;
+  }
+
+  public setCurrentArchiveFolder(folderName: string | null): void {
+    this.currentArchiveFolder = folderName;
+  }
+
   public getCurrentSelectedLayer(): any {
     return null;
   }
 
-  public async setCanvas(canvas: HTMLCanvasElement, filename?: string): Promise<void> {
+  public async setCanvas(canvas: HTMLCanvasElement | null, filename?: string): Promise<void> {
     this.currentCanvas = canvas;
-    if (filename) this.currentFilename = filename;
-    window.dispatchEvent(new CustomEvent('document:loaded', {
-      detail: {
-        canvas,
-        image: canvas,
-        filename: this.currentFilename || 'Untitled.png',
-        width: canvas.width,
-        height: canvas.height,
-        psd: { width: canvas.width, height: canvas.height, children: [] }
-      }
-    }));
+    if (filename !== undefined) this.currentFilename = filename;
+    if (canvas) {
+      window.dispatchEvent(new CustomEvent('document:loaded', {
+        detail: {
+          canvas,
+          image: canvas,
+          filename: this.currentFilename || 'Untitled.png',
+          width: canvas.width,
+          height: canvas.height,
+          psd: { width: canvas.width, height: canvas.height, children: [] }
+        }
+      }));
+    }
     window.dispatchEvent(new Event('document:redraw'));
   }
 

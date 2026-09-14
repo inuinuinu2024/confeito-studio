@@ -340,6 +340,13 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
         lastSelectedCacheIndex = null;
       }
     }
+
+    if (autoSelectKey) {
+      const rootFolderKey = autoSelectKey.split('/')[0];
+      updateArchiveFolderCollapse(rootFolderKey, false);
+      delete loadedArchiveContents[rootFolderKey];
+    }
+
     currentCaches = [];
     currentCacheDefs = [];
 
@@ -350,7 +357,8 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
 
       for (const root of rootCaches) {
         const isCollapsed = collapseState[root.key] !== undefined ? collapseState[root.key] : true;
-        if (!isCollapsed) {
+        const isTargetRoot = autoSelectKey && (root.key === autoSelectKey.split('/')[0] || autoSelectKey.startsWith(root.key + '/'));
+        if (!isCollapsed || isTargetRoot) {
           if (!loadedArchiveContents[root.key]) {
             loadedArchiveContents[root.key] = await getArchiveContents(root.key);
           }
@@ -388,10 +396,26 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
 
       if (autoSelectKey) {
         activeCacheItemIndices.clear();
-        const foundIdx = currentCacheDefs.findIndex(d => d.item.key === autoSelectKey);
+        const cleanTarget = autoSelectKey.replace(/\\/g, '/');
+        let foundIdx = currentCacheDefs.findIndex(d => d.item.key.replace(/\\/g, '/') === cleanTarget);
+        if (foundIdx === -1) {
+          const targetFilename = cleanTarget.split('/').pop()?.toLowerCase();
+          const targetFolder = cleanTarget.split('/')[0];
+          foundIdx = currentCacheDefs.findIndex(d => 
+            d.item.folderId === targetFolder && d.item.name.toLowerCase() === targetFilename
+          );
+        }
+
         if (foundIdx !== -1) {
           activeCacheItemIndices.add(foundIdx);
           lastSelectedCacheIndex = foundIdx;
+          currentCacheDefs[foundIdx].active = true;
+
+          const cCache = currentCacheDefs[foundIdx].item;
+          if (cCache.type !== 'folder') {
+            const eventName = options.panelType === 'right' ? 'tool:result-ready:right' : 'tool:result-ready';
+            window.dispatchEvent(new CustomEvent(eventName, { detail: { key: cCache.key, toolName: cCache.name } }));
+          }
         }
       }
 
@@ -400,6 +424,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
       currentCacheDefs.forEach((cDef, i) => {
         const c = cDef.item;
         const currentDepth = cDef.depth || 0;
+        const isActive = activeCacheItemIndices.has(i) || cDef.active;
 
         let inActiveGroup = false;
         if (activeGroupDepth !== -1) {
@@ -409,19 +434,19 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
             activeGroupDepth = -1;
           }
         }
-        if (cDef.active && cDef.isGroup) {
+        if (isActive && cDef.isGroup) {
           activeGroupDepth = currentDepth;
         }
 
         const item = document.createElement('div');
         item.dataset.index = i.toString();
         const classes = ['layer-item'];
-        if (cDef.active) classes.push('layer-item--active');
+        if (isActive) classes.push('layer-item--active');
         if (cDef.isGroup) classes.push('layer-item--group');
         if (cDef.isChild) classes.push('layer-item--child');
         item.className = classes.join(' ');
 
-        if (inActiveGroup && !cDef.active) {
+        if (inActiveGroup && !isActive) {
           item.style.backgroundColor = 'var(--color-surface-container-high)';
         }
 
@@ -472,7 +497,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
           : (isText ? 'description' : 'image');
         const typeIcon = icon(actualIconName, 16);
         typeIcon.className = `material-symbols-outlined layer-item__icon ${
-          cDef.active ? 'layer-item__icon--type-active' : 'layer-item__icon--type'
+          isActive ? 'layer-item__icon--type-active' : 'layer-item__icon--type'
         }`;
         item.appendChild(typeIcon);
 
@@ -486,7 +511,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
 
         label.textContent = displayName;
         label.title = displayName;
-        if (cDef.active) label.style.color = 'var(--color-on-surface)';
+        if (isActive) label.style.color = 'var(--color-on-surface)';
         item.appendChild(label);
 
         if (!cDef.isGroup && !isText) {
@@ -564,6 +589,9 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
             if (tInactive) {
               tInactive.classList.remove('layer-item__icon--type');
               tInactive.classList.add('layer-item__icon--type-active');
+            }
+            if (autoSelectKey) {
+              el.scrollIntoView({ block: 'nearest' });
             }
           }
         });

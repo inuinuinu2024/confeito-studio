@@ -5,6 +5,7 @@ import { icon } from '../../shared/utils/dom';
 import { extractArchiveFile } from '../../shared/utils/archives';
 import { showToast } from '../../shared/utils/toast';
 import { DocumentManager } from '../document/DocumentManager';
+import { importImageFile } from '../tools/image-loader';
 
 export function createCanvas(): HTMLElement {
   const main = document.createElement('main');
@@ -20,7 +21,11 @@ export function createCanvas(): HTMLElement {
     e.preventDefault();
     if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
-      await DocumentManager.getInstance().processFile(file);
+      if (file.type.startsWith('image/') || file.name.match(/\.(png|jpe?g|webp|bmp|gif)$/i)) {
+        await importImageFile(file);
+      } else {
+        showToast('画像ファイル（PNG/JPG/WebP/BMP/GIF）をドロップしてください', 'error');
+      }
     }
   });
 
@@ -1288,8 +1293,11 @@ export function createCanvas(): HTMLElement {
     }
 
     let skipPsdDraw = false;
-    if (cacheToDraw || textToShow) {
-       skipPsdDraw = true;
+    if (!isOverlayMode && !isSliderMode && !isGlobalCompareMode) {
+      // Normal Mode: キャンバスに表示されるのはARCHIVES欄で選択中の画像のみ
+      skipPsdDraw = true;
+    } else if (cacheToDraw || textToShow) {
+      skipPsdDraw = true;
     }
 
     let shouldDrawBg = true;
@@ -1647,6 +1655,13 @@ export function createCanvas(): HTMLElement {
           if (ctx) ctx.drawImage(img, 0, 0);
           URL.revokeObjectURL(url);
           
+          const docManager = DocumentManager.getInstance();
+          docManager.setCanvas(leftCacheCanvas, customEvent.detail.toolName);
+          const parts = customEvent.detail.key.split('/');
+          if (parts.length > 1) {
+            docManager.setCurrentArchiveFolder(parts[0]);
+          }
+
           if (!currentSourceCanvas) {
             initializeCanvases(img.width, img.height);
           }
@@ -1664,6 +1679,8 @@ export function createCanvas(): HTMLElement {
     leftCacheCanvas = null;
     leftIsInputImage = false;
     leftTextOverlay.style.display = 'none';
+    const docManager = DocumentManager.getInstance();
+    docManager.setCanvas(null);
     updateCanvasDrawSize(true);
     updateCanvasLayout();
     window.dispatchEvent(new Event('document:redraw'));

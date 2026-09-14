@@ -13,6 +13,7 @@ import { NanoBananaProTool } from '../tools/nano-banana-pro';
 import { NanoBanana2Tool } from '../tools/nano-banana-2';
 import { ColoringTool } from '../tools/coloring';
 import { RemoveBackgroundTool } from '../tools/remove-background';
+import { ImageLoaderTool } from '../tools/image-loader';
 
 import { createToolSettingsSidebar } from './components/ToolSettingsSidebar';
 import { DocumentManager } from '../document/DocumentManager';
@@ -21,6 +22,7 @@ import { historyManager } from '../../shared/utils/history';
 import { ToolContext } from '../../shared/types/tool.types';
 
 // Register built-in tools
+ToolRegistry.register(new ImageLoaderTool());
 ToolRegistry.register(new NanoBananaProTool());
 ToolRegistry.register(new NanoBanana2Tool());
 ToolRegistry.register(new ColoringTool());
@@ -267,6 +269,9 @@ export function createAIPanel(): HTMLElement {
           showToast(`${tool.name} completed.`, 'success');
           toolSettingsSidebar.close();
         } catch (err: any) {
+          if (err.name === 'AbortError' || err.message === 'AbortError') {
+            return;
+          }
           console.error(err);
           showToast(`${tool.name} failed: ${err.message || 'Unknown error'}`, 'error');
 

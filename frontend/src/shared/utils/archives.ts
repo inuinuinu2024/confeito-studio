@@ -21,10 +21,10 @@ export async function getArchives(retries = 5, delayMs = 1000): Promise<CachedIm
   return [];
 }
 
-export async function getArchiveContents(zipName: string, retries = 5, delayMs = 1000): Promise<CachedImage[]> {
+export async function getArchiveContents(archiveName: string, retries = 5, delayMs = 1000): Promise<CachedImage[]> {
   for (let i = 0; i < retries; i++) {
     try {
-      const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(zipName)}/contents`);
+      const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(archiveName)}/contents`);
       if (res.ok) {
         return await res.json();
       }
@@ -40,16 +40,16 @@ export async function getArchiveContents(zipName: string, retries = 5, delayMs =
   return [];
 }
 
-export async function extractArchiveFile(zipName: string, path: string): Promise<Blob> {
-  const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(zipName)}/extract?path=${encodeURIComponent(path)}`);
+export async function extractArchiveFile(archiveName: string, path: string): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(archiveName)}/extract?path=${encodeURIComponent(path)}`);
   if (!res.ok) {
     throw new Error('Failed to extract file');
   }
   return await res.blob();
 }
 
-export async function deleteArchive(zipName: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(zipName)}`, {
+export async function deleteArchive(archiveName: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(archiveName)}`, {
     method: 'DELETE'
   });
   if (!res.ok) {
@@ -57,8 +57,8 @@ export async function deleteArchive(zipName: string): Promise<void> {
   }
 }
 
-export async function deleteArchiveContents(zipName: string, paths: string[]): Promise<void> {
-  const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(zipName)}/delete_contents`, {
+export async function deleteArchiveContents(archiveName: string, paths: string[]): Promise<void> {
+  const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(archiveName)}/delete_contents`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -70,8 +70,8 @@ export async function deleteArchiveContents(zipName: string, paths: string[]): P
   }
 }
 
-export async function restoreArchive(zipName: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(zipName)}/restore`, {
+export async function restoreArchive(archiveName: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(archiveName)}/restore`, {
     method: 'POST'
   });
   if (!res.ok) {
@@ -95,6 +95,19 @@ export async function saveArchive(name: string, files: { blob: Blob, path: strin
   
   if (!res.ok) {
     throw new Error('Failed to save archive');
+  }
+}
+
+export async function appendArchiveLog(archiveName: string, message: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(archiveName)}/log`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ message })
+  });
+  if (!res.ok) {
+    throw new Error('Failed to append to archive log');
   }
 }
 
