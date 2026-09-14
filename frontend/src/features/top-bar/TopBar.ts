@@ -15,16 +15,16 @@ type MenuItemDef =
   | { type: 'submenu'; label: string; items: MenuItemDef[] };
 
 const fileMenuItems: MenuItemDef[] = [
-  { type: 'item', label: 'New PSD', shortcut: 'Ctrl+N', action: () => window.dispatchEvent(new Event('file:new')) },
-  { type: 'item', label: 'Open PSD', shortcut: 'Ctrl+O', action: () => window.dispatchEvent(new Event('file:open')) },
+  { type: 'item', label: 'New Image', shortcut: 'Ctrl+N', action: () => window.dispatchEvent(new Event('file:new')) },
+  { type: 'item', label: 'Open Image', shortcut: 'Ctrl+O', action: () => window.dispatchEvent(new Event('file:open')) },
   { type: 'submenu', label: 'Open Recent', items: [
     { type: 'item', label: 'Loading...' }
   ] },
   { type: 'separator' },
-  { type: 'item', label: 'Save', shortcut: 'Ctrl+S', action: () => window.dispatchEvent(new Event('file:save')) },
-  { type: 'item', label: 'Save As...', shortcut: 'Ctrl+Shift+S', action: () => window.dispatchEvent(new Event('file:save-as')) },
+  { type: 'item', label: 'Save Image', shortcut: 'Ctrl+S', action: () => window.dispatchEvent(new Event('file:save')) },
+  { type: 'item', label: 'Save Image As...', shortcut: 'Ctrl+Shift+S', action: () => window.dispatchEvent(new Event('file:save-as')) },
   { type: 'separator' },
-  { type: 'item', label: 'Close PSD', action: () => window.dispatchEvent(new Event('file:close')) }
+  { type: 'item', label: 'Close Image', action: () => window.dispatchEvent(new Event('file:close')) }
 ];
 
 // We will attach the action to this menu item later when we have the dialog instance
@@ -49,6 +49,9 @@ window.addEventListener('keydown', (e) => {
     } else if (e.key === 'y') {
       e.preventDefault();
       historyManager.redo();
+    } else if (e.key === 'n' || e.key === 'N') {
+      e.preventDefault();
+      window.dispatchEvent(new Event('file:new'));
     } else if (e.key === 'o' || e.key === 'O') {
       e.preventDefault();
       window.dispatchEvent(new Event('file:open'));

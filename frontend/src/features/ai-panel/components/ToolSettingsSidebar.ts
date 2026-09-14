@@ -2,7 +2,14 @@ import { icon } from '../../../shared/utils/dom';
 
 export function createToolSettingsSidebar(): {
   overlay: HTMLElement;
-  open: (toolName: string, renderSettings: (container: HTMLElement) => void, onExecute?: () => void, onColoringExecute?: () => void) => void;
+  open: (
+    toolName: string,
+    renderSettings: (container: HTMLElement) => void,
+    onExecute?: () => void,
+    onColoringExecute?: () => void,
+    executeLabel?: string,
+    executeIcon?: string | null
+  ) => void;
   close: () => void;
 } {
   const overlay = document.createElement('div');

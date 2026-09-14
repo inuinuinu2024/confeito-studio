@@ -9,6 +9,10 @@ class ToolRegistryImpl {
 
 
 
+  getTool(idOrName: string): Tool | undefined {
+    return this.tools.get(idOrName) || Array.from(this.tools.values()).find(t => t.name === idOrName);
+  }
+
   getAllTools(): Tool[] {
     return Array.from(this.tools.values());
   }

@@ -1,13 +1,12 @@
-import type { Psd, Layer } from 'ag-psd';
-
 export interface ToolContext {
-  psd: Psd | null;
-  selectedLayer: Layer | null;
+  image?: HTMLCanvasElement | null;
+  psd?: any;
+  selectedLayer?: any;
   
-  // Get the canvas of the currently selected layer
+  // Get the canvas of the currently active or selected image
   getSelectedImage(): Promise<HTMLCanvasElement | null>;
   
-  // Get the composite image of all visible layers
+  // Get the composite or main image
   getCompositeImage(): Promise<HTMLCanvasElement | null>;
 
   // Get the positive and negative prompts from AI Panel

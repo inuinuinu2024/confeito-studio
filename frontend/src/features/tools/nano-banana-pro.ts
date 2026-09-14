@@ -444,33 +444,10 @@ export class NanoBananaProTool implements Tool {
       // Attach the canvas to file logic here now that handleFiles is defined
       addCanvasBtn.addEventListener('click', () => {
         const docManager = DocumentManager.getInstance();
-        const psd = docManager.getCurrentPsd();
-        if (!psd || !psd.width || !psd.height) return;
+        const currentCanvas = docManager.getCurrentCanvas();
+        if (!currentCanvas) return;
         
-        const canvas = document.createElement('canvas');
-        canvas.width = psd.width;
-        canvas.height = psd.height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-        
-        const drawNode = (node: any) => {
-          if (node.hidden) return;
-          if (node.children) {
-            for (let i = node.children.length - 1; i >= 0; i--) {
-              drawNode(node.children[i]);
-            }
-          } else if (node.canvas) {
-            ctx.drawImage(node.canvas, node.left || 0, node.top || 0);
-          }
-        };
-
-        if (psd.children) {
-          for (let i = psd.children.length - 1; i >= 0; i--) {
-            drawNode(psd.children[i]);
-          }
-        }
-        
-        canvas.toBlob((blob) => {
+        currentCanvas.toBlob((blob) => {
           if (blob) {
             const file = new File([blob], `canvas_${Date.now()}.png`, { type: 'image/png' });
             handleFiles([file]);

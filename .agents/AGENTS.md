@@ -29,7 +29,7 @@ confeito-studio/
 │       ├── features/          # 機能ごとのUIコンポーネント群
 │       │   ├── ai-panel/      # AIツール用右サイドバー
 │       │   ├── canvas/        # 描画キャンバス領域
-│       │   ├── layer-panel/   # レイヤーツリー + プロパティインスペクタ
+│       │   ├── layer-panel/   # ARCHIVES管理・プレビュー用サイドバー
 │       │   ├── tools/         # AIツール実装 (1ツール1ファイル)
 │       │   └── top-bar/       # ヘッダー
 │       └── shared/            # 機能間で共有される依存関係

@@ -16,27 +16,43 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-export async function setPsdCache(filename: string, fileHandle?: any): Promise<void> {
+export async function setDocumentCache(filename: string, fileHandle?: any): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
-    // Note: buffer is no longer saved
-    const request = store.put({ filename, fileHandle }, 'lastPsd');
+    const request = store.put({ filename, fileHandle }, 'lastImage');
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
 }
 
-export async function getPsdCache(): Promise<{ filename: string; fileHandle?: any } | null> {
+export async function getDocumentCache(): Promise<{ filename: string; fileHandle?: any } | null> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, 'readonly');
     const store = transaction.objectStore(STORE_NAME);
-    const request = store.get('lastPsd');
-    request.onsuccess = () => resolve(request.result || null);
+    const request = store.get('lastImage');
+    request.onsuccess = () => {
+      if (request.result) {
+        resolve(request.result);
+      } else {
+        // Fallback check for old lastPsd key
+        const oldReq = store.get('lastPsd');
+        oldReq.onsuccess = () => resolve(oldReq.result || null);
+        oldReq.onerror = () => resolve(null);
+      }
+    };
     request.onerror = () => reject(request.error);
   });
+}
+
+export async function setPsdCache(filename: string, fileHandle?: any): Promise<void> {
+  return setDocumentCache(filename, fileHandle);
+}
+
+export async function getPsdCache(): Promise<{ filename: string; fileHandle?: any } | null> {
+  return getDocumentCache();
 }
 
 export interface RecentFile {

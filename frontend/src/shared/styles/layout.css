@@ -252,6 +252,61 @@
   opacity: 0.3;
 }
 
+/* ── AI Panel Header & Tabs ── */
+.ai-panel__header {
+  padding: 0 8px;
+  height: 44px;
+  border-bottom: 1px solid var(--color-outline-variant);
+  display: flex;
+  align-items: stretch;
+  background: var(--color-surface-container-low);
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.ai-panel__tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  font-family: var(--font-label);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-on-surface-variant);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
+  position: relative;
+  user-select: none;
+}
+
+.ai-panel__tab:hover {
+  color: var(--color-on-surface);
+  background: var(--color-surface-container);
+}
+
+.ai-panel__tab--active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+.ai-panel__tab-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-container-highest);
+  color: var(--color-secondary);
+}
+
+.ai-panel__tab--active .ai-panel__tab-badge {
+  background: var(--color-secondary-container);
+  color: var(--color-on-secondary-container);
+}
+
 .layer-panel {
   grid-column: 2 / 3;
   background: var(--color-surface-container-low);
@@ -479,14 +534,13 @@
   flex-shrink: 0;
 }
 
-/* AI Layer Cache */
+/* AI Archives Panel */
 .layer-cache {
-  height: var(--cache-panel-height, 33%);
+  flex: 1;
+  height: 100%;
   background: var(--color-surface-container-low);
-  border-top: 1px solid var(--color-outline-variant);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
   overflow: hidden;
   position: relative;
 }
@@ -512,6 +566,8 @@
 }
 
 .layer-cache__list {
+  flex: 1;
+  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1081,6 +1137,92 @@
   transform: scale(0.98);
 }
 
+.ai-tool-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  position: relative;
+  cursor: grab;
+}
+
+.ai-tool-row:active {
+  cursor: grabbing;
+}
+
+.ai-tool-row .ai-tool-btn {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-tool-btn .ai-tool-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  text-align: left;
+}
+
+.ai-tool-action-btn {
+  width: 32px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-container-high);
+  color: var(--color-on-surface-variant);
+  border: none;
+  cursor: pointer;
+  transition: all 150ms ease;
+  flex-shrink: 0;
+}
+
+.ai-tool-action-btn:hover {
+  background: var(--color-surface-container-highest);
+  color: var(--color-on-surface);
+}
+
+.ai-tool-action-btn--pinned {
+  color: var(--color-primary);
+  background: var(--color-secondary-container);
+}
+
+.ai-tool-action-btn--pinned:hover {
+  background: var(--color-secondary-container);
+  opacity: 0.85;
+}
+
+.ai-tool-action-btn--remove:hover {
+  color: var(--color-error);
+  background: var(--color-error-container);
+}
+
+.ai-panel__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 36px 16px;
+  text-align: center;
+  gap: 12px;
+  color: var(--color-on-surface-variant);
+}
+
+.ai-panel__empty-icon {
+  opacity: 0.4;
+  color: var(--color-on-surface-variant);
+}
+
+.ai-panel__empty-text {
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--color-on-surface-variant);
+}
+
+
+
 /* ── Status Bar (Footer) ─────────────────────────────────── */
 .statusbar {
   grid-column: 1 / -1;
@@ -1180,5 +1322,4 @@
   padding: 0 4px;
   outline: none;
   width: 100%;
-}
 }

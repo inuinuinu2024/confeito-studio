@@ -4,10 +4,25 @@
 import { icon } from '../../shared/utils/dom';
 import { extractArchiveFile } from '../../shared/utils/archives';
 import { showToast } from '../../shared/utils/toast';
+import { DocumentManager } from '../document/DocumentManager';
 
 export function createCanvas(): HTMLElement {
   const main = document.createElement('main');
   main.className = 'canvas-area';
+
+  // Drag and drop image files directly onto canvas
+  main.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  });
+
+  main.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      await DocumentManager.getInstance().processFile(file);
+    }
+  });
 
   // ── Floating Canvas Toolbar ──
   const toolbar = document.createElement('div');
@@ -393,6 +408,24 @@ export function createCanvas(): HTMLElement {
     updateZoom(oldZoom);
   });
 
+  function fitToScreen() {
+    if (!canvasDrawWidth || !canvasDrawHeight) return;
+    const pad = 64;
+    const availableW = Math.max(1, splitView.clientWidth - pad);
+    const availableH = Math.max(1, splitView.clientHeight - pad);
+    const scale = Math.min(availableW / canvasDrawWidth, availableH / canvasDrawHeight);
+    
+    const fitPct = Math.max(10, Math.min(100, Math.floor(scale * 100)));
+    const oldZoom = currentZoom;
+    currentZoom = fitPct;
+    updateZoom(oldZoom, undefined, undefined, true);
+
+    setTimeout(() => {
+      splitView.scrollLeft = (splitView.scrollWidth - splitView.clientWidth) / 2;
+      splitView.scrollTop = (splitView.scrollHeight - splitView.clientHeight) / 2;
+    }, 0);
+  }
+
   function updateZoom(oldZoom: number, focusX?: number, focusY?: number, force = false) {
     if (oldZoom === currentZoom && !force) return;
 
@@ -416,29 +449,23 @@ export function createCanvas(): HTMLElement {
 
     const ratio = newScale / oldScale;
 
-    let pctW = newScale * 100;
-    let pctH = newScale * 100;
-    
     if (canvasDrawWidth && canvasDrawHeight) {
       const pad = 64;
       const availableW = Math.max(1, splitView.clientWidth - pad);
       const availableH = Math.max(1, splitView.clientHeight - pad);
       
-      const scale = Math.min(availableW / canvasDrawWidth, availableH / canvasDrawHeight);
-      const fitW = canvasDrawWidth * scale;
-      const fitH = canvasDrawHeight * scale;
-      
-      pctW = (fitW / availableW) * 100 * newScale;
-      pctH = (fitH / availableH) * 100 * newScale;
-    }
+      const baseScale = Math.min(availableW / canvasDrawWidth, availableH / canvasDrawHeight);
+      const renderW = Math.round(canvasDrawWidth * baseScale * newScale);
+      const renderH = Math.round(canvasDrawHeight * baseScale * newScale);
 
-    splitViewInner.style.width = `${pctW}%`;
-    splitViewInner.style.height = `${pctH}%`;
-    
-    splitViewInner.style.marginTop = pctH > 100 ? '0' : 'auto';
-    splitViewInner.style.marginBottom = pctH > 100 ? '0' : 'auto';
-    splitViewInner.style.marginLeft = pctW > 100 ? '0' : 'auto';
-    splitViewInner.style.marginRight = pctW > 100 ? '0' : 'auto';
+      splitViewInner.style.width = `${renderW}px`;
+      splitViewInner.style.height = `${renderH}px`;
+      
+      splitViewInner.style.marginTop = renderH > splitView.clientHeight ? '0' : 'auto';
+      splitViewInner.style.marginBottom = renderH > splitView.clientHeight ? '0' : 'auto';
+      splitViewInner.style.marginLeft = renderW > splitView.clientWidth ? '0' : 'auto';
+      splitViewInner.style.marginRight = renderW > splitView.clientWidth ? '0' : 'auto';
+    }
 
     const newContentFocusX = contentFocusX * ratio;
     const newContentFocusY = contentFocusY * ratio;
@@ -488,27 +515,14 @@ export function createCanvas(): HTMLElement {
   }, { passive: false });
 
   const fitWidthBtn = document.createElement('button');
-  fitWidthBtn.appendChild(icon('width', 16));
-  fitWidthBtn.title = 'Fit Width';
+  fitWidthBtn.appendChild(icon('fit_screen', 16));
+  fitWidthBtn.title = 'Fit to Screen';
   fitWidthBtn.style.display = 'flex';
   fitWidthBtn.style.alignItems = 'center';
   fitWidthBtn.style.justifyContent = 'center';
   
   fitWidthBtn.addEventListener('click', () => {
-    if (!canvasDrawWidth || !canvasDrawHeight) return;
-    const oldZoom = currentZoom;
-    const pad = 64;
-    const availableW = Math.max(1, splitView.clientWidth - pad);
-    const availableH = Math.max(1, splitView.clientHeight - pad);
-    const scale = Math.min(availableW / canvasDrawWidth, availableH / canvasDrawHeight);
-    const fitW = canvasDrawWidth * scale;
-    
-    currentZoom = Math.max(10, Math.min(1000, Math.floor(100 * availableW / fitW)));
-    updateZoom(oldZoom);
-    
-    // Explicitly align center to screen center
-    splitView.scrollLeft = (splitView.scrollWidth - splitView.clientWidth) / 2;
-    splitView.scrollTop = (splitView.scrollHeight - splitView.clientHeight) / 2;
+    fitToScreen();
   });
 
   const fitHeightBtn = document.createElement('button');
@@ -524,13 +538,12 @@ export function createCanvas(): HTMLElement {
     const pad = 64;
     const availableW = Math.max(1, splitView.clientWidth - pad);
     const availableH = Math.max(1, splitView.clientHeight - pad);
-    const scale = Math.min(availableW / canvasDrawWidth, availableH / canvasDrawHeight);
-    const fitH = canvasDrawHeight * scale;
+    const baseScale = Math.min(availableW / canvasDrawWidth, availableH / canvasDrawHeight);
+    const fitH = canvasDrawHeight * baseScale;
     
     currentZoom = Math.max(10, Math.min(1000, Math.floor(100 * availableH / fitH)));
-    updateZoom(oldZoom);
+    updateZoom(oldZoom, undefined, undefined, true);
     
-    // Explicitly align center to screen center
     splitView.scrollLeft = (splitView.scrollWidth - splitView.clientWidth) / 2;
     splitView.scrollTop = (splitView.scrollHeight - splitView.clientHeight) / 2;
   });
@@ -791,6 +804,7 @@ export function createCanvas(): HTMLElement {
   let canvasDrawWidth = 0;
   let canvasDrawHeight = 0;
   let currentPsd: any = null;
+  let currentImage: HTMLCanvasElement | HTMLImageElement | null = null;
 
   let leftSelectedLayer: any = null;
   let rightSelectedLayer: any = null;
@@ -826,60 +840,87 @@ export function createCanvas(): HTMLElement {
   let leftIsInputImage = false;
   let rightIsInputImage = false;
 
-  function updateCanvasDrawSize() {
-    if (!currentPsd) return;
-    
-    let mw = psdWidth;
-    let mh = psdHeight;
+  function updateCanvasDrawSize(shouldFit = false) {
+    let mw = 0;
+    let mh = 0;
 
-    if (leftCacheCanvas) {
-      mw = Math.max(mw, leftCacheCanvas.width);
-      mh = Math.max(mh, leftCacheCanvas.height);
-    }
-    if (rightCacheCanvas) {
-      mw = Math.max(mw, rightCacheCanvas.width);
-      mh = Math.max(mh, rightCacheCanvas.height);
-    }
-    if (leftOverlayUCacheImg) {
-      mw = Math.max(mw, leftOverlayUCacheImg.width);
-      mh = Math.max(mh, leftOverlayUCacheImg.height);
-    }
-    if (leftOverlayTCacheImg) {
-      mw = Math.max(mw, leftOverlayTCacheImg.width);
-      mh = Math.max(mh, leftOverlayTCacheImg.height);
-    }
-    if (rightOverlayUCacheImg) {
-      mw = Math.max(mw, rightOverlayUCacheImg.width);
-      mh = Math.max(mh, rightOverlayUCacheImg.height);
-    }
-    if (rightOverlayTCacheImg) {
-      mw = Math.max(mw, rightOverlayTCacheImg.width);
-      mh = Math.max(mh, rightOverlayTCacheImg.height);
+    const mainW = currentImage ? currentImage.width : (currentPsd ? currentPsd.width : 0);
+    const mainH = currentImage ? currentImage.height : (currentPsd ? currentPsd.height : 0);
+
+    if (!isOverlayMode && !isGlobalCompareMode && !isSliderMode) {
+      // Normal Mode: when viewing an archive image, canvas matches archive image exactly
+      if (leftCacheCanvas) {
+        mw = leftCacheCanvas.width;
+        mh = leftCacheCanvas.height;
+      } else {
+        mw = mainW;
+        mh = mainH;
+      }
+    } else {
+      // Compare or Overlay Mode: bounding box across active images
+      mw = mainW;
+      mh = mainH;
+      if (leftCacheCanvas) {
+        mw = Math.max(mw, leftCacheCanvas.width);
+        mh = Math.max(mh, leftCacheCanvas.height);
+      }
+      if (rightCacheCanvas) {
+        mw = Math.max(mw, rightCacheCanvas.width);
+        mh = Math.max(mh, rightCacheCanvas.height);
+      }
+      if (leftOverlayUCacheImg) {
+        mw = Math.max(mw, leftOverlayUCacheImg.width);
+        mh = Math.max(mh, leftOverlayUCacheImg.height);
+      }
+      if (leftOverlayTCacheImg) {
+        mw = Math.max(mw, leftOverlayTCacheImg.width);
+        mh = Math.max(mh, leftOverlayTCacheImg.height);
+      }
+      if (rightOverlayUCacheImg) {
+        mw = Math.max(mw, rightOverlayUCacheImg.width);
+        mh = Math.max(mh, rightOverlayUCacheImg.height);
+      }
+      if (rightOverlayTCacheImg) {
+        mw = Math.max(mw, rightOverlayTCacheImg.width);
+        mh = Math.max(mh, rightOverlayTCacheImg.height);
+      }
     }
 
-    if (canvasDrawWidth !== mw || canvasDrawHeight !== mh) {
-      canvasDrawWidth = mw;
-      canvasDrawHeight = mh;
-      if (currentSourceCanvas) {
+    if (mw === 0 || mh === 0) return;
+
+    const sizeChanged = (canvasDrawWidth !== mw || canvasDrawHeight !== mh);
+    canvasDrawWidth = mw;
+    canvasDrawHeight = mh;
+
+    if (!currentSourceCanvas || !currentResultCanvas) {
+      initializeCanvases(mw, mh);
+    } else {
+      if (currentSourceCanvas.width !== canvasDrawWidth || currentSourceCanvas.height !== canvasDrawHeight) {
         currentSourceCanvas.width = canvasDrawWidth;
         currentSourceCanvas.height = canvasDrawHeight;
       }
-      if (currentResultCanvas) {
+      if (currentResultCanvas.width !== canvasDrawWidth || currentResultCanvas.height !== canvasDrawHeight) {
         currentResultCanvas.width = canvasDrawWidth;
         currentResultCanvas.height = canvasDrawHeight;
       }
+    }
+
+    if (shouldFit || sizeChanged) {
+      fitToScreen();
+    } else {
       updateZoom(currentZoom, undefined, undefined, true);
     }
+
     updateCanvasTooltips();
   }
 
   function updateCanvasTooltips() {
-    if (!currentSourceCanvas || !currentResultCanvas || !currentPsd) return;
+    if (!currentSourceCanvas || !currentResultCanvas) return;
 
-    let sourceW = psdWidth;
-    let sourceH = psdHeight;
-    let resultW = psdWidth;
-    let resultH = psdHeight;
+    let sourceW = canvasDrawWidth;
+    let sourceH = canvasDrawHeight;
+    let resultW = canvasDrawWidth;
+    let resultH = canvasDrawHeight;
 
     if (!isOverlayMode) {
       if (isGlobalCompareMode) {
@@ -934,7 +975,7 @@ export function createCanvas(): HTMLElement {
     leftOverlayULayer = d.layer;
     leftOverlayUCacheKey = d.cacheKey;
     leftOverlayUCacheImg = await loadCacheImg(leftOverlayUCacheKey);
-    updateCanvasDrawSize();
+    updateCanvasDrawSize(true);
     window.dispatchEvent(new Event('document:redraw'));
   });
 
@@ -943,7 +984,7 @@ export function createCanvas(): HTMLElement {
     leftOverlayTLayer = d.layer;
     leftOverlayTCacheKey = d.cacheKey;
     leftOverlayTCacheImg = await loadCacheImg(leftOverlayTCacheKey);
-    updateCanvasDrawSize();
+    updateCanvasDrawSize(true);
     window.dispatchEvent(new Event('document:redraw'));
   });
 
@@ -952,7 +993,7 @@ export function createCanvas(): HTMLElement {
     rightOverlayULayer = d.layer;
     rightOverlayUCacheKey = d.cacheKey;
     rightOverlayUCacheImg = await loadCacheImg(rightOverlayUCacheKey);
-    updateCanvasDrawSize();
+    updateCanvasDrawSize(true);
     window.dispatchEvent(new Event('document:redraw'));
   });
 
@@ -961,7 +1002,7 @@ export function createCanvas(): HTMLElement {
     rightOverlayTLayer = d.layer;
     rightOverlayTCacheKey = d.cacheKey;
     rightOverlayTCacheImg = await loadCacheImg(rightOverlayTCacheKey);
-    updateCanvasDrawSize();
+    updateCanvasDrawSize(true);
     window.dispatchEvent(new Event('document:redraw'));
   });
   
@@ -1254,7 +1295,9 @@ export function createCanvas(): HTMLElement {
     let shouldDrawBg = true;
     let hasVisibleLayer = false;
     
-    if (currentPsd && currentPsd.children && !skipPsdDraw) {
+    if (currentImage && !skipPsdDraw) {
+      hasVisibleLayer = true;
+    } else if (currentPsd && currentPsd.children && !skipPsdDraw) {
       const checkVisibility = (node: any) => {
         if (hasVisibleLayer || hiddenLayers.has(node)) return;
         if (node.children) {
@@ -1374,7 +1417,14 @@ export function createCanvas(): HTMLElement {
        return;
     }
 
-    if (currentPsd && currentPsd.children && !skipPsdDraw) {
+    if (currentImage && !skipPsdDraw) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(psdOffsetX, psdOffsetY, psdWidth, psdHeight);
+      ctx.clip();
+      ctx.drawImage(currentImage, psdOffsetX, psdOffsetY);
+      ctx.restore();
+    } else if (currentPsd && currentPsd.children && !skipPsdDraw) {
       ctx.save();
       
       ctx.beginPath();
@@ -1457,21 +1507,29 @@ export function createCanvas(): HTMLElement {
     resultContentWrapper.appendChild(rightTextOverlay);
   }
 
-  // Listen for PSD loaded event to render the image
+  // Listen for image/document loaded event to render the image
   window.addEventListener('document:loaded', (e: Event) => {
-    const customEvent = e as CustomEvent<{ psd: any; filename: string }>;
-    const psd = customEvent.detail.psd;
-    currentPsd = psd;
+    const customEvent = e as CustomEvent<{ psd?: any; canvas?: HTMLCanvasElement; image?: HTMLCanvasElement; filename: string; width?: number; height?: number }>;
+    const detail = customEvent.detail;
+    currentPsd = detail.psd || null;
+    currentImage = detail.canvas || detail.image || null;
     leftSelectedLayer = null;
     rightSelectedLayer = null;
 
-    if (psd.width && psd.height) {
-      initializeCanvases(psd.width, psd.height);
+    const w = detail.width || (currentImage ? currentImage.width : (currentPsd ? currentPsd.width : 0));
+    const h = detail.height || (currentImage ? currentImage.height : (currentPsd ? currentPsd.height : 0));
+
+    if (w && h) {
+      initializeCanvases(w, h);
+      updateCanvasDrawSize(true);
+      updateCanvasLayout();
+      window.dispatchEvent(new Event('document:redraw'));
     }
   });
 
   window.addEventListener('document:closed', () => {
     currentPsd = null;
+    currentImage = null;
     leftSelectedLayer = null;
     rightSelectedLayer = null;
     currentSourceCanvas = null;
@@ -1573,7 +1631,7 @@ export function createCanvas(): HTMLElement {
           initializeCanvases(800, 600);
         }
         
-        updateCanvasDrawSize();
+        updateCanvasDrawSize(true);
         updateCanvasLayout();
         window.dispatchEvent(new Event('document:redraw'));
       } else {
@@ -1593,7 +1651,7 @@ export function createCanvas(): HTMLElement {
             initializeCanvases(img.width, img.height);
           }
           
-          updateCanvasDrawSize();
+          updateCanvasDrawSize(true);
           updateCanvasLayout();
           window.dispatchEvent(new Event('document:redraw'));
         };
@@ -1606,7 +1664,7 @@ export function createCanvas(): HTMLElement {
     leftCacheCanvas = null;
     leftIsInputImage = false;
     leftTextOverlay.style.display = 'none';
-    updateCanvasDrawSize();
+    updateCanvasDrawSize(true);
     updateCanvasLayout();
     window.dispatchEvent(new Event('document:redraw'));
     ensureSliderModeValid();
@@ -1627,7 +1685,7 @@ export function createCanvas(): HTMLElement {
           initializeCanvases(800, 600);
         }
         
-        updateCanvasDrawSize();
+        updateCanvasDrawSize(true);
         updateCanvasLayout();
         window.dispatchEvent(new Event('document:redraw'));
       } else {
@@ -1647,7 +1705,7 @@ export function createCanvas(): HTMLElement {
             initializeCanvases(img.width, img.height);
           }
           
-          updateCanvasDrawSize();
+          updateCanvasDrawSize(true);
           updateCanvasLayout();
           window.dispatchEvent(new Event('document:redraw'));
         };
@@ -1660,7 +1718,7 @@ export function createCanvas(): HTMLElement {
     rightCacheCanvas = null;
     rightIsInputImage = false;
     rightTextOverlay.style.display = 'none';
-    updateCanvasDrawSize();
+    updateCanvasDrawSize(true);
     updateCanvasLayout();
     window.dispatchEvent(new Event('document:redraw'));
   });
