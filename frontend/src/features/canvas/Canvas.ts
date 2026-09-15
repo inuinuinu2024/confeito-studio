@@ -456,6 +456,29 @@ export function createCanvas(): HTMLElement {
   zoomLabel.className = 'canvas-zoom-bar__label';
   zoomLabel.textContent = '100%';
 
+  function resetTo100Percent() {
+    if (isTextActive()) {
+      splitViewInner.style.width = '100%';
+      splitViewInner.style.height = '100%';
+      splitViewInner.style.marginTop = '0';
+      splitViewInner.style.marginBottom = '0';
+      splitViewInner.style.marginLeft = '0';
+      splitViewInner.style.marginRight = '0';
+      splitView.scrollLeft = 0;
+      splitView.scrollTop = 0;
+      return;
+    }
+
+    const oldZoom = currentZoom;
+    currentZoom = 100;
+    updateZoom(oldZoom, undefined, undefined, true);
+
+    setTimeout(() => {
+      splitView.scrollLeft = Math.max(0, (splitView.scrollWidth - splitView.clientWidth) / 2);
+      splitView.scrollTop = 0;
+    }, 0);
+  }
+
   const resetZoomBtn = document.createElement('button');
   resetZoomBtn.appendChild(icon('home', 16));
   resetZoomBtn.style.display = 'flex';
@@ -463,9 +486,7 @@ export function createCanvas(): HTMLElement {
   resetZoomBtn.style.justifyContent = 'center';
   
   resetZoomBtn.addEventListener('click', () => {
-    const oldZoom = currentZoom;
-    currentZoom = 100;
-    updateZoom(oldZoom);
+    resetTo100Percent();
   });
 
   function fitToScreen() {
@@ -971,8 +992,10 @@ export function createCanvas(): HTMLElement {
       }
     }
 
-    if (shouldFit || sizeChanged) {
+    if (shouldFit) {
       fitToScreen();
+    } else if (sizeChanged) {
+      resetTo100Percent();
     } else {
       updateZoom(currentZoom, undefined, undefined, true);
     }
@@ -1591,7 +1614,8 @@ export function createCanvas(): HTMLElement {
 
     if (w && h) {
       initializeCanvases(w, h);
-      updateCanvasDrawSize(true);
+      updateCanvasDrawSize(false);
+      resetTo100Percent();
       updateCanvasLayout();
       window.dispatchEvent(new Event('document:redraw'));
     }
@@ -1734,7 +1758,8 @@ export function createCanvas(): HTMLElement {
             initializeCanvases(img.width, img.height);
           }
           
-          updateCanvasDrawSize(true);
+          updateCanvasDrawSize(false);
+          resetTo100Percent();
           updateCanvasLayout();
           window.dispatchEvent(new Event('document:redraw'));
         };
@@ -1790,7 +1815,8 @@ export function createCanvas(): HTMLElement {
             initializeCanvases(img.width, img.height);
           }
           
-          updateCanvasDrawSize(true);
+          updateCanvasDrawSize(false);
+          resetTo100Percent();
           updateCanvasLayout();
           window.dispatchEvent(new Event('document:redraw'));
         };
