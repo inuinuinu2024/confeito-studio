@@ -885,6 +885,16 @@ export function createCanvas(): HTMLElement {
   window.addEventListener('overlay-mode:toggle', (e: Event) => {
     isOverlayMode = (e as CustomEvent).detail.enabled;
     overlayGroup.style.display = isOverlayMode ? 'flex' : 'none';
+    if (isOverlayMode) {
+      if (!leftOverlayUCacheImg && !leftOverlayULayer) {
+        if (leftCacheCanvas) {
+          leftOverlayUCacheImg = leftCacheCanvas;
+        } else if (currentImage) {
+          leftOverlayUCacheImg = currentImage as any;
+        }
+      }
+    }
+    updateCanvasDrawSize(true);
     updateCanvasLayout();
     window.dispatchEvent(new Event('document:redraw'));
   });
@@ -1447,18 +1457,21 @@ export function createCanvas(): HTMLElement {
     }
 
     if (isOverlayMode) {
+       let hasDrawnSomething = false;
+       const uSource = uCacheImg || (uLayer && uLayer.canvas) || (!tCacheImg && !tLayer ? (leftCacheCanvas || currentImage) : null);
+
        // Draw U
-       if (uCacheImg || (uLayer && uLayer.canvas)) {
-          let source = uCacheImg || uLayer.canvas;
+       if (uSource) {
+          let source: HTMLCanvasElement | HTMLImageElement = uSource;
           let drawLeft = 0;
           let drawTop = 0;
           
-          if (!uCacheImg && uLayer) {
+          if (!uCacheImg && uLayer && uLayer.canvas) {
              drawLeft = psdOffsetX + (uLayer.left || 0);
              drawTop = psdOffsetY + (uLayer.top || 0);
-          } else if (uCacheImg) {
-             drawLeft = cx - uCacheImg.width / 2;
-             drawTop = cy - uCacheImg.height / 2;
+          } else {
+             drawLeft = cx - source.width / 2;
+             drawTop = cy - source.height / 2;
           }
           
           if (overlayUnderdrawingColor) {
@@ -1474,6 +1487,7 @@ export function createCanvas(): HTMLElement {
           }
           
           ctx.drawImage(source, drawLeft, drawTop);
+          hasDrawnSomething = true;
        }
        
        // Draw T with slider opacity
@@ -1498,6 +1512,7 @@ export function createCanvas(): HTMLElement {
              drawH = tLayer.canvas.height;
           }
           ctx.globalAlpha = 1.0;
+          hasDrawnSomething = true;
 
           if (isTopSelected && drawW > 0 && drawH > 0) {
              ctx.strokeStyle = '#0078d4';
@@ -1506,6 +1521,14 @@ export function createCanvas(): HTMLElement {
              ctx.strokeRect(drawLeft, drawTop, drawW, drawH);
              ctx.setLineDash([]);
           }
+       }
+
+       if (!hasDrawnSomething) {
+          ctx.fillStyle = 'var(--color-on-surface-variant)';
+          ctx.font = '500 14px var(--font-body, sans-serif)';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('ARCHIVESから重ね合わせる画像（U: 下絵 / T: 上絵）を選択してください', cx, cy);
        }
        return;
     }

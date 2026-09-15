@@ -529,9 +529,98 @@
   font-size: 13px;
   line-height: 18px;
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Overlay Mode U/T Checkbox Columns */
+.layer-item__ut-boxes {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  margin-right: 2px;
+  flex-shrink: 0;
+}
+
+.layer-item__ut-cb {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--color-outline);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  background-color: transparent;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.layer-item__ut-cb:hover {
+  border-color: var(--color-on-surface-variant);
+  background-color: var(--color-surface-container-highest);
+}
+
+.layer-item__ut-cb--checked-u,
+.layer-item__ut-cb--checked-t {
+  background-color: var(--color-on-surface) !important;
+  border-color: var(--color-on-surface) !important;
+}
+
+.layer-item__ut-cb--checked-u::after,
+.layer-item__ut-cb--checked-t::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-surface-container-low);
+}
+
+/* Overlay column header bar */
+.overlay-column-header {
+  display: none;
+  align-items: center;
+  padding: 4px 8px 4px 8px;
+  border-bottom: 1px solid var(--color-outline-variant);
+  background: var(--color-surface-container);
+  flex-shrink: 0;
+}
+
+.overlay-column-header--visible {
+  display: flex;
+}
+
+.overlay-column-header__spacer {
+  flex: 1;
+}
+
+.overlay-column-header__label {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-label);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background-color: var(--color-on-surface-variant);
+  color: var(--color-surface-container-low);
+}
+
+.overlay-column-header__label--u {
+  margin-right: 2px;
+}
+
+.overlay-column-header__label--t {
+  margin-right: 2px;
 }
 
 .layer-item__badge {

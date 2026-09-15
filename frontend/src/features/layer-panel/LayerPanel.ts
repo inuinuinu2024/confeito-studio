@@ -49,6 +49,8 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   let tLayerId: string | null = null;
   let uCacheKey: string | null = null;
   let tCacheKey: string | null = null;
+  let uLayerName: string | null = null;
+  let tLayerName: string | null = null;
 
   const overlayUEvent = options.panelType === 'right' ? 'overlay:select-u:right' : 'overlay:select-u';
   const overlayTEvent = options.panelType === 'right' ? 'overlay:select-t:right' : 'overlay:select-t';
@@ -57,6 +59,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
     const d = (e as CustomEvent).detail;
     uLayerId = d.id;
     uCacheKey = d.cacheKey;
+    uLayerName = d.name || null;
     window.dispatchEvent(new Event('overlay-mode:changed'));
     window.dispatchEvent(new Event('document:redraw'));
   });
@@ -65,40 +68,23 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
     const d = (e as CustomEvent).detail;
     tLayerId = d.id;
     tCacheKey = d.cacheKey;
+    tLayerName = d.name || null;
     window.dispatchEvent(new Event('overlay-mode:changed'));
     window.dispatchEvent(new Event('document:redraw'));
   });
 
-  function createUTBoxes(id: string, cacheKey: string | null) {
+  function createUTBoxes(id: string, cacheKey: string | null, name: string) {
     const container = document.createElement('div');
     container.className = 'layer-item__ut-boxes';
     container.style.display = globalIsOverlayMode ? 'flex' : 'none';
-    container.style.gap = '4px';
-    container.style.marginLeft = 'auto';
-    container.style.marginRight = '8px';
 
-    const uBox = document.createElement('div');
-    const tBox = document.createElement('div');
+    const uCb = document.createElement('div');
+    uCb.className = 'layer-item__ut-cb';
+    uCb.title = '下絵 (U) として選択';
 
-    const baseBoxStyle = (box: HTMLDivElement) => {
-      box.style.width = '18px';
-      box.style.height = '18px';
-      box.style.border = '1px solid var(--color-outline)';
-      box.style.borderRadius = '3px';
-      box.style.display = 'flex';
-      box.style.alignItems = 'center';
-      box.style.justifyContent = 'center';
-      box.style.fontSize = '10px';
-      box.style.fontWeight = 'bold';
-      box.style.cursor = 'pointer';
-      box.style.userSelect = 'none';
-    };
-
-    baseBoxStyle(uBox);
-    baseBoxStyle(tBox);
-
-    uBox.textContent = 'U';
-    tBox.textContent = 'T';
+    const tCb = document.createElement('div');
+    tCb.className = 'layer-item__ut-cb';
+    tCb.title = '上絵 (T) として選択';
 
     const sync = () => {
       container.style.display = globalIsOverlayMode ? 'flex' : 'none';
@@ -106,41 +92,37 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
       const isU = (cacheKey && uCacheKey === cacheKey) || (!cacheKey && uLayerId === id);
       const isT = (cacheKey && tCacheKey === cacheKey) || (!cacheKey && tLayerId === id);
 
-      uBox.style.backgroundColor = isU ? 'var(--color-primary)' : 'transparent';
-      uBox.style.color = isU ? 'var(--color-on-primary)' : 'var(--color-on-surface-variant)';
-      uBox.style.borderColor = isU ? 'var(--color-primary)' : 'var(--color-outline)';
-
-      tBox.style.backgroundColor = isT ? 'var(--color-primary)' : 'transparent';
-      tBox.style.color = isT ? 'var(--color-on-primary)' : 'var(--color-on-surface-variant)';
-      tBox.style.borderColor = isT ? 'var(--color-primary)' : 'var(--color-outline)';
+      uCb.classList.toggle('layer-item__ut-cb--checked-u', !!isU);
+      tCb.classList.toggle('layer-item__ut-cb--checked-t', !!isT);
     };
 
-    uBox.addEventListener('click', (e) => {
+    uCb.addEventListener('click', (e) => {
       e.stopPropagation();
       const isU = (cacheKey && uCacheKey === cacheKey) || (!cacheKey && uLayerId === id);
-      const eventName = options.panelType === 'right' ? 'overlay:select-u:right' : 'overlay:select-u';
       if (isU) {
-        window.dispatchEvent(new CustomEvent(eventName, { detail: { id: null, cacheKey: null } }));
+        window.dispatchEvent(new CustomEvent(overlayUEvent, { detail: { id: null, cacheKey: null, name: null } }));
       } else {
-        window.dispatchEvent(new CustomEvent(eventName, { detail: { id, cacheKey } }));
+        window.dispatchEvent(new CustomEvent(overlayUEvent, { detail: { id, cacheKey, name } }));
       }
     });
 
-    tBox.addEventListener('click', (e) => {
+    tCb.addEventListener('click', (e) => {
       e.stopPropagation();
       const isT = (cacheKey && tCacheKey === cacheKey) || (!cacheKey && tLayerId === id);
-      const eventName = options.panelType === 'right' ? 'overlay:select-t:right' : 'overlay:select-t';
       if (isT) {
-        window.dispatchEvent(new CustomEvent(eventName, { detail: { id: null, cacheKey: null } }));
+        window.dispatchEvent(new CustomEvent(overlayTEvent, { detail: { id: null, cacheKey: null, name: null } }));
       } else {
-        window.dispatchEvent(new CustomEvent(eventName, { detail: { id, cacheKey } }));
+        window.dispatchEvent(new CustomEvent(overlayTEvent, { detail: { id, cacheKey, name } }));
       }
     });
 
+    container.appendChild(uCb);
+    container.appendChild(tCb);
     sync();
     window.addEventListener('overlay-mode:changed', () => sync());
     return container;
   }
+
 
   const aside = document.createElement('aside');
   aside.className = options.panelType === 'right' ? 'layer-panel layer-panel--right' : 'layer-panel';
@@ -233,6 +215,50 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   cacheHeader.appendChild(cacheActions);
 
   aside.appendChild(cacheHeader);
+
+
+  // ── Overlay Column Header (U/T labels above list) ──
+  const columnHeader = document.createElement('div');
+  columnHeader.className = 'overlay-column-header';
+  if (globalIsOverlayMode) columnHeader.classList.add('overlay-column-header--visible');
+
+  const colSpacer = document.createElement('div');
+  colSpacer.className = 'overlay-column-header__spacer';
+  columnHeader.appendChild(colSpacer);
+
+  const colU = document.createElement('div');
+  colU.className = 'overlay-column-header__label overlay-column-header__label--u';
+  colU.textContent = 'U';
+  colU.title = '下絵 (Underdrawing)';
+  columnHeader.appendChild(colU);
+
+  const colT = document.createElement('div');
+  colT.className = 'overlay-column-header__label overlay-column-header__label--t';
+  colT.textContent = 'T';
+  colT.title = '上絵 (Top)';
+  columnHeader.appendChild(colT);
+
+  aside.appendChild(columnHeader);
+
+  window.addEventListener('overlay-mode:changed', () => {
+    columnHeader.classList.toggle('overlay-column-header--visible', globalIsOverlayMode);
+  });
+
+  // Auto-assign currently selected image to U when entering Overlay Mode
+  window.addEventListener('overlay-mode:toggle', (e: Event) => {
+    const enabled = (e as CustomEvent).detail.enabled;
+    if (enabled && !uCacheKey && !uLayerId) {
+      if (activeCacheItemIndices.size > 0 && lastSelectedCacheIndex !== null) {
+        const activeDef = currentCacheDefs[lastSelectedCacheIndex];
+        if (activeDef && !activeDef.isGroup) {
+          const c = activeDef.item;
+          let displayName = c.name;
+          if (!displayName.includes('.')) displayName += '.png';
+          window.dispatchEvent(new CustomEvent(overlayUEvent, { detail: { id: `cache_${c.key}`, cacheKey: c.key, name: displayName } }));
+        }
+      }
+    }
+  });
 
   // ── ARCHIVES List Container ──
   const cacheList = document.createElement('div');
@@ -574,7 +600,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
         item.appendChild(label);
 
         if (!cDef.isGroup && !isText) {
-          item.appendChild(createUTBoxes(`cache_${c.key}`, c.key));
+          item.appendChild(createUTBoxes(`cache_${c.key}`, c.key, displayName));
         }
 
         item.addEventListener('click', () => {

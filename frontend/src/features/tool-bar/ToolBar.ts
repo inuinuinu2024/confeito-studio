@@ -40,8 +40,14 @@ export function createToolBar(): HTMLElement {
   }
 
   normalBtn.addEventListener('click', () => activateMode('normal'));
-  compareBtn.addEventListener('click', () => activateMode('compare'));
-  overlayBtn.addEventListener('click', () => activateMode('overlay'));
+  compareBtn.addEventListener('click', () => {
+    if (isCompareMode) activateMode('normal');
+    else activateMode('compare');
+  });
+  overlayBtn.addEventListener('click', () => {
+    if (isOverlayMode) activateMode('normal');
+    else activateMode('overlay');
+  });
 
   function ensureOneActive() {
     setTimeout(() => {
