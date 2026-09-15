@@ -202,6 +202,12 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   createFolderBtn.appendChild(icon('create_new_folder', 16));
   createFolderBtn.style.display = 'none'; // Reserved for future folder support
 
+  const refreshBtn = document.createElement('button');
+  refreshBtn.className = 'layer-panel__action-btn';
+  refreshBtn.title = 'ARCHIVESを更新';
+  const refreshIcon = icon('refresh', 16);
+  refreshBtn.appendChild(refreshIcon);
+
   const deleteBtn = document.createElement('button');
   deleteBtn.className = 'layer-panel__action-btn';
   deleteBtn.title = 'アーカイブ削除';
@@ -222,6 +228,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   cacheActions.style.display = 'flex';
   cacheActions.style.gap = '4px';
   cacheActions.appendChild(createFolderBtn);
+  cacheActions.appendChild(refreshBtn);
   cacheActions.appendChild(deleteBtn);
   cacheHeader.appendChild(cacheActions);
 
@@ -331,9 +338,45 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
     }
   });
 
-  async function loadCacheList(autoSelectKey?: string) {
+  // Handle Archive Refresh
+  refreshBtn.addEventListener('click', async () => {
+    if (refreshBtn.disabled) return;
+    refreshBtn.disabled = true;
+    refreshIcon.classList.add('is-spinning');
+
+    try {
+      let previousSelectedKey: string | undefined;
+      if (activeCacheItemIndices.size > 0 && lastSelectedCacheIndex !== null && currentCacheDefs[lastSelectedCacheIndex]) {
+        previousSelectedKey = currentCacheDefs[lastSelectedCacheIndex].item.key;
+      }
+
+      await loadCacheList(previousSelectedKey, true);
+
+      if (previousSelectedKey) {
+        const stillExists = currentCacheDefs.some(d => d.item.key === previousSelectedKey);
+        if (!stillExists) {
+          const eventName = options.panelType === 'right' ? 'tool:result-cleared:right' : 'tool:result-cleared';
+          window.dispatchEvent(new CustomEvent(eventName));
+        }
+      }
+
+      showToast('ARCHIVESを最新の状態に更新しました', 'success');
+    } catch (err) {
+      console.error('Failed to refresh archives', err);
+      showToast('アーカイブの更新に失敗しました', 'error');
+    } finally {
+      refreshIcon.classList.remove('is-spinning');
+      refreshBtn.disabled = false;
+    }
+  });
+
+  async function loadCacheList(autoSelectKey?: string, forceRefresh = false) {
     cacheList.innerHTML = '';
     cacheItemElements.length = 0;
+
+    if (forceRefresh) {
+      Object.keys(loadedArchiveContents).forEach(k => delete loadedArchiveContents[k]);
+    }
 
     if (!options.initialState || currentCaches.length > 0) {
       if (!autoSelectKey) {
@@ -394,7 +437,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
             active: false
           };
           defs.push(def);
-          if (isGroup) {
+          if (isGroup && !collapsed) {
             const children = allCaches.filter(c => c.folderId === item.key);
             traverse(children, depth + 1);
           }
@@ -470,7 +513,8 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
           const chevronIcon = icon(chevronName, 16);
           chevronIcon.className = 'material-symbols-outlined layer-item__icon layer-item__icon--chevron';
           chevronIcon.style.cursor = 'pointer';
-          chevronIcon.addEventListener('click', async (e) => {
+
+          const toggleCollapse = async (e: Event) => {
             e.stopPropagation();
             const isNowCollapsed = !cDef.collapsed;
 
@@ -488,8 +532,11 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
             cDef.collapsed = isNowCollapsed;
             updateArchiveFolderCollapse(c.key, cDef.collapsed);
             await loadCacheList();
-          });
+          };
+
+          chevronIcon.addEventListener('click', toggleCollapse);
           item.appendChild(chevronIcon);
+          item.addEventListener('dblclick', toggleCollapse);
         } else {
           const spacer = document.createElement('span');
           spacer.style.width = '16px';
@@ -624,7 +671,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
 
   window.addEventListener('tool:cache-updated', (e: Event) => {
     const customEvent = e as CustomEvent;
-    loadCacheList(customEvent.detail?.autoSelectKey);
+    loadCacheList(customEvent.detail?.autoSelectKey, true);
   });
 
   aside.appendChild(cacheList);
