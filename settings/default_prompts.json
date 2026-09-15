@@ -11,5 +11,8 @@
   "removeBg_alpha_matting": "false",
   "removeBg_bg_threshold": "41",
   "removeBg_fg_threshold": "240",
-  "removeBg_erode_size": "10"
+  "removeBg_erode_size": "10",
+  "panelSplitter_reading_order": "left_to_right",
+  "panelSplitter_model": "gemini-3.1-pro-preview",
+  "panelSplitter_thinking_level": "HIGH"
 }

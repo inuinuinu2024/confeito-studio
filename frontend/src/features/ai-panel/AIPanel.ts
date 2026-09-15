@@ -14,6 +14,7 @@ import { NanoBanana2Tool } from '../tools/nano-banana-2';
 import { ColoringTool } from '../tools/coloring';
 import { RemoveBackgroundTool } from '../tools/remove-background';
 import { ImageLoaderTool } from '../tools/image-loader';
+import { PanelSplitterTool } from '../tools/panel-splitter';
 
 import { createToolSettingsSidebar } from './components/ToolSettingsSidebar';
 import { DocumentManager } from '../document/DocumentManager';
@@ -23,6 +24,7 @@ import { ToolContext } from '../../shared/types/tool.types';
 
 // Register built-in tools
 ToolRegistry.register(new ImageLoaderTool());
+ToolRegistry.register(new PanelSplitterTool());
 ToolRegistry.register(new NanoBananaProTool());
 ToolRegistry.register(new NanoBanana2Tool());
 ToolRegistry.register(new ColoringTool());

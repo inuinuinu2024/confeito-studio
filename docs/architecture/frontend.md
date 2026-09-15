@@ -41,4 +41,21 @@
   - **ARCHIVESフォルダ作成**: `YYYYMMDD_HHMMSS_画像名`（拡張子を除いたベース名を安全文字にサニタイズ）の命名規則でフォルダを作成し、元画像を同名でコピー保存。
   - **log.txt作成**: `[YYYY-MM-DD HH:mm:ss] 画像読み込みツールにより読み込まれました (ファイル名: ...)` の初期ログを生成・保存。後続のツールや作業による追記に対応。
   - **アクティブアーカイブ管理**: `DocumentManager` に現在作成されたアーカイブフォルダ名が保持され、後続処理から参照・追記可能。
+- **コマ分割ツール（PanelSplitterTool）**:
+  - 右サイドバー（AI Panel）のツール群に配置（アイコン: `auto_awesome`、実行ボタン: `auto_awesome` コマ分割を実行）。
+  - **設定サイドバー**:
+    - 対象画像・保存先ステータスカード（現在ARCHIVESで選択中の画像ファイル名、解像度、および**保存先フォルダ名**を表示。未選択時は新規コマ分割フォルダ作成となる旨を案内）。
+    - **モデル選択**: `Gemini 3.8 Flash`（`gemini-3.8-flash`、標準・高速）および `Gemini 3.1 Pro`（APIモデルID: `gemini-3.1-pro-preview`、高度推論）から選択可能。設定は永続化（`panelSplitter_model`）。
+    - **推論レベル（thinkingConfig）**: `thinkingLevel`（`LOW` / `MEDIUM` / `HIGH`）を選択可能。設定は永続化（`panelSplitter_thinking_level`）。
+    - **コマの読み順（連番付与順序）選択**: 「左上から右下（ウェブトゥーン・左開き、標準デフォルト）」または「右上から左下（日本の漫画・右開き標準）」。設定は永続化（`panelSplitter_reading_order`）。
+    - **コマ余白（パディング）**: 調整スライダー（0〜30px、初期値0px、設定永続化）。
+    - **JSONプレビューボタン**: Gemini API送信リクエストパラメータ、保存先フォルダ、および生成される `panels.json` のデータ構造をモーダルダイアログで即座に確認可能。
+  - **保存先仕様と実行連動**:
+    - **選択フォルダ内サブフォルダへの保存**: ARCHIVESでフォルダが選択されている場合、そのフォルダ内に `YYYYMMDD_HHMMSS_コマ分割/` サブフォルダ（例: `archives/選択中フォルダ/YYYYMMDD_HHMMSS_コマ分割/`）を自動作成し、その中に各コマ画像（`01.png`, `02.png`...）および `panels.json` を格納・保存する（※`origin.png` は出力不要のため保存しない。`log.txt` はサブフォルダ内には作成せず、元フォルダ直下の `log.txt` に `[YYYY-MM-DD HH:mm:ss] コマ分割ツールを実行し、*コマに分割しました（元ファイル名 *、サブフォルダ名: *）` の一文のみを追記）。フォルダ未選択時のみ ARCHIVES 直下に `YYYYMMDD_HHMMSS_コマ分割` を新規作成する。
+    - ARCHIVESで選択中の画像（`getSelectedImage()`）をBlobに変換し、現在アクティブなアーカイブフォルダ名（`target_folder`）と共にバックエンドの `POST /api/image/split-panels` に非同期送信。
+    - 処理完了時、トースト通知（`「フォルダ名/サブフォルダ名」に N コマを分割保存しました`）を表示し、`tool:cache-updated` イベント（`autoSelectKey: ${archiveName}/${subFolder}/01.png`）を発火。
+    - ARCHIVES一覧が自動更新され、親フォルダおよびサブフォルダが自動展開されて1コマ目の画像 `01.png` がアクティブ選択・キャンバス表示される。
+
+
+
 

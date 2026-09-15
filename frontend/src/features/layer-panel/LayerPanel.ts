@@ -15,6 +15,7 @@ import {
 } from '../../shared/utils/archives';
 import { CachedImage } from '../../shared/utils/idb';
 import { historyManager } from '../../shared/utils/history';
+import { DocumentManager } from '../document/DocumentManager';
 
 export let globalIsOverlayMode = false;
 
@@ -355,6 +356,17 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
       const allCaches = [...rootCaches];
       const collapseState = getArchiveCollapseState();
 
+      if (autoSelectKey) {
+        const cleanKey = autoSelectKey.replace(/\\/g, '/');
+        const keyParts = cleanKey.split('/');
+        let currentPath = '';
+        for (let i = 0; i < keyParts.length - 1; i++) {
+          currentPath = currentPath ? `${currentPath}/${keyParts[i]}` : keyParts[i];
+          collapseState[currentPath] = false;
+          updateArchiveFolderCollapse(currentPath, false);
+        }
+      }
+
       for (const root of rootCaches) {
         const isCollapsed = collapseState[root.key] !== undefined ? collapseState[root.key] : true;
         const isTargetRoot = autoSelectKey && (root.key === autoSelectKey.split('/')[0] || autoSelectKey.startsWith(root.key + '/'));
@@ -550,7 +562,14 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
             if (activeCacheItemIndices.size === 1) {
               const selectedIdx = Array.from(activeCacheItemIndices)[0];
               const cCache = currentCacheDefs[selectedIdx].item;
-              if (cCache.type !== 'folder') {
+              const docManager = DocumentManager.getInstance();
+              if (cCache.type === 'folder') {
+                docManager.setCurrentArchiveFolder(cCache.key);
+              } else {
+                const folder = cCache.folderId || (cCache.key.includes('/') ? cCache.key.split('/')[0] : null);
+                if (folder) {
+                  docManager.setCurrentArchiveFolder(folder);
+                }
                 const eventName = options.panelType === 'right' ? 'tool:result-ready:right' : 'tool:result-ready';
                 window.dispatchEvent(new CustomEvent(eventName, { detail: { key: cCache.key, toolName: cCache.name } }));
               }

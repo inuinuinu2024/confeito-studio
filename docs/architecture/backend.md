@@ -26,3 +26,18 @@
   - **ログ追記API (`POST /archives/{archive_name}/log`)**: アーカイブフォルダ内の `log.txt` に対して、作業ログメッセージを逐次追記可能（`append_archive_log`）。
   - **既存ZIPの自動移行**: `archives/` 直下に残っている従来の `.zip` ファイルは、初回アクセス時に同名フォルダとして自動解凍・移行される。
   - **ゴミ箱機能**: 削除時は `archives/.trash/` に移動され、復元APIにより即座に戻すことができる。パストラバーサル防止ガードを実装。
+- **コマ分割（Manga Panel Splitting）**:
+  - **APIエンドポイント (`POST /api/image/split-panels`)**: アップロードされた漫画画像からGeminiモデルを用いてコマ枠線を自動抽出し、各コマを個別のPNG画像に切り分けてアーカイブ保存する。
+  - **モデル選択・推論設定**:
+    - **モデル**: `gemini-3.8-flash`（標準・高速）または `gemini-3.1-pro-preview`（`gemini-3.1-pro` からのエイリアス自動正規化対応、高度推論）を選択可能。
+    - **推論設定（thinkingConfig）**: `thinkingLevel`（`LOW` / `MEDIUM` / `HIGH`）を設定可能。Thinkingモード有効時も最終テキストパート（非thought部）を正確に抽出してパース。
+    - **厳格なスキーマ保証**: `response_mime_type: "application/json"` に加え、`response_schema` を指定して正規化座標 `[ymin, xmin, ymax, xmax]`（0〜1000）を保証。
+  - **読み順ソート**: 左上→右下（ウェブトゥーン・左開き標準、デフォルト）および日本のマンガ標準（右上→左下）の順序指定に対応。
+  - **画像切り分け**: Pillowを用いて各コマの正規化座標を実ピクセル座標に変換・パディング処理を行い、個別PNG画像としてクロップ。
+  - **アーカイブ保存 & 後続Pythonツール連携形式**:
+    - **保存先ディレクトリ決定**: `target_folder`（フロントエンドで現在選択中のアーカイブフォルダ）が指定されている場合は、その親アーカイブフォルダ配下に `YYYYMMDD_HHMMSS_コマ分割/` サブフォルダを作成して出力・保存（サブフォルダ内には `log.txt` は出力せず、元フォルダ直下の `log.txt` にのみ追記）。未指定時のみ ARCHIVES 直下に `YYYYMMDD_HHMMSS_コマ分割/` ディレクトリを新規作成。
+    - `{prefix}01.png`, `{prefix}02.png`, ...: 連番の各コマ画像（※`origin.png` 保存は不要化）。
+    - `{prefix}panels.json`: Pythonツール等で即座にコマ座標・サイズを再利用できるよう、Pillow/PASCAL VOC互換 `pixel_box: [xmin, ymin, xmax, ymax]`、COCO/OpenCV互換 `xywh: [xmin, ymin, width, height]`、Gemini正規化座標 `box_2d: [ymin, xmin, ymax, xmax]` を網羅した構造化メタデータを同梱。
+    - `log.txt` (元フォルダ直下): `[YYYY-MM-DD HH:mm:ss] コマ分割ツールを実行し、*コマに分割しました（元ファイル名 *、サブフォルダ名: *）` の一文のみを追記記録。
+
+
