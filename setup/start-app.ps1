@@ -19,6 +19,27 @@ $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 Write-Log "================================================"
 Write-Log "Startup at: $timestamp"
 
+# --- Clean up lingering processes on target ports (Self-healing) ---
+function Stop-PortProcess($port) {
+    try {
+        $conns = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+        if ($conns) {
+            $pids = $conns | Select-Object -ExpandProperty OwningProcess -Unique
+            foreach ($p in $pids) {
+                if ($p -and $p -gt 4) {
+                    Write-Log "Cleaning up lingering process on port $port (PID: $p)..."
+                    Stop-Process -Id $p -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    } catch {
+        Write-Log "Error stopping port ${port}: $_"
+    }
+}
+
+Stop-PortProcess 48000
+Stop-PortProcess 45173
+
 # --- Resolve tool paths ---
 $uvPath = Join-Path $env:USERPROFILE ".local\bin\uv.exe"
 if (-not (Test-Path $uvPath)) {
@@ -38,7 +59,7 @@ Write-Log "npmCmd: $npmCmd (exists: $(Test-Path $npmCmd))"
 # --- Launch backend using WMI (fully detached) ---
 $backendDir = Join-Path $projectRoot "backend"
 $backendLogSuffix = if ($LOG_ENABLED) { "> `"" + (Join-Path $scriptDir "backend.log") + "`" 2> `"" + (Join-Path $scriptDir "backend-err.log") + "`"" } else { "> NUL 2>&1" }
-$backendCmd = "cmd.exe /c cd /d `"$backendDir`" && `"$uvPath`" run python -m uvicorn src.app.main:app --port 48000 --reload $backendLogSuffix"
+$backendCmd = "cmd.exe /c cd /d `"$backendDir`" && `"$uvPath`" run python -m uvicorn src.app.main:app --port 48000 $backendLogSuffix"
 
 try {
     $startup = ([wmiclass]"Win32_ProcessStartup").CreateInstance()
@@ -71,21 +92,32 @@ try {
 
 # Wait and verify (only when logging)
 if ($LOG_ENABLED) {
-    Start-Sleep -Seconds 5
+    Start-Sleep -Seconds 3
 
     $backendAlive = $false
     try {
         $proc = Get-Process -Id $backendPid -ErrorAction Stop
         $backendAlive = -not $proc.HasExited
     } catch { }
-    Write-Log "Backend alive after 5s: $backendAlive"
+    Write-Log "Backend alive after 3s: $backendAlive"
 
     $frontendAlive = $false
     try {
         $proc2 = Get-Process -Id $frontendPid -ErrorAction Stop
         $frontendAlive = -not $proc2.HasExited
     } catch { }
-    Write-Log "Frontend alive after 5s: $frontendAlive"
+    Write-Log "Frontend alive after 3s: $frontendAlive"
 }
 
-# Open browser is handled by Vite (--open flag in package.json)
+# --- Ensure browser is opened reliably ---
+$maxWait = 15
+while ($maxWait -gt 0) {
+    Start-Sleep -Milliseconds 300
+    $conn = Get-NetTCPConnection -LocalPort 45173 -State Listen -ErrorAction SilentlyContinue
+    if ($conn) {
+        break
+    }
+    $maxWait--
+}
+Start-Process "http://localhost:45173"
+

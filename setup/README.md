@@ -26,4 +26,4 @@
 
 **手動起動用コマンド（開発・デバッグ用）**:
 - フロントエンド: `cd frontend && npm run dev`
-- バックエンド: `cd backend && uv run python -m uvicorn src.app.main:app --reload --port 8000`
+- バックエンド: `cd backend && uv run python -m uvicorn src.app.main:app --reload --port 48000`

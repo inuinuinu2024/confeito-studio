@@ -39,5 +39,8 @@
     - `{prefix}01.png`, `{prefix}02.png`, ...: 連番の各コマ画像（※`origin.png` 保存は不要化）。
     - `{prefix}panels.json`: Pythonツール等で即座にコマ座標・サイズを再利用できるよう、Pillow/PASCAL VOC互換 `pixel_box: [xmin, ymin, xmax, ymax]`、COCO/OpenCV互換 `xywh: [xmin, ymin, width, height]`、Gemini正規化座標 `box_2d: [ymin, xmin, ymax, xmax]` を網羅した構造化メタデータを同梱。
     - `log.txt` (元フォルダ直下): `[YYYY-MM-DD HH:mm:ss] コマ分割ツールを実行し、*コマに分割しました（元ファイル名 *、サブフォルダ名: *）` の一文のみを追記記録。
-
-
+- **プロセス管理とシャットダウン仕様**:
+  - **シャットダウン (`POST /api/shutdown`)**: フロントエンドの全タブクローズ検知時（`closeOnDisconnectPlugin`）に呼び出される。Windows環境では親プロセスやワーカーなどの残留・ゾンビ化を防ぐため、`taskkill /F /T /PID <pid>` を用いてプロセスツリー全体を強制終了する。
+  - **日常起動スクリプト (`start-app.ps1`)**:
+    - **セルフヒーリング（ポート解放ガード）**: 起動前にバックエンド（ポート48000）およびフロントエンド（ポート45173）をリッスンしている古い残留プロセスを自動検出し、強制終了してポートを確実に解放してからプロセスを生成する。
+    - **リロードフラグの分離**: 日常利用スクリプトでは `--reload` を外し、不要なリローダー子プロセスの多重生成を防ぐ（開発時のみ手動コマンドで `--reload` を指定）。

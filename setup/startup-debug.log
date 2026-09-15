@@ -1,0 +1,8 @@
+================================================
+Startup at: 2026-09-15 15:46:24
+uvPath: C:\Users\user\.local\bin\uv.exe (exists: True)
+npmCmd: C:\nvm4w\nodejs\npm.cmd (exists: True)
+Backend WMI Create: ReturnValue=0 PID=15668
+Frontend WMI Create: ReturnValue=0 PID=13472
+Backend alive after 5s: True
+Frontend alive after 5s: True
