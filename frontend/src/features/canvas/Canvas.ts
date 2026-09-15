@@ -916,18 +916,12 @@ export function createCanvas(): HTMLElement {
   }
 
   let leftOverlayULayer: any = null;
-  let leftOverlayTLayer: any = null;
   let leftOverlayUCacheKey: string | null = null;
-  let leftOverlayTCacheKey: string | null = null;
   let leftOverlayUCacheImg: HTMLCanvasElement | null = null;
-  let leftOverlayTCacheImg: HTMLCanvasElement | null = null;
 
   let rightOverlayULayer: any = null;
-  let rightOverlayTLayer: any = null;
   let rightOverlayUCacheKey: string | null = null;
-  let rightOverlayTCacheKey: string | null = null;
   let rightOverlayUCacheImg: HTMLCanvasElement | null = null;
-  let rightOverlayTCacheImg: HTMLCanvasElement | null = null;
 
   let leftIsInputImage = false;
   let rightIsInputImage = false;
@@ -969,17 +963,9 @@ export function createCanvas(): HTMLElement {
         mw = Math.max(mw, leftOverlayUCacheImg.width);
         mh = Math.max(mh, leftOverlayUCacheImg.height);
       }
-      if (leftOverlayTCacheImg) {
-        mw = Math.max(mw, leftOverlayTCacheImg.width);
-        mh = Math.max(mh, leftOverlayTCacheImg.height);
-      }
       if (rightOverlayUCacheImg) {
         mw = Math.max(mw, rightOverlayUCacheImg.width);
         mh = Math.max(mh, rightOverlayUCacheImg.height);
-      }
-      if (rightOverlayTCacheImg) {
-        mw = Math.max(mw, rightOverlayTCacheImg.width);
-        mh = Math.max(mh, rightOverlayTCacheImg.height);
       }
     }
 
@@ -1078,29 +1064,11 @@ export function createCanvas(): HTMLElement {
     window.dispatchEvent(new Event('document:redraw'));
   });
 
-  window.addEventListener('overlay:select-t', async (e: Event) => {
-    const d = (e as CustomEvent).detail;
-    leftOverlayTLayer = d.layer;
-    leftOverlayTCacheKey = d.cacheKey;
-    leftOverlayTCacheImg = await loadCacheImg(leftOverlayTCacheKey);
-    updateCanvasDrawSize(true);
-    window.dispatchEvent(new Event('document:redraw'));
-  });
-
   window.addEventListener('overlay:select-u:right', async (e: Event) => {
     const d = (e as CustomEvent).detail;
     rightOverlayULayer = d.layer;
     rightOverlayUCacheKey = d.cacheKey;
     rightOverlayUCacheImg = await loadCacheImg(rightOverlayUCacheKey);
-    updateCanvasDrawSize(true);
-    window.dispatchEvent(new Event('document:redraw'));
-  });
-
-  window.addEventListener('overlay:select-t:right', async (e: Event) => {
-    const d = (e as CustomEvent).detail;
-    rightOverlayTLayer = d.layer;
-    rightOverlayTCacheKey = d.cacheKey;
-    rightOverlayTCacheImg = await loadCacheImg(rightOverlayTCacheKey);
     updateCanvasDrawSize(true);
     window.dispatchEvent(new Event('document:redraw'));
   });
@@ -1234,8 +1202,8 @@ export function createCanvas(): HTMLElement {
         const psdOffsetX = cx - psdWidth / 2;
         const psdOffsetY = cy - psdHeight / 2;
 
-        const tCacheImg = isLeft ? leftOverlayTCacheImg : rightOverlayTCacheImg;
-        const tLayer = isLeft ? leftOverlayTLayer : rightOverlayTLayer;
+        const tCacheImg = isLeft ? leftCacheCanvas : rightCacheCanvas;
+        const tLayer = isLeft ? leftSelectedLayer : rightSelectedLayer;
 
         if (tCacheImg) {
           topX += cx - tCacheImg.width / 2;
@@ -1351,9 +1319,9 @@ export function createCanvas(): HTMLElement {
 
     const isLeft = ctx.canvas === currentSourceCanvas;
     const uCacheImg = isLeft ? leftOverlayUCacheImg : rightOverlayUCacheImg;
-    const tCacheImg = isLeft ? leftOverlayTCacheImg : rightOverlayTCacheImg;
+    const tCacheImg = isLeft ? leftCacheCanvas : rightCacheCanvas;
     const uLayer = isLeft ? leftOverlayULayer : rightOverlayULayer;
-    const tLayer = isLeft ? leftOverlayTLayer : rightOverlayTLayer;
+    const tLayer = isLeft ? leftSelectedLayer : rightSelectedLayer;
     const topOffsetX = isLeft ? leftOverlayTopOffsetX : rightOverlayTopOffsetX;
     const topOffsetY = isLeft ? leftOverlayTopOffsetY : rightOverlayTopOffsetY;
     const isTopSelected = isLeft ? leftIsOverlayTopSelected : rightIsOverlayTopSelected;

@@ -46,29 +46,16 @@ export interface LayerPanelOptions {
 
 export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   let uLayerId: string | null = null;
-  let tLayerId: string | null = null;
   let uCacheKey: string | null = null;
-  let tCacheKey: string | null = null;
   let uLayerName: string | null = null;
-  let tLayerName: string | null = null;
 
   const overlayUEvent = options.panelType === 'right' ? 'overlay:select-u:right' : 'overlay:select-u';
-  const overlayTEvent = options.panelType === 'right' ? 'overlay:select-t:right' : 'overlay:select-t';
 
   window.addEventListener(overlayUEvent, (e: Event) => {
     const d = (e as CustomEvent).detail;
     uLayerId = d.id;
     uCacheKey = d.cacheKey;
     uLayerName = d.name || null;
-    window.dispatchEvent(new Event('overlay-mode:changed'));
-    window.dispatchEvent(new Event('document:redraw'));
-  });
-
-  window.addEventListener(overlayTEvent, (e: Event) => {
-    const d = (e as CustomEvent).detail;
-    tLayerId = d.id;
-    tCacheKey = d.cacheKey;
-    tLayerName = d.name || null;
     window.dispatchEvent(new Event('overlay-mode:changed'));
     window.dispatchEvent(new Event('document:redraw'));
   });
@@ -82,18 +69,12 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
     uCb.className = 'layer-item__ut-cb';
     uCb.title = '下絵 (U) として選択';
 
-    const tCb = document.createElement('div');
-    tCb.className = 'layer-item__ut-cb';
-    tCb.title = '上絵 (T) として選択';
-
     const sync = () => {
       container.style.display = globalIsOverlayMode ? 'flex' : 'none';
 
       const isU = (cacheKey && uCacheKey === cacheKey) || (!cacheKey && uLayerId === id);
-      const isT = (cacheKey && tCacheKey === cacheKey) || (!cacheKey && tLayerId === id);
 
       uCb.classList.toggle('layer-item__ut-cb--checked-u', !!isU);
-      tCb.classList.toggle('layer-item__ut-cb--checked-t', !!isT);
     };
 
     uCb.addEventListener('click', (e) => {
@@ -106,18 +87,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
       }
     });
 
-    tCb.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const isT = (cacheKey && tCacheKey === cacheKey) || (!cacheKey && tLayerId === id);
-      if (isT) {
-        window.dispatchEvent(new CustomEvent(overlayTEvent, { detail: { id: null, cacheKey: null, name: null } }));
-      } else {
-        window.dispatchEvent(new CustomEvent(overlayTEvent, { detail: { id, cacheKey, name } }));
-      }
-    });
-
     container.appendChild(uCb);
-    container.appendChild(tCb);
     sync();
     window.addEventListener('overlay-mode:changed', () => sync());
     return container;
@@ -231,12 +201,6 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
   colU.textContent = 'U';
   colU.title = '下絵 (Underdrawing)';
   columnHeader.appendChild(colU);
-
-  const colT = document.createElement('div');
-  colT.className = 'overlay-column-header__label overlay-column-header__label--t';
-  colT.textContent = 'T';
-  colT.title = '上絵 (Top)';
-  columnHeader.appendChild(colT);
 
   aside.appendChild(columnHeader);
 
