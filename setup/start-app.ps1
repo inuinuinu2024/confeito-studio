@@ -110,14 +110,20 @@ if ($LOG_ENABLED) {
 }
 
 # --- Ensure browser is opened reliably ---
-$maxWait = 15
+$maxWait = 30
+$opened = $false
 while ($maxWait -gt 0) {
     Start-Sleep -Milliseconds 300
     $conn = Get-NetTCPConnection -LocalPort 45173 -State Listen -ErrorAction SilentlyContinue
     if ($conn) {
+        Start-Process "http://localhost:45173"
+        $opened = $true
         break
     }
     $maxWait--
 }
-Start-Process "http://localhost:45173"
+if (-not $opened) {
+    # Fallback open if wait timed out
+    Start-Process "http://localhost:45173"
+}
 

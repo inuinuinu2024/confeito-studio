@@ -3,11 +3,13 @@ import { defineConfig, Plugin } from 'vite';
 function closeOnDisconnectPlugin(): Plugin {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let activeConnections = 0;
+  let hasConnectedOnce = false;
 
   return {
     name: 'close-on-disconnect',
     configureServer(server) {
       server.ws.on('connection', (client) => {
+        hasConnectedOnce = true;
         activeConnections++;
         if (timeoutId) {
           clearTimeout(timeoutId);
@@ -16,7 +18,7 @@ function closeOnDisconnectPlugin(): Plugin {
         
         client.on('close', () => {
           activeConnections--;
-          if (activeConnections <= 0) {
+          if (hasConnectedOnce && activeConnections <= 0) {
             timeoutId = setTimeout(async () => {
               console.log('\nAll browser tabs closed. Shutting down servers...');
               try {
@@ -26,7 +28,7 @@ function closeOnDisconnectPlugin(): Plugin {
               }
               // @ts-ignore
               process.exit(0);
-            }, 1000);
+            }, 4000);
           }
         });
       });

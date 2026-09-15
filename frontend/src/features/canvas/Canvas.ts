@@ -11,6 +11,22 @@ export function createCanvas(): HTMLElement {
   const main = document.createElement('main');
   main.className = 'canvas-area';
 
+  // Variables for layer preview
+  let currentSourceCanvas: HTMLCanvasElement | null = null;
+  let currentResultCanvas: HTMLCanvasElement | null = null;
+  let psdWidth = 0;
+  let psdHeight = 0;
+  let canvasDrawWidth = 0;
+  let canvasDrawHeight = 0;
+  let currentPsd: any = null;
+  let currentImage: HTMLCanvasElement | HTMLImageElement | null = null;
+
+  let leftSelectedLayer: any = null;
+  let rightSelectedLayer: any = null;
+
+  let leftHiddenLayers = new Set<any>();
+  let rightHiddenLayers = new Set<any>();
+
   // Drag and drop image files directly onto canvas
   main.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -380,6 +396,45 @@ export function createCanvas(): HTMLElement {
     }
   });
 
+  // ── Text Overlays (JSON, TXT, MD preview) ──
+  const leftTextOverlay = document.createElement('div');
+  const rightTextOverlay = document.createElement('div');
+
+  function styleTextOverlay(overlay: HTMLDivElement) {
+    overlay.className = 'canvas-text-overlay';
+    overlay.style.position = 'absolute';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.zIndex = '2';
+    overlay.style.backgroundColor = 'var(--color-surface-container)';
+    overlay.style.color = 'var(--color-on-surface)';
+    overlay.style.padding = '20px';
+    overlay.style.overflow = 'auto';
+    overlay.style.whiteSpace = 'pre-wrap';
+    overlay.style.wordBreak = 'break-word';
+    overlay.style.fontFamily = 'Consolas, Monaco, "Courier New", monospace';
+    overlay.style.fontSize = '13px';
+    overlay.style.lineHeight = '1.6';
+    overlay.style.boxSizing = 'border-box';
+    overlay.style.borderRadius = '8px';
+    overlay.style.border = '1px solid var(--color-outline-variant)';
+    overlay.style.display = 'none';
+    overlay.style.userSelect = 'text';
+    overlay.style.cursor = 'text';
+  }
+
+  styleTextOverlay(leftTextOverlay);
+  styleTextOverlay(rightTextOverlay);
+
+  function isTextActive(): boolean {
+    if (isGlobalCompareMode) {
+      return leftTextOverlay.style.display === 'block' || rightTextOverlay.style.display === 'block';
+    }
+    return leftTextOverlay.style.display === 'block';
+  }
+
   const zoomBar = document.createElement('div');
   zoomBar.className = 'canvas-zoom-bar';
   
@@ -414,6 +469,18 @@ export function createCanvas(): HTMLElement {
   });
 
   function fitToScreen() {
+    if (isTextActive()) {
+      splitViewInner.style.width = '100%';
+      splitViewInner.style.height = '100%';
+      splitViewInner.style.marginTop = '0';
+      splitViewInner.style.marginBottom = '0';
+      splitViewInner.style.marginLeft = '0';
+      splitViewInner.style.marginRight = '0';
+      splitView.scrollLeft = 0;
+      splitView.scrollTop = 0;
+      return;
+    }
+
     if (!canvasDrawWidth || !canvasDrawHeight) return;
     const pad = 64;
     const availableW = Math.max(1, splitView.clientWidth - pad);
@@ -432,6 +499,16 @@ export function createCanvas(): HTMLElement {
   }
 
   function updateZoom(oldZoom: number, focusX?: number, focusY?: number, force = false) {
+    if (isTextActive()) {
+      splitViewInner.style.width = '100%';
+      splitViewInner.style.height = '100%';
+      splitViewInner.style.marginTop = '0';
+      splitViewInner.style.marginBottom = '0';
+      splitViewInner.style.marginLeft = '0';
+      splitViewInner.style.marginRight = '0';
+      return;
+    }
+
     if (oldZoom === currentZoom && !force) return;
 
     zoomSlider.value = currentZoom.toString();
@@ -567,34 +644,24 @@ export function createCanvas(): HTMLElement {
   let leftCacheCanvas: HTMLCanvasElement | null = null;
   let rightCacheCanvas: HTMLCanvasElement | null = null;
 
-  const leftTextOverlay = document.createElement('div');
-  const rightTextOverlay = document.createElement('div');
-
   let currentBgColor = 'checkerboard'; // Default to Checkerboard
-
-  function styleTextOverlay(overlay: HTMLDivElement) {
-    overlay.style.position = 'absolute';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.width = '100%';
-    overlay.style.height = '100%';
-    overlay.style.zIndex = '2';
-    overlay.style.backgroundColor = 'var(--color-surface-container)';
-    overlay.style.color = 'var(--color-on-surface)';
-    overlay.style.padding = '16px';
-    overlay.style.overflow = 'auto';
-    overlay.style.whiteSpace = 'pre-wrap';
-    overlay.style.fontFamily = 'monospace';
-    overlay.style.fontSize = '12px';
-    overlay.style.display = 'none';
-  }
-  
-  styleTextOverlay(leftTextOverlay);
-  styleTextOverlay(rightTextOverlay);
-
   let isOverlayMode = false;
 
   function updateCanvasLayout() {
+    const textActive = isTextActive();
+    zoomBar.style.display = textActive ? 'none' : 'flex';
+
+    if (textActive) {
+      splitViewInner.style.width = '100%';
+      splitViewInner.style.height = '100%';
+      splitViewInner.style.marginTop = '0';
+      splitViewInner.style.marginBottom = '0';
+      splitViewInner.style.marginLeft = '0';
+      splitViewInner.style.marginRight = '0';
+    } else {
+      updateZoom(currentZoom, undefined, undefined, true);
+    }
+
     const hasLeftCache = leftCacheCanvas !== null || leftTextOverlay.style.display === 'block';
     const showTwoPanes = isGlobalCompareMode || isSliderMode;
 
@@ -707,7 +774,12 @@ export function createCanvas(): HTMLElement {
   function checkSliderModeValidity(showToastMsg = false): boolean {
     if (isGlobalCompareMode) return true;
 
-    const hasCache = leftCacheCanvas || leftTextOverlay.style.display === 'block';
+    if (leftTextOverlay.style.display === 'block') {
+      if (showToastMsg) showToast('テキスト表示中はスライダー比較を利用できません', 'error');
+      return false;
+    }
+
+    const hasCache = leftCacheCanvas;
     if (!hasCache) {
       if (showToastMsg) showToast('比較するキャッシュが選択されていません', 'error');
       return false;
@@ -801,22 +873,6 @@ export function createCanvas(): HTMLElement {
 
   main.appendChild(splitView);
 
-  // Variables for layer preview
-  let currentSourceCanvas: HTMLCanvasElement | null = null;
-  let currentResultCanvas: HTMLCanvasElement | null = null;
-  let psdWidth = 0;
-  let psdHeight = 0;
-  let canvasDrawWidth = 0;
-  let canvasDrawHeight = 0;
-  let currentPsd: any = null;
-  let currentImage: HTMLCanvasElement | HTMLImageElement | null = null;
-
-  let leftSelectedLayer: any = null;
-  let rightSelectedLayer: any = null;
-
-  let leftHiddenLayers = new Set<any>();
-  let rightHiddenLayers = new Set<any>();
-
   function drawNode(ctx: CanvasRenderingContext2D, node: any, hiddenLayers: Set<any>) {
     if (hiddenLayers.has(node)) return;
     if (node.children) {
@@ -846,6 +902,11 @@ export function createCanvas(): HTMLElement {
   let rightIsInputImage = false;
 
   function updateCanvasDrawSize(shouldFit = false) {
+    if (!isGlobalCompareMode && !isSliderMode && leftTextOverlay.style.display === 'block') {
+      fitToScreen();
+      return;
+    }
+
     let mw = 0;
     let mh = 0;
 
@@ -1039,6 +1100,7 @@ export function createCanvas(): HTMLElement {
     if ((e.target as HTMLElement).closest('.canvas-split__divider')) return;
     if ((e.target as HTMLElement).closest('.canvas-toolbar')) return;
     if ((e.target as HTMLElement).closest('.canvas-zoom-bar')) return;
+    if ((e.target as HTMLElement).closest('.canvas-text-overlay')) return;
 
     if (isOverlayMode) {
       const isLeft = !isGlobalCompareMode || (e.target as HTMLElement).closest('.canvas-split__panel') === sourcePanel;
@@ -1591,6 +1653,9 @@ export function createCanvas(): HTMLElement {
     } else {
       leftTextOverlay.style.display = 'none';
     }
+    ensureSliderModeValid();
+    updateCanvasDrawSize(true);
+    updateCanvasLayout();
     if (currentSourceCanvas) {
       const ctx = currentSourceCanvas.getContext('2d');
       if (ctx) renderSideContext(ctx, leftSelectedLayer, leftHiddenLayers);
@@ -1607,6 +1672,8 @@ export function createCanvas(): HTMLElement {
     } else {
       rightTextOverlay.style.display = 'none';
     }
+    updateCanvasDrawSize(true);
+    updateCanvasLayout();
     if (currentResultCanvas) {
       const ctx = currentResultCanvas.getContext('2d');
       if (ctx) renderSideContext(ctx, rightSelectedLayer, rightHiddenLayers);
@@ -1639,6 +1706,7 @@ export function createCanvas(): HTMLElement {
           initializeCanvases(800, 600);
         }
         
+        ensureSliderModeValid();
         updateCanvasDrawSize(true);
         updateCanvasLayout();
         window.dispatchEvent(new Event('document:redraw'));

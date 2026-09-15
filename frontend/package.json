@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Confeito-Studio - Web Editor",
   "scripts": {
-    "dev": "vite --open",
+    "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
