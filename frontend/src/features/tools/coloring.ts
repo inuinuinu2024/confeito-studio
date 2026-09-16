@@ -4,11 +4,29 @@ import { saveArchive } from '../../shared/utils/archives';
 import { DocumentManager } from '../document/DocumentManager';
 import { icon } from '../../shared/utils/dom';
 import { getGlobalSetting, setGlobalSetting } from '../../shared/utils/settings';
+import { globalIsBatchMode } from '../layer-panel/LayerPanel';
 export class ColoringTool implements Tool {
   id = 'coloring';
   name = '着彩';
   icon = 'auto_awesome';
   hasSettings = true;
+
+  canOpen(context: ToolContext): boolean {
+    const docManager = DocumentManager.getInstance();
+    if (globalIsBatchMode) {
+      if (!docManager.getCurrentArchiveFolder()) {
+        showToast('画像が入ったフォルダを選択してください。', 'info');
+        return false;
+      }
+      return true;
+    } else {
+      if (!docManager.getCurrentCanvas()) {
+        showToast('画像を選択してください。', 'info');
+        return false;
+      }
+      return true;
+    }
+  }
 
   private buildPayloadFn?: () => Promise<any>;
   private globalImages: { file: File, zoneTitle: string, isImportant?: boolean }[] = [];
@@ -43,28 +61,28 @@ export class ColoringTool implements Tool {
       wrapper.style.display = 'flex';
       wrapper.style.flexDirection = 'column';
       wrapper.style.gap = '4px';
-      
+
       const lbl = document.createElement('label');
       lbl.textContent = label;
       lbl.style.fontSize = '12px';
       lbl.style.color = 'var(--color-on-surface-variant)';
-      
+
       wrapper.appendChild(lbl);
       wrapper.appendChild(element);
       return wrapper;
     };
-    
+
     // --- Input (Prompt) ---
     const promptHeader = document.createElement('div');
     promptHeader.style.display = 'flex';
     promptHeader.style.justifyContent = 'space-between';
     promptHeader.style.alignItems = 'center';
-    
+
     const promptLabel = document.createElement('label');
     promptLabel.textContent = '着彩指示';
     promptLabel.style.fontSize = '12px';
     promptLabel.style.color = 'var(--color-on-surface-variant)';
-    
+
     const editBtn = document.createElement('button');
     editBtn.appendChild(icon('edit', 14));
     editBtn.style.background = 'none';
@@ -76,7 +94,7 @@ export class ColoringTool implements Tool {
     editBtn.style.alignItems = 'center';
     editBtn.style.justifyContent = 'center';
     editBtn.title = 'デフォルトプロンプトを編集';
-    
+
     promptHeader.appendChild(promptLabel);
     promptHeader.appendChild(editBtn);
 
@@ -164,9 +182,9 @@ export class ColoringTool implements Tool {
       saveBtn.addEventListener('click', () => {
         this.setSetting('defaultPrompt', input.value);
         if (promptInput.value === this.getSetting('prompt', '')) {
-            // If user hasn't modified current prompt yet, update it
-            promptInput.value = input.value;
-            this.setSetting('prompt', input.value);
+          // If user hasn't modified current prompt yet, update it
+          promptInput.value = input.value;
+          this.setSetting('prompt', input.value);
         }
         promptInput.placeholder = input.value;
         document.body.removeChild(overlay);
@@ -183,14 +201,14 @@ export class ColoringTool implements Tool {
       input.focus();
     });
     promptInput.addEventListener('input', () => this.setSetting('prompt', promptInput.value));
-    
+
     const promptWrapper = document.createElement('div');
     promptWrapper.style.display = 'flex';
     promptWrapper.style.flexDirection = 'column';
     promptWrapper.style.gap = '4px';
     promptWrapper.appendChild(promptHeader);
     promptWrapper.appendChild(promptInput);
-    
+
     container.appendChild(promptWrapper);
 
     // --- Image References ---
@@ -216,7 +234,7 @@ export class ColoringTool implements Tool {
       const header = document.createElement('div');
       header.style.display = 'flex';
       header.style.justifyContent = 'space-between';
-      
+
       const titleWrapper = document.createElement('div');
       titleWrapper.style.display = 'flex';
       titleWrapper.style.alignItems = 'center';
@@ -236,7 +254,7 @@ export class ColoringTool implements Tool {
       helpIcon.style.fontSize = '14px';
       helpIcon.style.color = 'var(--color-on-surface-variant)';
       helpIcon.style.cursor = 'help';
-      
+
       let helpText = '';
       if (title.includes('原画')) helpText = '例: 着彩のベースとなる線画や白黒画像など、色を塗る対象の画像を入れます。';
       if (title.includes('Object')) helpText = '例: 線画、衣装のデザイン画、特定のアイテム(剣や帽子)など、形やディテールを変えたくない画像を入れます。';
@@ -246,12 +264,12 @@ export class ColoringTool implements Tool {
 
       titleWrapper.appendChild(lbl);
       titleWrapper.appendChild(helpIcon);
-      
+
       const count = document.createElement('span');
       count.textContent = `0 / ${max}`;
       count.style.fontSize = '11px';
       count.style.color = 'var(--color-outline)';
-      
+
       const headerRight = document.createElement('div');
       headerRight.style.display = 'flex';
       headerRight.style.gap = '8px';
@@ -266,7 +284,7 @@ export class ColoringTool implements Tool {
       addCanvasBtn.style.border = '1px solid var(--color-outline-variant)';
       addCanvasBtn.style.color = 'var(--color-on-surface)';
       addCanvasBtn.style.cursor = 'pointer';
-      
+
       addCanvasBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
@@ -274,13 +292,13 @@ export class ColoringTool implements Tool {
       });
 
       // We will attach the click handler logic dynamically after handleFiles is defined.
-      
+
       headerRight.appendChild(addCanvasBtn);
       headerRight.appendChild(count);
-      
+
       header.appendChild(titleWrapper);
       header.appendChild(headerRight);
-      
+
       const dropArea = document.createElement('div');
       dropArea.style.border = '1px solid var(--color-outline)';
       dropArea.style.borderRadius = '4px';
@@ -296,12 +314,12 @@ export class ColoringTool implements Tool {
       dropArea.style.alignItems = 'center';
       dropArea.style.minHeight = '48px';
       dropArea.style.backgroundColor = 'var(--color-surface-container-lowest)';
-      
+
       const placeholder = document.createElement('div');
       placeholder.textContent = 'クリック または 画像をドラッグ＆ドロップ';
       placeholder.style.pointerEvents = 'none';
       dropArea.appendChild(placeholder);
-      
+
       // Hidden File Input
       const fileInput = document.createElement('input');
       fileInput.type = 'file';
@@ -312,15 +330,15 @@ export class ColoringTool implements Tool {
       wrapper.appendChild(header);
       wrapper.appendChild(dropArea);
       wrapper.appendChild(fileInput);
-      
+
       const dropZoneApi = {
-        updateUI: () => {} // assigned below
+        updateUI: () => { } // assigned below
       };
       dropZones.push(dropZoneApi);
 
       dropZoneApi.updateUI = () => {
         const zoneImages = this.globalImages.filter(img => img.zoneTitle === title);
-        
+
         count.textContent = `${zoneImages.length} / ${max}`;
         dropArea.innerHTML = '';
         if (zoneImages.length === 0) {
@@ -329,7 +347,7 @@ export class ColoringTool implements Tool {
           zoneImages.forEach((item, _index) => {
             const file = item.file;
             const globalIndex = this.globalImages.indexOf(item);
-            
+
             const thumb = document.createElement('div');
             thumb.style.position = 'relative';
             thumb.style.width = '48px';
@@ -337,13 +355,13 @@ export class ColoringTool implements Tool {
             thumb.style.borderRadius = '4px';
             thumb.style.overflow = 'hidden';
             thumb.style.border = '1px solid var(--color-outline)';
-            
+
             const img = document.createElement('img');
             img.src = URL.createObjectURL(file);
             img.style.width = '100%';
             img.style.height = '100%';
             img.style.objectFit = 'cover';
-            
+
             const numBadge = document.createElement('div');
             numBadge.textContent = String(globalIndex + 1);
             numBadge.style.position = 'absolute';
@@ -361,7 +379,7 @@ export class ColoringTool implements Tool {
             numBadge.style.justifyContent = 'center';
             numBadge.style.lineHeight = '1';
             numBadge.style.pointerEvents = 'none';
-            
+
             const starBtn = document.createElement('button');
             starBtn.innerHTML = '&#9733;'; // star
             starBtn.style.position = 'absolute';
@@ -404,7 +422,7 @@ export class ColoringTool implements Tool {
             removeBtn.style.display = 'flex';
             removeBtn.style.alignItems = 'center';
             removeBtn.style.justifyContent = 'center';
-            
+
             removeBtn.addEventListener('click', (e) => {
               e.stopPropagation();
               const currentIndex = this.globalImages.indexOf(item);
@@ -420,7 +438,7 @@ export class ColoringTool implements Tool {
             thumb.appendChild(removeBtn);
             dropArea.appendChild(thumb);
           });
-          
+
           if (zoneImages.length < max) {
             const addMore = document.createElement('div');
             addMore.textContent = '+';
@@ -450,13 +468,13 @@ export class ColoringTool implements Tool {
         });
         updateAllDropZones();
       };
-      
+
       // Attach the canvas to file logic here now that handleFiles is defined
       addCanvasBtn.addEventListener('click', () => {
         const docManager = DocumentManager.getInstance();
         const currentCanvas = docManager.getCurrentCanvas();
         if (!currentCanvas) return;
-        
+
         currentCanvas.toBlob((blob) => {
           if (blob) {
             const file = new File([blob], `canvas_${Date.now()}.png`, { type: 'image/png' });
@@ -466,7 +484,7 @@ export class ColoringTool implements Tool {
       });
 
       dropArea.addEventListener('click', () => fileInput.click());
-      
+
       fileInput.addEventListener('change', () => {
         if (fileInput.files) {
           handleFiles(fileInput.files);
@@ -499,27 +517,6 @@ export class ColoringTool implements Tool {
     container.appendChild(createImageDropZone('キャラクター一貫性 (Character)', 5));
     container.appendChild(createImageDropZone('スタイル参照 (Style)', 3));
 
-    // --- Image Size ---
-    const sizeSelect = document.createElement('select');
-    sizeSelect.style.padding = '8px';
-    sizeSelect.style.borderRadius = '4px';
-    sizeSelect.style.border = '1px solid var(--color-outline)';
-    sizeSelect.style.backgroundColor = 'var(--color-surface-container-lowest)';
-    sizeSelect.style.color = 'var(--color-on-surface)';
-
-    const currentValue = this.getSetting('imageSize', '1K');
-    const sizeModes = ['1K', '2K', '4K'];
-    sizeModes.forEach(mode => {
-      const option = document.createElement('option');
-      option.value = mode;
-      option.textContent = mode;
-      sizeSelect.appendChild(option);
-    });
-    sizeSelect.value = currentValue;
-
-    sizeSelect.addEventListener('change', () => this.setSetting('imageSize', sizeSelect.value));
-    container.appendChild(createField('画像サイズ', sizeSelect));
-
     // Restore images if they were already added (i.e. sidebar reopened)
     updateAllDropZones();
 
@@ -530,7 +527,7 @@ export class ColoringTool implements Tool {
     mimeSelect.style.border = '1px solid var(--color-outline)';
     mimeSelect.style.backgroundColor = 'var(--color-surface-container-lowest)';
     mimeSelect.style.color = 'var(--color-on-surface)';
-    
+
     const mimeOptions = [
       { value: 'image/png', label: 'PNG' },
       { value: 'image/jpeg', label: 'JPEG' }
@@ -590,14 +587,20 @@ export class ColoringTool implements Tool {
         }
       });
 
-      this.setSetting('aspectRatio', bestAr);
-      if (typeof (this as any).updateSizeOptions === 'function') {
-        (this as any).updateSizeOptions();
+      const totalPixels = origW * origH;
+      let bestMode = '1K';
+      if (totalPixels > 4194304) {
+        bestMode = '4K';
+      } else if (totalPixels > 1048576) {
+        bestMode = '2K';
       }
+
+      this.setSetting('aspectRatio', bestAr);
+      this.setSetting('imageSize', bestMode);
 
       const [bestW, bestH] = bestAr.split(':').map(Number);
       const targetRatio = bestW / bestH;
-      
+
       let canvasW, canvasH;
       if (origRatio > targetRatio) {
         canvasW = origW;
@@ -606,7 +609,7 @@ export class ColoringTool implements Tool {
         canvasH = origH;
         canvasW = origH * targetRatio;
       }
-      
+
       const canvas = document.createElement('canvas');
       canvas.width = canvasW;
       canvas.height = canvasH;
@@ -626,14 +629,14 @@ export class ColoringTool implements Tool {
       // Payload 構築
       const inputPayloads: any[] = [];
       let textPrompt = '';
-      
+
       const base64Padded = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve((reader.result as string).split(',')[1]);
         reader.onerror = reject;
         reader.readAsDataURL(paddedBlob);
       });
-      
+
       inputPayloads.push({
         type: 'image',
         mime_type: 'image/png',
@@ -647,7 +650,7 @@ export class ColoringTool implements Tool {
         const cleanTitle = item.zoneTitle.split(' (')[0];
         const importantStr = item.isImportant ? 'これはユーザにより重要画像に設定されている。\n' : '';
         textPrompt += `# Image ${imgIndex}\nこの画像を${cleanTitle}画像とする。\n${importantStr}\n`;
-        
+
         const base64 = await this.fileToBase64(item.file);
         const imagePayload: any = {
           type: 'image',
@@ -677,7 +680,7 @@ export class ColoringTool implements Tool {
           type: 'image',
           mime_type: this.getSetting('mimeType', 'image/png'),
           aspect_ratio: bestAr,
-          image_size: this.getSetting('imageSize', '1K')
+          image_size: bestMode
         }
       };
     };
@@ -693,80 +696,80 @@ export class ColoringTool implements Tool {
     previewBtn.style.marginTop = '8px';
     previewBtn.style.width = '100%';
     previewBtn.style.fontSize = '12px';
-    
+
     previewBtn.addEventListener('click', async () => {
-       if (this.buildPayloadFn) {
-         try {
-           const payload = await this.buildPayloadFn();
-           // Truncate base64 for display
-           const displayPayload = JSON.parse(JSON.stringify(payload));
-           if (displayPayload.input && displayPayload.input.length > 0) {
-             displayPayload.input.forEach((p: any) => {
-                if (p.type === 'image' && p.data) {
-                    p.data = "BASE64_IMAGE_DATA";
-                }
-             });
-           }
-           
-           const dialog = document.createElement('dialog');
-           dialog.style.width = '80vw';
-           dialog.style.height = '80vh';
-           dialog.style.backgroundColor = 'var(--color-surface-container-high)';
-           dialog.style.color = 'var(--color-on-surface)';
-           dialog.style.border = '1px solid var(--color-outline)';
-           dialog.style.borderRadius = '8px';
-           dialog.style.padding = '16px';
-           dialog.style.display = 'flex';
-           dialog.style.flexDirection = 'column';
-           
-           const header = document.createElement('div');
-           header.style.display = 'flex';
-           header.style.justifyContent = 'space-between';
-           header.style.alignItems = 'center';
-           header.style.marginBottom = '16px';
-           
-           const title = document.createElement('h3');
-           title.textContent = 'JSON Preview';
-           title.style.margin = '0';
-           
-           const closeBtn = document.createElement('button');
-           closeBtn.textContent = '閉じる';
-           closeBtn.style.padding = '4px 12px';
-           closeBtn.style.cursor = 'pointer';
-           closeBtn.style.background = 'var(--color-surface-container-highest)';
-           closeBtn.style.color = 'var(--color-on-surface)';
-           closeBtn.style.border = '1px solid var(--color-outline-variant)';
-           closeBtn.style.borderRadius = '4px';
-           closeBtn.onclick = () => dialog.close();
-           
-           header.appendChild(title);
-           header.appendChild(closeBtn);
-           
-           const pre = document.createElement('pre');
-           pre.style.flex = '1';
-           pre.style.overflow = 'auto';
-           pre.style.margin = '0';
-           pre.style.whiteSpace = 'pre-wrap';
-           pre.style.wordWrap = 'break-word';
-           pre.style.fontFamily = 'monospace';
-           pre.style.fontSize = '13px';
-           pre.textContent = JSON.stringify(displayPayload, null, 2);
-           
-           dialog.appendChild(header);
-           dialog.appendChild(pre);
-           
-           dialog.addEventListener('close', () => {
-             dialog.remove();
-           });
-           
-           document.body.appendChild(dialog);
-           dialog.showModal();
-         } catch (e: any) {
-           alert(e.message || 'ペイロードの生成に失敗しました。');
-         }
-       }
+      if (this.buildPayloadFn) {
+        try {
+          const payload = await this.buildPayloadFn();
+          // Truncate base64 for display
+          const displayPayload = JSON.parse(JSON.stringify(payload));
+          if (displayPayload.input && displayPayload.input.length > 0) {
+            displayPayload.input.forEach((p: any) => {
+              if (p.type === 'image' && p.data) {
+                p.data = "BASE64_IMAGE_DATA";
+              }
+            });
+          }
+
+          const dialog = document.createElement('dialog');
+          dialog.style.width = '80vw';
+          dialog.style.height = '80vh';
+          dialog.style.backgroundColor = 'var(--color-surface-container-high)';
+          dialog.style.color = 'var(--color-on-surface)';
+          dialog.style.border = '1px solid var(--color-outline)';
+          dialog.style.borderRadius = '8px';
+          dialog.style.padding = '16px';
+          dialog.style.display = 'flex';
+          dialog.style.flexDirection = 'column';
+
+          const header = document.createElement('div');
+          header.style.display = 'flex';
+          header.style.justifyContent = 'space-between';
+          header.style.alignItems = 'center';
+          header.style.marginBottom = '16px';
+
+          const title = document.createElement('h3');
+          title.textContent = 'JSON Preview';
+          title.style.margin = '0';
+
+          const closeBtn = document.createElement('button');
+          closeBtn.textContent = '閉じる';
+          closeBtn.style.padding = '4px 12px';
+          closeBtn.style.cursor = 'pointer';
+          closeBtn.style.background = 'var(--color-surface-container-highest)';
+          closeBtn.style.color = 'var(--color-on-surface)';
+          closeBtn.style.border = '1px solid var(--color-outline-variant)';
+          closeBtn.style.borderRadius = '4px';
+          closeBtn.onclick = () => dialog.close();
+
+          header.appendChild(title);
+          header.appendChild(closeBtn);
+
+          const pre = document.createElement('pre');
+          pre.style.flex = '1';
+          pre.style.overflow = 'auto';
+          pre.style.margin = '0';
+          pre.style.whiteSpace = 'pre-wrap';
+          pre.style.wordWrap = 'break-word';
+          pre.style.fontFamily = 'monospace';
+          pre.style.fontSize = '13px';
+          pre.textContent = JSON.stringify(displayPayload, null, 2);
+
+          dialog.appendChild(header);
+          dialog.appendChild(pre);
+
+          dialog.addEventListener('close', () => {
+            dialog.remove();
+          });
+
+          document.body.appendChild(dialog);
+          dialog.showModal();
+        } catch (e: any) {
+          alert(e.message || 'ペイロードの生成に失敗しました。');
+        }
+      }
     });
-    
+
     container.appendChild(previewBtn);
   }
 
@@ -776,8 +779,8 @@ export class ColoringTool implements Tool {
     const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
     const stampedName = `${dateStr}_${timeStr}_${this.name}_error`;
 
-    const archiveFiles: {blob: Blob, path: string}[] = [];
-    
+    const archiveFiles: { blob: Blob, path: string }[] = [];
+
     let imgIndex = 2;
     for (const item of this.globalImages) {
       const imgBlob = item.file as Blob;
@@ -821,7 +824,7 @@ export class ColoringTool implements Tool {
     let progressInterval: number | undefined;
     try {
       const payload = await this.buildPayloadFn();
-      
+
       const startTime = Date.now();
       progressInterval = window.setInterval(() => {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -855,8 +858,8 @@ export class ColoringTool implements Tool {
               }
             }
           }
-        } catch (e) {}
-        
+        } catch (e) { }
+
         if (errorText.includes('GEMINI_API_KEY is not set')) {
           errorText = 'Gemini API Key が設定されていません。右上の設定アイコンから設定してください。';
         }
@@ -880,12 +883,12 @@ export class ColoringTool implements Tool {
       const byteCharacters = atob(base64Data);
       const byteNumbers = new Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
       const byteArray = new Uint8Array(byteNumbers);
       const mimeType = payload.response_format?.mime_type || 'image/png';
       const ext = mimeType === 'image/jpeg' ? '.jpg' : '.png';
-      const blob = new Blob([byteArray], {type: mimeType});
+      const blob = new Blob([byteArray], { type: mimeType });
 
       // --- Structured archive output ---
       const date = new Date();
@@ -893,7 +896,7 @@ export class ColoringTool implements Tool {
       const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
       const stampedName = `${dateStr}_${timeStr}_${this.name}`;
 
-      const archiveFiles: {blob: Blob, path: string}[] = [];
+      const archiveFiles: { blob: Blob, path: string }[] = [];
       archiveFiles.push({ blob, path: `${stampedName}${ext}` });
 
       let imgIndex = 2;
@@ -946,9 +949,9 @@ export class ColoringTool implements Tool {
       archiveFiles.push({ blob: fullResponseJsonBlob, path: `response.json` });
 
       await saveArchive(stampedName, archiveFiles);
-      
+
       window.dispatchEvent(new Event('tool:cache-updated'));
-      
+
     } catch (e: any) {
       console.error(e);
       throw e; // Rethrow to let AIPanel handle the error toast
@@ -1010,8 +1013,8 @@ export class ColoringTool implements Tool {
               }
             }
           }
-        } catch (e) {}
-        
+        } catch (e) { }
+
         if (errorText.includes('GEMINI_API_KEY is not set')) {
           errorText = 'Gemini API Key が設定されていません。右上の設定アイコンから設定してください。';
         }
@@ -1036,11 +1039,11 @@ export class ColoringTool implements Tool {
       const byteCharacters = atob(base64Data);
       const byteNumbers = new Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
       const byteArray = new Uint8Array(byteNumbers);
       const ext = payload.response_format.mime_type === 'image/jpeg' ? '.jpg' : '.png';
-      const geminiBlob = new Blob([byteArray], {type: payload.response_format.mime_type});
+      const geminiBlob = new Blob([byteArray], { type: payload.response_format.mime_type });
 
       // --- クロップ処理 ---
       const geminiImg = new Image();
@@ -1068,7 +1071,7 @@ export class ColoringTool implements Tool {
       }
       URL.revokeObjectURL(geminiUrl);
 
-      const archiveFiles: {blob: Blob, path: string}[] = [];
+      const archiveFiles: { blob: Blob, path: string }[] = [];
       // ④ クロップ後出力
       const finalBlob = await new Promise<Blob | null>(res => outCanvas.toBlob(res, 'image/png'));
       if (finalBlob) {

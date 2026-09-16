@@ -265,6 +265,11 @@ export function createAIPanel(): HTMLElement {
         return context;
       };
 
+      const context = createContext();
+      if (tool.canOpen && !tool.canOpen(context)) {
+        return;
+      }
+
       const executeTool = async () => {
         const context = createContext();
         try {
