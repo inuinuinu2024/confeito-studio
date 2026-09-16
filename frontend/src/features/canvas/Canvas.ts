@@ -1139,8 +1139,8 @@ export function createCanvas(): HTMLElement {
         const psdOffsetX = cx - psdWidth / 2;
         const psdOffsetY = cy - psdHeight / 2;
 
-        const tCacheImg = isLeft ? leftOverlayTCacheImg : rightOverlayTCacheImg;
-        const tLayer = isLeft ? leftOverlayTLayer : rightOverlayTLayer;
+        const tCacheImg = isLeft ? leftCacheCanvas : rightCacheCanvas;
+        const tLayer = isLeft ? leftSelectedLayer : rightSelectedLayer;
         const isTopSelected = isLeft ? leftIsOverlayTopSelected : rightIsOverlayTopSelected;
 
         if (tCacheImg) {

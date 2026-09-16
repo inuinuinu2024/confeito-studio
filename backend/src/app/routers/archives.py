@@ -117,13 +117,13 @@ async def restore_archive(archive_name: str):
 
 class AppendLogRequest(BaseModel):
     message: str
-
+    file_name: str = "log.txt"
 
 @router.post("/archives/{archive_name}/log")
 async def append_archive_log_api(archive_name: str, req: AppendLogRequest):
-    """Append a log message to log.txt inside a folder archive."""
+    """Append a log message to a log file inside a folder archive."""
     try:
-        svc_append_archive_log(archive_name, req.message)
+        svc_append_archive_log(archive_name, req.message, req.file_name)
         return {"status": "success"}
     except ArchiveValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))

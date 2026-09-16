@@ -4,7 +4,7 @@
  */
 import { icon } from '../../shared/utils/dom';
 
-import { saveArchive } from '../../shared/utils/archives';
+import { saveArchive, appendArchiveLog } from '../../shared/utils/archives';
 import { showToast } from '../../shared/utils/toast';
 import { ToolRegistry } from '../../shared/utils/ToolRegistry';
 
@@ -281,14 +281,20 @@ export function createAIPanel(): HTMLElement {
 
           if (!err.archiveSaved) {
             try {
+              const docManager = DocumentManager.getInstance();
+              let targetFolder = docManager.getCurrentArchiveFolder();
+              
               const date = new Date();
-              const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
-              const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
-              const folderName = `${dateStr}_${timeStr}_${tool.name}_error`;
-              const errorText = `${tool.name} Execution Error\n\nDate: ${date.toLocaleString()}\nError: ${err.message || 'Unknown error'}\nStack: ${err.stack || ''}`;
-              const errorBlob = new Blob([errorText], { type: 'text/plain' });
+              const formattedTime = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}_${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
+              const errorMessage = `[${formattedTime}] (${tool.name}): ${err.message || 'Unknown error'}\n`;
 
-              await saveArchive(folderName, [{ blob: errorBlob, path: 'error.txt' }]);
+              if (targetFolder) {
+                await appendArchiveLog(targetFolder, errorMessage, 'error.txt');
+              } else {
+                targetFolder = `${formattedTime}_${tool.name}_error`;
+                const errorBlob = new Blob([errorMessage], { type: 'text/plain' });
+                await saveArchive(targetFolder, [{ blob: errorBlob, path: 'error.txt' }]);
+              }
               window.dispatchEvent(new Event('tool:cache-updated'));
             } catch (cacheErr) {
               console.error('Failed to save error cache:', cacheErr);

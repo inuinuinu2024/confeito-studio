@@ -98,13 +98,13 @@ export async function saveArchive(name: string, files: { blob: Blob, path: strin
   }
 }
 
-export async function appendArchiveLog(archiveName: string, message: string): Promise<void> {
+export async function appendArchiveLog(archiveName: string, message: string, fileName: string = 'log.txt'): Promise<void> {
   const res = await fetch(`${API_BASE}/archives/${encodeURIComponent(archiveName)}/log`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ message })
+    body: JSON.stringify({ message, file_name: fileName })
   });
   if (!res.ok) {
     throw new Error('Failed to append to archive log');

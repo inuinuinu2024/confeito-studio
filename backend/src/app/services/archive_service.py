@@ -275,14 +275,14 @@ def restore_archive(archive_name: str) -> None:
         raise ArchiveServiceError(str(e))
 
 
-def append_archive_log(archive_name: str, message: str) -> None:
-    """Append a log line to log.txt inside a folder archive."""
+def append_archive_log(archive_name: str, message: str, file_name: str = "log.txt") -> None:
+    """Append a log line to a specified file (default log.txt) inside a folder archive."""
     archive_dir = _safe_resolve(archive_name)
     if not archive_dir.exists() or not archive_dir.is_dir():
         raise ArchiveNotFoundError(f"Archive '{archive_name}' not found")
 
     try:
-        log_file = archive_dir / "log.txt"
+        log_file = archive_dir / file_name
         if not message.endswith("\n"):
             message += "\n"
 
