@@ -18,11 +18,17 @@ import { historyManager } from '../../shared/utils/history';
 import { DocumentManager } from '../document/DocumentManager';
 
 export let globalIsOverlayMode = false;
+export let globalIsBatchMode = false;
 
 window.addEventListener('overlay-mode:toggle', (e: Event) => {
   globalIsOverlayMode = (e as CustomEvent).detail.enabled;
   window.dispatchEvent(new Event('overlay-mode:changed'));
   window.dispatchEvent(new Event('document:redraw'));
+});
+
+window.addEventListener('batch-mode:toggle', (e: Event) => {
+  globalIsBatchMode = (e as CustomEvent).detail.enabled;
+  window.dispatchEvent(new Event('batch-mode:changed'));
 });
 
 interface CacheDef {
@@ -483,17 +489,16 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
           activeGroupDepth = currentDepth;
         }
 
+        const isEffectivelySelected = isActive || inActiveGroup;
+
         const item = document.createElement('div');
         item.dataset.index = i.toString();
         const classes = ['layer-item'];
-        if (isActive) classes.push('layer-item--active');
+        if (isEffectivelySelected) classes.push('layer-item--selected');
+        if (lastSelectedCacheIndex === i) classes.push('layer-item--active');
         if (cDef.isGroup) classes.push('layer-item--group');
         if (cDef.isChild) classes.push('layer-item--child');
         item.className = classes.join(' ');
-
-        if (inActiveGroup && !isActive) {
-          item.style.backgroundColor = 'var(--color-surface-container-high)';
-        }
 
         const indent = currentDepth * 16;
         item.style.paddingLeft = `${8 + indent}px`;
@@ -546,7 +551,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
           : (isText ? 'description' : 'image');
         const typeIcon = icon(actualIconName, 16);
         typeIcon.className = `material-symbols-outlined layer-item__icon ${
-          isActive ? 'layer-item__icon--type-active' : 'layer-item__icon--type'
+          isEffectivelySelected ? 'layer-item__icon--type-active' : 'layer-item__icon--type'
         }`;
         item.appendChild(typeIcon);
 
@@ -560,25 +565,44 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
 
         label.textContent = displayName;
         label.title = displayName;
-        if (isActive) label.style.color = 'var(--color-on-surface)';
+        if (isEffectivelySelected) label.style.color = 'var(--color-on-surface)';
         item.appendChild(label);
 
         if (!cDef.isGroup && !isText) {
           item.appendChild(createUTBoxes(`cache_${c.key}`, c.key, displayName));
         }
 
-        item.addEventListener('click', () => {
+        item.addEventListener('click', (e: MouseEvent) => {
           const updateUI = () => {
+            let activeGroupDepth = -1;
+
             cacheItemElements.forEach((el) => {
               const originalIndex = parseInt(el.dataset.index || '-1', 10);
               if (originalIndex === -1) return;
               const lDef = currentCacheDefs[originalIndex];
               if (!lDef) return;
 
+              const isDirectlySelected = activeCacheItemIndices.has(originalIndex);
+              
+              let inActiveGroup = false;
+              if (activeGroupDepth !== -1) {
+                if (lDef.depth > activeGroupDepth) {
+                  inActiveGroup = true;
+                } else {
+                  activeGroupDepth = -1;
+                }
+              }
+              
+              if (isDirectlySelected && lDef.isGroup) {
+                activeGroupDepth = lDef.depth;
+              }
+
+              const isEffectivelySelected = isDirectlySelected || inActiveGroup;
+
               const tActive = el.querySelector('.layer-item__icon--type-active');
               const tInactive = el.querySelector('.layer-item__icon--type');
-              if (activeCacheItemIndices.has(originalIndex)) {
-                el.classList.add('layer-item--active');
+              if (isEffectivelySelected) {
+                el.classList.add('layer-item--selected');
                 if (tInactive) {
                   tInactive.classList.remove('layer-item__icon--type');
                   tInactive.classList.add('layer-item__icon--type-active');
@@ -586,7 +610,7 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
                 const nameSpan = el.querySelector('.layer-item__name') as HTMLElement;
                 if (nameSpan) nameSpan.style.color = 'var(--color-on-surface)';
               } else {
-                el.classList.remove('layer-item--active');
+                el.classList.remove('layer-item--selected');
                 if (tActive) {
                   tActive.classList.remove('layer-item__icon--type-active');
                   tActive.classList.add('layer-item__icon--type');
@@ -594,21 +618,74 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
                 const nameSpan = el.querySelector('.layer-item__name') as HTMLElement;
                 if (nameSpan) nameSpan.style.color = '';
               }
+              if (lastSelectedCacheIndex === originalIndex) {
+                el.classList.add('layer-item--active');
+              } else {
+                el.classList.remove('layer-item--active');
+              }
             });
 
             if (activeCacheItemIndices.size === 1) {
               const selectedIdx = Array.from(activeCacheItemIndices)[0];
               const cCache = currentCacheDefs[selectedIdx].item;
               const docManager = DocumentManager.getInstance();
-              if (cCache.type === 'folder') {
+              const cDef = currentCacheDefs[selectedIdx];
+              if (cDef.isGroup) {
                 docManager.setCurrentArchiveFolder(cCache.key);
+                if (globalIsBatchMode) {
+                  const loadChildren = async () => {
+                    const rootKey = cCache.key.split('/')[0];
+                    let items = loadedArchiveContents[rootKey];
+                    if (!items) {
+                      try {
+                        items = await getArchiveContents(rootKey);
+                        loadedArchiveContents[rootKey] = items;
+                      } catch (e) {
+                        console.error('Failed to load archive contents', e);
+                        items = [];
+                      }
+                    }
+                    const childImages = items.filter(c => 
+                      c.type !== 'folder' && 
+                      (c.folderId === cCache.key || c.key.startsWith(cCache.key + '/'))
+                    ).map(c => ({ key: c.key, toolName: c.name }));
+                    
+                    if (childImages.length > 0) {
+                      const eventName = options.panelType === 'right' ? 'tool:batch-result-ready:right' : 'tool:batch-result-ready';
+                      window.dispatchEvent(new CustomEvent(eventName, { detail: { items: childImages } }));
+                    }
+                  };
+                  loadChildren();
+                }
               } else {
                 const folder = cCache.folderId || (cCache.key.includes('/') ? cCache.key.split('/')[0] : null);
                 if (folder) {
                   docManager.setCurrentArchiveFolder(folder);
                 }
-                const eventName = options.panelType === 'right' ? 'tool:result-ready:right' : 'tool:result-ready';
-                window.dispatchEvent(new CustomEvent(eventName, { detail: { key: cCache.key, toolName: cCache.name } }));
+                if (!globalIsBatchMode) {
+                  const eventName = options.panelType === 'right' ? 'tool:result-ready:right' : 'tool:result-ready';
+                  window.dispatchEvent(new CustomEvent(eventName, { detail: { key: cCache.key, toolName: cCache.name } }));
+                }
+              }
+            } else if (activeCacheItemIndices.size > 1) {
+              const docManager = DocumentManager.getInstance();
+              const selectedItems = Array.from(activeCacheItemIndices)
+                .map(idx => currentCacheDefs[idx])
+                .filter(d => !d.isGroup)
+                .map(d => d.item);
+              if (selectedItems.length > 0) {
+                const firstFolder = selectedItems[0].folderId || (selectedItems[0].key.includes('/') ? selectedItems[0].key.split('/')[0] : null);
+                if (firstFolder) {
+                  docManager.setCurrentArchiveFolder(firstFolder);
+                }
+                if (!globalIsBatchMode) {
+                  const eventName = options.panelType === 'right' ? 'tool:batch-result-ready:right' : 'tool:batch-result-ready';
+                  window.dispatchEvent(new CustomEvent(eventName, { 
+                    detail: { 
+                      items: selectedItems.map(c => ({ key: c.key, toolName: c.name }))
+                    } 
+                  }));
+                }
               }
             } else {
               const eventName = options.panelType === 'right' ? 'tool:result-cleared:right' : 'tool:result-cleared';
@@ -616,16 +693,37 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
             }
           };
 
-          if (activeCacheItemIndices.size === 1 && activeCacheItemIndices.has(i)) {
-            // Toggle off when clicking the already selected item
-            activeCacheItemIndices.clear();
-            lastSelectedCacheIndex = null;
+          if (e.shiftKey && lastSelectedCacheIndex !== null) {
+            const start = Math.min(lastSelectedCacheIndex, i);
+            const end = Math.max(lastSelectedCacheIndex, i);
+            if (!e.ctrlKey && !e.metaKey) {
+              activeCacheItemIndices.clear();
+            }
+            for (let j = start; j <= end; j++) {
+              activeCacheItemIndices.add(j);
+            }
+            updateUI();
+          } else if (e.ctrlKey || e.metaKey) {
+            if (activeCacheItemIndices.has(i)) {
+              activeCacheItemIndices.delete(i);
+              if (lastSelectedCacheIndex === i) lastSelectedCacheIndex = null;
+            } else {
+              activeCacheItemIndices.add(i);
+              lastSelectedCacheIndex = i;
+            }
             updateUI();
           } else {
-            activeCacheItemIndices.clear();
-            activeCacheItemIndices.add(i);
-            lastSelectedCacheIndex = i;
-            updateUI();
+            if (activeCacheItemIndices.size === 1 && activeCacheItemIndices.has(i)) {
+              // Toggle off when clicking the already selected item
+              activeCacheItemIndices.clear();
+              lastSelectedCacheIndex = null;
+              updateUI();
+            } else {
+              activeCacheItemIndices.clear();
+              activeCacheItemIndices.add(i);
+              lastSelectedCacheIndex = i;
+              updateUI();
+            }
           }
         });
 
@@ -634,21 +732,11 @@ export function createLayerPanel(options: LayerPanelOptions = {}): HTMLElement {
       });
 
       // Restore initial selection visual state if any
-      if (activeCacheItemIndices.size > 0) {
+      if (activeCacheItemIndices.size > 0 && autoSelectKey) {
         activeCacheItemIndices.forEach(idx => {
           const el = cacheItemElements.find(e => e.dataset.index === idx.toString());
           if (el) {
-            el.classList.add('layer-item--active');
-            const nameSpan = el.querySelector('.layer-item__name') as HTMLElement;
-            if (nameSpan) nameSpan.style.color = 'var(--color-on-surface)';
-            const tInactive = el.querySelector('.layer-item__icon--type');
-            if (tInactive) {
-              tInactive.classList.remove('layer-item__icon--type');
-              tInactive.classList.add('layer-item__icon--type-active');
-            }
-            if (autoSelectKey) {
-              el.scrollIntoView({ block: 'nearest' });
-            }
+            el.scrollIntoView({ block: 'nearest' });
           }
         });
       }

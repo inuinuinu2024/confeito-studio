@@ -8,6 +8,7 @@ export function createToolBar(): HTMLElement {
   let isNormalMode = true;
   let isCompareMode = false;
   let isOverlayMode = false;
+  let isBatchMode = false;
 
   // Normal Mode Button
   const normalBtn = document.createElement('div');
@@ -28,7 +29,13 @@ export function createToolBar(): HTMLElement {
   overlayBtn.title = 'Overlay Mode';
   overlayBtn.appendChild(icon('photo_library', 24));
 
-  function activateMode(mode: 'normal' | 'compare' | 'overlay') {
+  // Batch Mode Button
+  const batchBtn = document.createElement('div');
+  batchBtn.className = 'left-toolbar__btn';
+  batchBtn.title = 'Batch Mode';
+  batchBtn.appendChild(icon('grid_view', 24));
+
+  function activateMode(mode: 'normal' | 'compare' | 'overlay' | 'batch') {
     if (mode === 'normal' && !isNormalMode) window.dispatchEvent(new CustomEvent('normal-mode:toggle', { detail: { enabled: true } }));
     if (mode !== 'normal' && isNormalMode) window.dispatchEvent(new CustomEvent('normal-mode:toggle', { detail: { enabled: false } }));
 
@@ -37,6 +44,9 @@ export function createToolBar(): HTMLElement {
 
     if (mode === 'overlay' && !isOverlayMode) window.dispatchEvent(new CustomEvent('overlay-mode:toggle', { detail: { enabled: true } }));
     if (mode !== 'overlay' && isOverlayMode) window.dispatchEvent(new CustomEvent('overlay-mode:toggle', { detail: { enabled: false } }));
+
+    if (mode === 'batch' && !isBatchMode) window.dispatchEvent(new CustomEvent('batch-mode:toggle', { detail: { enabled: true } }));
+    if (mode !== 'batch' && isBatchMode) window.dispatchEvent(new CustomEvent('batch-mode:toggle', { detail: { enabled: false } }));
   }
 
   normalBtn.addEventListener('click', () => activateMode('normal'));
@@ -48,10 +58,14 @@ export function createToolBar(): HTMLElement {
     if (isOverlayMode) activateMode('normal');
     else activateMode('overlay');
   });
+  batchBtn.addEventListener('click', () => {
+    if (isBatchMode) activateMode('normal');
+    else activateMode('batch');
+  });
 
   function ensureOneActive() {
     setTimeout(() => {
-      if (!isNormalMode && !isCompareMode && !isOverlayMode) {
+      if (!isNormalMode && !isCompareMode && !isOverlayMode && !isBatchMode) {
         window.dispatchEvent(new CustomEvent('normal-mode:toggle', { detail: { enabled: true } }));
       }
     }, 10);
@@ -85,9 +99,19 @@ export function createToolBar(): HTMLElement {
     }
   });
 
+  window.addEventListener('batch-mode:toggle', (e: Event) => {
+    const enabled = (e as CustomEvent).detail.enabled;
+    if (isBatchMode !== enabled) {
+      isBatchMode = enabled;
+      batchBtn.classList.toggle('left-toolbar__btn--active', isBatchMode);
+      if (!enabled) ensureOneActive();
+    }
+  });
+
   toolbar.appendChild(normalBtn);
   toolbar.appendChild(compareBtn);
   toolbar.appendChild(overlayBtn);
+  toolbar.appendChild(batchBtn);
 
   return toolbar;
 }

@@ -27,6 +27,9 @@ export function createCanvas(): HTMLElement {
   let leftHiddenLayers = new Set<any>();
   let rightHiddenLayers = new Set<any>();
 
+  let isBatchMode = false;
+  let batchImages: { key: string, name: string, blob: Blob | null, canvas: HTMLCanvasElement | null }[] = [];
+
   // Drag and drop image files directly onto canvas
   main.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -660,6 +663,8 @@ export function createCanvas(): HTMLElement {
   zoomBar.appendChild(resetZoomBtn);
   main.appendChild(zoomBar);
 
+
+
   let splitPct = 50;
 
   let leftCacheCanvas: HTMLCanvasElement | null = null;
@@ -670,7 +675,11 @@ export function createCanvas(): HTMLElement {
 
   function updateCanvasLayout() {
     const textActive = isTextActive();
-    zoomBar.style.display = textActive ? 'none' : 'flex';
+    if (isBatchMode) {
+      zoomBar.style.display = 'none';
+    } else {
+      zoomBar.style.display = textActive ? 'none' : 'flex';
+    }
 
     if (textActive) {
       splitViewInner.style.width = '100%';
@@ -938,7 +947,10 @@ export function createCanvas(): HTMLElement {
     const mainW = currentImage ? currentImage.width : (currentPsd ? currentPsd.width : 0);
     const mainH = currentImage ? currentImage.height : (currentPsd ? currentPsd.height : 0);
 
-    if (!isOverlayMode && !isGlobalCompareMode && !isSliderMode) {
+    if (isBatchMode) {
+      mw = psdWidth;
+      mh = psdHeight;
+    } else if (!isOverlayMode && !isGlobalCompareMode && !isSliderMode) {
       // Normal Mode: when viewing an archive image, canvas matches archive image exactly
       if (leftCacheCanvas) {
         mw = leftCacheCanvas.width;
@@ -1387,8 +1399,85 @@ export function createCanvas(): HTMLElement {
     if (cacheToDraw || textToShow || isOverlayMode) {
       hasVisibleLayer = true;
     }
+    if (isBatchMode) {
+      hasVisibleLayer = true;
+    }
     if (!hasVisibleLayer) {
       shouldDrawBg = false;
+    }
+
+    // Batch mode: render grid and return early
+    if (isBatchMode) {
+      
+      const tileW = 800;
+      const tileH = 600;
+      const columns = 2;
+      const margin = 20;
+      
+      let col = 0;
+      let row = 0;
+      
+      const pCanvas = document.createElement('canvas');
+      pCanvas.width = 16; pCanvas.height = 16;
+      const pCtx = pCanvas.getContext('2d');
+      if(pCtx) {
+         pCtx.fillStyle = '#FFFFFF'; pCtx.fillRect(0,0,16,16);
+         pCtx.fillStyle = '#D9D9D9'; pCtx.fillRect(0,0,8,8); pCtx.fillRect(8,8,8,8);
+      }
+      const checkerPattern = ctx.createPattern(pCanvas, 'repeat') || '#FFFFFF';
+      
+      for (const bImg of batchImages) {
+        if (bImg.canvas) {
+           const startX = psdOffsetX + margin + col * (tileW + margin);
+           const startY = psdOffsetY + margin + row * (tileH + margin);
+           
+           ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--color-surface-container-low') || '#f5f5f5';
+           ctx.fillRect(startX, startY, tileW, tileH);
+           
+           ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--color-outline-variant') || '#555555';
+           ctx.lineWidth = 1;
+           ctx.strokeRect(startX + 0.5, startY + 0.5, tileW - 1, tileH - 1);
+           
+           const titleHeight = 40;
+           const padding = 20;
+           
+           // Draw filename
+           ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--color-on-surface') || '#000000';
+           ctx.font = 'bold 16px sans-serif';
+           ctx.textAlign = 'left';
+           ctx.textBaseline = 'middle';
+           let displayName = bImg.name || 'Image';
+           const slashIdx = displayName.lastIndexOf('/');
+           if (slashIdx !== -1) displayName = displayName.substring(slashIdx + 1);
+           ctx.fillText(displayName, startX + padding, startY + padding + titleHeight/2 - 4);
+           
+           // Half of tile for each image
+           const halfW = (tileW - padding * 2 - padding) / 2;
+           const halfH = tileH - titleHeight - padding * 2;
+           const fitScale = Math.min(halfW / bImg.canvas.width, halfH / bImg.canvas.height);
+           const drawW = bImg.canvas.width * fitScale;
+           const drawH = bImg.canvas.height * fitScale;
+           
+           const origX = startX + padding + (halfW - drawW)/2;
+           const origY = startY + padding + titleHeight + (halfH - drawH)/2;
+           ctx.drawImage(bImg.canvas, origX, origY, drawW, drawH);
+           
+           const dummyX = startX + padding + halfW + padding + (halfW - drawW)/2;
+           const dummyY = origY;
+           ctx.fillStyle = checkerPattern;
+           ctx.fillRect(dummyX, dummyY, drawW, drawH);
+           ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--color-outline-variant') || '#888888';
+           ctx.lineWidth = 1;
+           ctx.strokeRect(dummyX, dummyY, drawW, drawH);
+           
+           col++;
+           if (col >= columns) {
+              col = 0;
+              row++;
+           }
+        }
+      }
+      return;
     }
 
     if (shouldDrawBg && currentBgColor && currentBgColor !== 'transparent') {
@@ -1411,7 +1500,7 @@ export function createCanvas(): HTMLElement {
       } else {
         ctx.fillStyle = currentBgColor;
       }
-      
+
       const drawPsdBg = !skipPsdDraw;
       if (drawPsdBg) {
          ctx.fillRect(psdOffsetX, psdOffsetY, psdWidth, psdHeight);
@@ -1706,6 +1795,71 @@ export function createCanvas(): HTMLElement {
     rightHiddenLayers = customEvent.detail.hiddenLayers;
   });
 
+  window.addEventListener('batch-mode:toggle', (e: Event) => {
+    isBatchMode = (e as CustomEvent).detail.enabled;
+    if (!isBatchMode) {
+      batchImages = [];
+    }
+    updateCanvasLayout();
+    window.dispatchEvent(new Event('document:redraw'));
+  });
+
+  window.addEventListener('tool:batch-result-ready', async (e: Event) => {
+    if (!isBatchMode) return;
+    const customEvent = e as CustomEvent<{ items: { key: string, toolName: string }[] }>;
+
+    
+    batchImages = [];
+    let maxWidth = 0;
+    let maxHeight = 0;
+    let validCount = 0;
+
+    for (const item of customEvent.detail.items) {
+      const blob = await getArchiveImage(item.key);
+      let canvas = null;
+      if (blob && !blob.type.startsWith('text/') && blob.type !== 'application/json') {
+        const url = URL.createObjectURL(blob);
+        canvas = await new Promise<HTMLCanvasElement | null>((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const c = document.createElement('canvas');
+            c.width = img.width;
+            c.height = img.height;
+            const ctx = c.getContext('2d');
+            if (ctx) ctx.drawImage(img, 0, 0);
+            URL.revokeObjectURL(url);
+            resolve(c);
+          };
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      if (canvas) {
+        maxWidth = Math.max(maxWidth, canvas.width);
+        maxHeight = Math.max(maxHeight, canvas.height);
+        validCount++;
+      }
+      batchImages.push({ key: item.key, name: item.toolName, blob, canvas });
+    }
+    
+
+    const tileW = 800;
+    const tileH = 600;
+    const columns = 2;
+    const rows = Math.ceil(validCount / columns);
+    
+    const margin = 20;
+    const gridW = (tileW * columns) + (margin * (columns + 1));
+    const gridH = (tileH * rows) + (margin * (rows + 1));
+    
+    initializeCanvases(gridW, gridH);
+    updateCanvasDrawSize(false);
+    resetTo100Percent();
+    updateCanvasLayout();
+    window.dispatchEvent(new Event('document:redraw'));
+  });
+
   window.addEventListener('tool:result-ready', async (e: Event) => {
     const customEvent = e as CustomEvent<{ key: string, toolName: string }>;
     leftIsInputImage = customEvent.detail.key.includes('Inputs/');
@@ -1763,6 +1917,7 @@ export function createCanvas(): HTMLElement {
     leftCacheCanvas = null;
     leftIsInputImage = false;
     leftTextOverlay.style.display = 'none';
+    batchImages = [];
     const docManager = DocumentManager.getInstance();
     docManager.setCanvas(null);
     updateCanvasDrawSize(true);

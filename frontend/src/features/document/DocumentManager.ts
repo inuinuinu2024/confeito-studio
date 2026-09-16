@@ -136,6 +136,9 @@ export class DocumentManager {
     try {
       const cache = await getDocumentCache();
       if (cache && cache.fileHandle) {
+        if (cache.filename && cache.filename.toLowerCase().endsWith('.psd')) {
+          return; // Skip auto restore for old PSD files without prompting
+        }
         const attemptLoad = async (interactive = false) => {
           try {
             let perm = await cache.fileHandle.queryPermission({ mode: 'read' });

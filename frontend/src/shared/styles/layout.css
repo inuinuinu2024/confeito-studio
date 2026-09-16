@@ -474,9 +474,12 @@
   background: var(--color-surface-container-highest);
 }
 
-.layer-item--active {
+.layer-item--selected {
   background: var(--color-surface-container-high);
-  border-left: 2px solid var(--color-primary);
+}
+
+.layer-item--active {
+  border-left: 2px solid var(--color-on-surface); /* or primary, adjusting based on requested image */
 }
 
 .layer-item--dragging {
@@ -498,7 +501,7 @@
 
 
 
-.layer-item--child.layer-item--active {
+.layer-item--child.layer-item--selected {
   color: var(--color-on-surface);
 }
 
@@ -700,10 +703,10 @@
   border-color: var(--color-outline-variant);
 }
 
-.layer-item--active {
+.layer-item--selected {
   background-color: var(--color-surface-container-highest) !important;
 }
-.layer-item--active .layer-item__name {
+.layer-item--selected .layer-item__name {
   color: var(--color-on-surface) !important;
 }
 
