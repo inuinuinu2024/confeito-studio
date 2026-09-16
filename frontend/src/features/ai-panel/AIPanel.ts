@@ -15,6 +15,7 @@ import { ColoringTool } from '../tools/coloring';
 import { RemoveBackgroundTool } from '../tools/remove-background';
 import { ImageLoaderTool } from '../tools/image-loader';
 import { PanelSplitterTool } from '../tools/panel-splitter';
+import { PanelMergeTool } from '../tools/panel-merge';
 
 import { createToolSettingsSidebar } from './components/ToolSettingsSidebar';
 import { DocumentManager } from '../document/DocumentManager';
@@ -29,6 +30,7 @@ ToolRegistry.register(new NanoBananaProTool());
 ToolRegistry.register(new NanoBanana2Tool());
 ToolRegistry.register(new ColoringTool());
 ToolRegistry.register(new RemoveBackgroundTool());
+ToolRegistry.register(new PanelMergeTool());
 
 
 export function createAIPanel(): HTMLElement {

@@ -4,6 +4,7 @@ from fastapi.responses import Response
 
 from ..services.image_service import remove_background
 from ..services.panel_service import split_panels, PanelServiceError
+from ..services.merge_service import merge_panels, MergeServiceError
 
 router = APIRouter(tags=["image"])
 
@@ -69,4 +70,19 @@ async def api_split_panels(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"コマ分割処理中にエラーが発生しました: {str(e)}")
+
+@router.post("/image/merge-panels")
+async def api_merge_panels(
+    target_folder: str = Form(...)
+):
+    """
+    Merge split panels back into a single canvas using panels.json
+    """
+    try:
+        result = merge_panels(target_folder)
+        return result
+    except MergeServiceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"コマ結合処理中にエラーが発生しました: {str(e)}")
 
