@@ -5,26 +5,19 @@ export interface SettingsData {
 let settingsCache: SettingsData = {};
 let isInitialized = false;
 
-export async function initializeSettings(retries = 10, delayMs = 1000): Promise<void> {
+export async function initializeSettings(): Promise<void> {
   if (isInitialized) return;
   
-  for (let i = 0; i < retries; i++) {
-    try {
-      const res = await fetch('http://127.0.0.1:48000/api/settings/prompts');
-      if (res.ok) {
-        settingsCache = await res.json();
-        isInitialized = true;
-        return;
-      }
-    } catch (err) {
-      console.warn(`[Settings] Failed to load settings from backend (attempt ${i + 1}/${retries}). Retrying in ${delayMs}ms...`);
+  try {
+    const res = await fetch('http://127.0.0.1:48000/api/settings/prompts');
+    if (res.ok) {
+      settingsCache = await res.json();
     }
-    // Wait before retrying
-    await new Promise(resolve => setTimeout(resolve, delayMs));
+  } catch (err) {
+    console.error('[Settings] Failed to load settings from backend:', err);
   }
   
-  console.error('[Settings] Failed to load settings from backend after multiple attempts. Using fallback defaults.');
-  isInitialized = true; // Mark as initialized to prevent infinite stalls
+  isInitialized = true;
 }
 
 export function getGlobalSetting(key: string, defaultValue: string = ''): string {

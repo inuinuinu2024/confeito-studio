@@ -26,14 +26,33 @@ import { initDocumentManager } from './features/document/DocumentManager';
 import { createToolBar } from './features/tool-bar/ToolBar';
 
 import { initializeSettings } from './shared/utils/settings';
-import { migrateOldCachesToArchives } from './shared/utils/archives';
+
+async function waitForBackend(): Promise<void> {
+  while (true) {
+    try {
+      const res = await fetch('http://127.0.0.1:48000/api/health');
+      if (res.ok) {
+        break;
+      }
+    } catch (e) {
+      // Backend not ready yet
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
 
 async function initApp(): Promise<void> {
   const app = document.getElementById('app');
   if (!app) return;
 
+  await waitForBackend();
+  const splash = document.getElementById('splash-screen');
+  if (splash) {
+    splash.style.opacity = '0';
+    setTimeout(() => splash.remove(), 300);
+  }
+
   await initializeSettings();
-  migrateOldCachesToArchives(); // Run async without blocking startup
 
   // Main workspace grid
   const workspace = document.createElement('div');

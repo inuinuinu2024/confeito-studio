@@ -5,21 +5,21 @@ import { DocumentManager } from '../document/DocumentManager';
 import { icon } from '../../shared/utils/dom';
 import { getGlobalSetting, setGlobalSetting } from '../../shared/utils/settings';
 import { globalIsBatchMode } from '../layer-panel/LayerPanel';
-export class ColoringTool implements Tool {
-  id = 'coloring';
-  name = '着彩（シングル）';
+export class ColoringMultiTool implements Tool {
+  id = 'coloring-multi';
+  name = '着彩（マルチ）';
   icon = 'auto_awesome';
-  executeLabel = '着彩（シングル）を実行';
+  executeLabel = '着彩（マルチ）を実行';
   hasSettings = true;
 
   canOpen(context: ToolContext): boolean {
     const docManager = DocumentManager.getInstance();
-    if (globalIsBatchMode) {
-      showToast('着彩（シングル）は単一画像専用です。フォルダ一括処理には着彩（マルチ）を使用してください。', 'info');
+    if (!globalIsBatchMode) {
+      showToast('着彩（マルチ）はフォルダ一括処理専用です。単一画像には着彩（シングル）を使用してください。', 'info');
       return false;
     }
-    if (!docManager.getCurrentCanvas()) {
-      showToast('画像を選択してください。', 'info');
+    if (!docManager.getCurrentArchiveFolder()) {
+      showToast('画像が入ったフォルダを選択してください。', 'info');
       return false;
     }
     return true;
@@ -821,21 +821,12 @@ export class ColoringTool implements Tool {
     let progressInterval: number | undefined;
     try {
       const payload = await this.buildPayloadFn();
-      const cropInfo = this.lastCropInfo;
-      if (!cropInfo) throw new Error('クロップ情報が見つかりません。');
-      const { canvasW, canvasH, origW, origH, offsetX, offsetY, paddedBlob } = cropInfo;
-
-      const date = new Date();
-      const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
-      const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
-      const stampedName = `${dateStr}_${timeStr}_${this.name}`;
-
 
       const startTime = Date.now();
       progressInterval = window.setInterval(() => {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
         window.dispatchEvent(new CustomEvent('tool:progress', {
-          detail: { message: `Geminiで着彩中... (${elapsed}s elapsed)` }
+          detail: { message: `Generating image... (${elapsed}s elapsed)` }
         }));
       }, 1000);
 
@@ -881,7 +872,6 @@ export class ColoringTool implements Tool {
         throw finalError;
       }
 
-      // ③ Gemini生成後クロップ前出力
       const jsonResponse = await response.json();
       const base64Data = jsonResponse.image_base64;
       const metadata = jsonResponse.metadata || {};
@@ -893,44 +883,19 @@ export class ColoringTool implements Tool {
         byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
       const byteArray = new Uint8Array(byteNumbers);
-      const ext = payload.response_format.mime_type === 'image/jpeg' ? '.jpg' : '.png';
-      const geminiBlob = new Blob([byteArray], { type: payload.response_format.mime_type });
+      const mimeType = payload.response_format?.mime_type || 'image/png';
+      const ext = mimeType === 'image/jpeg' ? '.jpg' : '.png';
+      const blob = new Blob([byteArray], { type: mimeType });
 
-      // --- クロップ処理 ---
-      const geminiImg = new Image();
-      const geminiUrl = URL.createObjectURL(geminiBlob);
-      await new Promise((resolve, reject) => {
-        geminiImg.onload = resolve;
-        geminiImg.onerror = reject;
-        geminiImg.src = geminiUrl;
-      });
-
-      const scaleX = geminiImg.width / canvasW;
-      const scaleY = geminiImg.height / canvasH;
-
-      const cropX = offsetX * scaleX;
-      const cropY = offsetY * scaleY;
-      const cropW = origW * scaleX;
-      const cropH = origH * scaleY;
-
-      const outCanvas = document.createElement('canvas');
-      outCanvas.width = origW;
-      outCanvas.height = origH;
-      const outCtx = outCanvas.getContext('2d');
-      if (outCtx) {
-        outCtx.drawImage(geminiImg, cropX, cropY, cropW, cropH, 0, 0, origW, origH);
-      }
-      URL.revokeObjectURL(geminiUrl);
+      // --- Structured archive output ---
+      const date = new Date();
+      const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+      const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
+      const stampedName = `${dateStr}_${timeStr}_${this.name}`;
 
       const archiveFiles: { blob: Blob, path: string }[] = [];
-      // ④ クロップ後出力
-      const finalBlob = await new Promise<Blob | null>(res => outCanvas.toBlob(res, 'image/png'));
-      if (finalBlob) {
-        archiveFiles.push({ blob: finalBlob, path: `${stampedName}${ext}` });
-        showToast('着彩画像の生成とクロップが完了しました。', 'success');
-      }
+      archiveFiles.push({ blob, path: `${stampedName}${ext}` });
 
-      // Save origin and other images
       let imgIndex = 2;
       for (const item of this.globalImages) {
         const imgBlob = item.file as Blob;
@@ -944,7 +909,6 @@ export class ColoringTool implements Tool {
         archiveFiles.push({ blob: imgBlob, path: `Inputs/${fileName}` });
       }
 
-      // Save payload.json
       const payloadForSave = JSON.parse(JSON.stringify(payload));
       if (payloadForSave.input) {
         payloadForSave.input.forEach((p: any) => {
@@ -978,13 +942,16 @@ export class ColoringTool implements Tool {
         raw: rawResponse // 念のため生レスポンス全体も保持
       };
 
-      // Also include the full raw response just in case the structure is different
       const fullResponseJsonBlob = new Blob([JSON.stringify(filteredResponse, null, 2)], { type: 'application/json' });
       archiveFiles.push({ blob: fullResponseJsonBlob, path: `response.json` });
 
       await saveArchive(stampedName, archiveFiles);
 
       window.dispatchEvent(new Event('tool:cache-updated'));
+
+    } catch (e: any) {
+      console.error(e);
+      throw e; // Rethrow to let AIPanel handle the error toast
     } finally {
       if (progressInterval) {
         window.clearInterval(progressInterval);

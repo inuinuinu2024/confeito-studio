@@ -1,6 +1,5 @@
 import os
 import shutil
-import zipfile
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
@@ -46,41 +45,7 @@ def _safe_resolve(archive_name: str, relative_path: str = "") -> Path:
     return target_path
 
 
-def migrate_existing_zips() -> None:
-    """Migrate legacy .zip archives into standard directory folders."""
-    for zip_path in ARCHIVES_DIR.glob("*.zip"):
-        folder_name = zip_path.stem
-        folder_path = ARCHIVES_DIR / folder_name
 
-        try:
-            folder_path.mkdir(parents=True, exist_ok=True)
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                for member in zf.infolist():
-                    # Handle encoding for Japanese filenames
-                    filename = member.filename
-                    try:
-                        filename = filename.encode('cp437').decode('utf-8')
-                    except Exception:
-                        try:
-                            filename = filename.encode('cp437').decode('cp932')
-                        except Exception:
-                            pass
-
-                    target_file = folder_path / filename
-                    if member.is_dir():
-                        target_file.mkdir(parents=True, exist_ok=True)
-                    else:
-                        target_file.parent.mkdir(parents=True, exist_ok=True)
-                        target_file.write_bytes(zf.read(member.filename))
-
-            # Move original zip to trash or remove
-            trash_zip = TRASH_DIR / zip_path.name
-            if trash_zip.exists():
-                trash_zip.unlink()
-            zip_path.rename(trash_zip)
-            print(f"[ArchiveService] Migrated {zip_path.name} to folder {folder_name}")
-        except Exception as e:
-            print(f"[ArchiveService] Failed to migrate {zip_path.name}: {e}")
 
 
 def save_archive(name: str, files_data: List[Tuple[str, bytes]]) -> str:
@@ -103,8 +68,6 @@ def save_archive(name: str, files_data: List[Tuple[str, bytes]]) -> str:
 
 def list_archives() -> List[Dict[str, Any]]:
     """List all folder-based archives."""
-    migrate_existing_zips()
-
     archives = []
     if not ARCHIVES_DIR.exists():
         return archives

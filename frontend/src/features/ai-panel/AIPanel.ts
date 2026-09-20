@@ -12,10 +12,11 @@ import { getGlobalSetting } from '../../shared/utils/settings';
 import { NanoBananaProTool } from '../tools/nano-banana-pro';
 import { NanoBanana2Tool } from '../tools/nano-banana-2';
 import { ColoringTool } from '../tools/coloring';
-import { RemoveBackgroundTool } from '../tools/remove-background';
+import { ColoringMultiTool } from '../tools/coloring-multi';
 import { ImageLoaderTool } from '../tools/image-loader';
 import { PanelSplitterTool } from '../tools/panel-splitter';
 import { PanelMergeTool } from '../tools/panel-merge';
+import { RemoveBackgroundTool } from '../tools/remove-background';
 
 import { createToolSettingsSidebar } from './components/ToolSettingsSidebar';
 import { DocumentManager } from '../document/DocumentManager';
@@ -23,12 +24,13 @@ import { DocumentManager } from '../document/DocumentManager';
 import { historyManager } from '../../shared/utils/history';
 import { ToolContext } from '../../shared/types/tool.types';
 
-// Register built-in tools
+// Register all tools (order here determines default order in All Tools tab)
 ToolRegistry.register(new ImageLoaderTool());
 ToolRegistry.register(new PanelSplitterTool());
+ToolRegistry.register(new ColoringTool());
+ToolRegistry.register(new ColoringMultiTool());
 ToolRegistry.register(new NanoBananaProTool());
 ToolRegistry.register(new NanoBanana2Tool());
-ToolRegistry.register(new ColoringTool());
 ToolRegistry.register(new RemoveBackgroundTool());
 ToolRegistry.register(new PanelMergeTool());
 

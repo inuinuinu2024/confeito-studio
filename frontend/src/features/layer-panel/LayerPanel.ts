@@ -13,7 +13,7 @@ import {
   getArchiveContents,
   deleteArchiveContents
 } from '../../shared/utils/archives';
-import { CachedImage } from '../../shared/utils/idb';
+import { CachedImage } from '../../shared/types/archive.types';
 import { historyManager } from '../../shared/utils/history';
 import { DocumentManager } from '../document/DocumentManager';
 
