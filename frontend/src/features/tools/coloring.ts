@@ -1,6 +1,6 @@
 import { Tool, ToolContext } from '../../shared/types/tool.types';
 import { showToast } from '../../shared/utils/toast';
-import { saveArchive } from '../../shared/utils/archives';
+import { saveArchive, appendArchiveLog } from '../../shared/utils/archives';
 import { DocumentManager } from '../document/DocumentManager';
 import { icon } from '../../shared/utils/dom';
 import { getGlobalSetting, setGlobalSetting } from '../../shared/utils/settings';
@@ -212,13 +212,6 @@ export class ColoringTool implements Tool {
     const dropZones: { updateUI: () => void }[] = [];
 
     const updateAllDropZones = () => {
-      this.globalImages.sort((a, b) => {
-        const aIsOrig = a.zoneTitle.includes('原画');
-        const bIsOrig = b.zoneTitle.includes('原画');
-        if (aIsOrig && !bIsOrig) return -1;
-        if (!aIsOrig && bIsOrig) return 1;
-        return 0;
-      });
       dropZones.forEach(dz => dz.updateUI());
     };
 
@@ -253,7 +246,6 @@ export class ColoringTool implements Tool {
       helpIcon.style.cursor = 'help';
 
       let helpText = '';
-      if (title.includes('原画')) helpText = '例: 着彩のベースとなる線画や白黒画像など、色を塗る対象の画像を入れます。';
       if (title.includes('Object')) helpText = '例: 線画、衣装のデザイン画、特定のアイテム(剣や帽子)など、形やディテールを変えたくない画像を入れます。';
       if (title.includes('Character')) helpText = '例: キャラクターの三面図、顔のアップなど、人物のアイデンティティを固定したい画像を入れます。';
       if (title.includes('Style')) helpText = '例: 参考にするイラストレーターの絵、完成形の塗り方の参考画像など、画風を適用したい画像を入れます。';
@@ -460,7 +452,7 @@ export class ColoringTool implements Tool {
         const available = max - currentZoneImages.length;
         const added = newImages.slice(0, available);
         added.forEach(file => {
-          const isImportant = title === '原画 (Object)';
+          const isImportant = false;
           this.globalImages.push({ file, zoneTitle: title, isImportant });
         });
         updateAllDropZones();
@@ -509,9 +501,8 @@ export class ColoringTool implements Tool {
       return wrapper;
     };
 
-    container.appendChild(createImageDropZone('原画 (Object)', 1));
-    container.appendChild(createImageDropZone('高精度反映オブジェクト (Object)', 5));
     container.appendChild(createImageDropZone('キャラクター一貫性 (Character)', 5));
+    container.appendChild(createImageDropZone('高精度反映オブジェクト (Object)', 5));
     container.appendChild(createImageDropZone('スタイル参照 (Style)', 3));
 
     // Restore images if they were already added (i.e. sidebar reopened)
@@ -553,21 +544,15 @@ export class ColoringTool implements Tool {
 
     // --- JSON Preview & Payload Builder ---
     this.buildPayloadFn = async () => {
-      const originalItem = this.globalImages.find(img => img.zoneTitle.includes('原画'));
-      if (!originalItem) {
-        throw new Error('原画が設定されていません。');
+      const docManager = DocumentManager.getInstance();
+      const currentCanvas = docManager.getCurrentCanvas();
+      if (!currentCanvas) {
+        throw new Error('キャンバスに画像がありません。');
       }
 
-      const img = new Image();
-      const blobUrl = URL.createObjectURL(originalItem.file);
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = blobUrl;
-      });
-
-      const origW = img.width;
-      const origH = img.height;
+      const origW = currentCanvas.width;
+      const origH = currentCanvas.height;
+      const img = currentCanvas;
       const origRatio = origW / origH;
 
       const arOptions = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
@@ -616,7 +601,6 @@ export class ColoringTool implements Tool {
       const offsetX = (canvasW - origW) / 2;
       const offsetY = (canvasH - origH) / 2;
       ctx.drawImage(img, offsetX, offsetY, origW, origH);
-      URL.revokeObjectURL(blobUrl);
 
       const paddedBlob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
       if (!paddedBlob) throw new Error('キャンバスからの画像生成に失敗しました。');
@@ -641,7 +625,7 @@ export class ColoringTool implements Tool {
       });
       textPrompt += `# Image 1\nこの画像を原画とする。\n`;
 
-      const otherImages = this.globalImages.filter(im => !im.zoneTitle.includes('原画'));
+      const otherImages = this.globalImages;
       let imgIndex = 2;
       for (const item of otherImages) {
         const cleanTitle = item.zoneTitle.split(' (')[0];
@@ -770,46 +754,18 @@ export class ColoringTool implements Tool {
     container.appendChild(previewBtn);
   }
 
-  private async saveErrorArchive(payload: any, rawResponse: any): Promise<void> {
+  private async saveErrorArchive(errorText: string, rawResponse: any): Promise<void> {
+    const docManager = DocumentManager.getInstance();
+    const targetFolder = docManager.getCurrentArchiveFolder();
+    if (!targetFolder) return;
+
     const date = new Date();
-    const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
-    const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
-    const stampedName = `${dateStr}_${timeStr}_${this.name}_error`;
-
-    const archiveFiles: { blob: Blob, path: string }[] = [];
-
-    let imgIndex = 2;
-    for (const item of this.globalImages) {
-      const imgBlob = item.file as Blob;
-      const imgExt = (item.file.type || 'image/png').includes('jpeg') ? '.jpg' : '.png';
-      let fileName = `Image${imgIndex}${imgExt}`;
-      if (item.zoneTitle.includes('原画')) {
-        fileName = `origin${imgExt}`;
-      } else {
-        imgIndex++;
-      }
-      archiveFiles.push({ blob: imgBlob, path: `Inputs/${fileName}` });
-    }
-
-    const payloadForSave = JSON.parse(JSON.stringify(payload));
-    if (payloadForSave.input) {
-      payloadForSave.input.forEach((p: any) => {
-        if (p.type === 'image' && p.data) {
-          p.data = `[Image data omitted — see Image files in this folder]`;
-        }
-      });
-    }
-    const jsonBlob = new Blob([JSON.stringify(payloadForSave, null, 2)], { type: 'application/json' });
-    archiveFiles.push({ blob: jsonBlob, path: `Inputs/payload.json` });
-
-    const errorData = {
-      error: rawResponse?.detail?.message || rawResponse?.error || "Unknown Error",
-      raw_response: rawResponse
-    };
-    const fullResponseJsonBlob = new Blob([JSON.stringify(errorData, null, 2)], { type: 'application/json' });
-    archiveFiles.push({ blob: fullResponseJsonBlob, path: `error.json` });
-
-    await saveArchive(stampedName, archiveFiles);
+    const logTime = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+    
+    const rawStr = typeof rawResponse === 'object' ? JSON.stringify(rawResponse, null, 2) : String(rawResponse);
+    const logMsg = `[${logTime}] 着彩（シングル）実行エラー:\nメッセージ: ${errorText}\n詳細:\n${rawStr}\n----------------------------------------\n`;
+    
+    await appendArchiveLog(targetFolder, logMsg, 'error.txt');
     window.dispatchEvent(new Event('tool:cache-updated'));
   }
 
@@ -871,7 +827,7 @@ export class ColoringTool implements Tool {
         }
 
         try {
-          await this.saveErrorArchive(payload, rawResponse);
+          await this.saveErrorArchive(errorText, rawResponse);
         } catch (e) {
           console.error("Failed to save error archive", e);
         }
@@ -926,63 +882,19 @@ export class ColoringTool implements Tool {
       // ④ クロップ後出力
       const finalBlob = await new Promise<Blob | null>(res => outCanvas.toBlob(res, 'image/png'));
       if (finalBlob) {
-        archiveFiles.push({ blob: finalBlob, path: `${stampedName}${ext}` });
+        const docManager = DocumentManager.getInstance();
+        const targetFolder = docManager.getCurrentArchiveFolder() || stampedName;
+        const outFileName = `${dateStr}_${timeStr}_着彩${ext}`;
+        
+        archiveFiles.push({ blob: finalBlob, path: outFileName });
+        await saveArchive(targetFolder, archiveFiles);
+
+        const logTime = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+        const logMsg = `[${logTime}] 着彩（シングル）を実行し、${outFileName} を生成しました。\n`;
+        await appendArchiveLog(targetFolder, logMsg, 'log.txt');
+
         showToast('着彩画像の生成とクロップが完了しました。', 'success');
       }
-
-      // Save origin and other images
-      let imgIndex = 2;
-      for (const item of this.globalImages) {
-        const imgBlob = item.file as Blob;
-        const imgExt = (item.file.type || 'image/png').includes('jpeg') ? '.jpg' : '.png';
-        let fileName = `Image${imgIndex}${imgExt}`;
-        if (item.zoneTitle.includes('原画')) {
-          fileName = `origin${imgExt}`;
-        } else {
-          imgIndex++;
-        }
-        archiveFiles.push({ blob: imgBlob, path: `Inputs/${fileName}` });
-      }
-
-      // Save payload.json
-      const payloadForSave = JSON.parse(JSON.stringify(payload));
-      if (payloadForSave.input) {
-        payloadForSave.input.forEach((p: any) => {
-          if (p.type === 'image' && p.data) {
-            p.data = `[Image data omitted — see Image files in this folder]`;
-          }
-        });
-      }
-      const jsonBlob = new Blob([JSON.stringify(payloadForSave, null, 2)], { type: 'application/json' });
-      archiveFiles.push({ blob: jsonBlob, path: `Inputs/payload.json` });
-
-      // Save response.json with required fields
-      const finishReason = rawResponse.candidates?.[0]?.finishReason;
-      const safetyRatings = rawResponse.candidates?.[0]?.safetyRatings;
-      const promptFeedback = rawResponse.promptFeedback;
-
-      const filteredResponse = {
-        modelVersion: rawResponse.modelVersion || metadata.model,
-        finishReason,
-        safetyRatings: safetyRatings ? safetyRatings.map((r: any) => ({
-          category: r.category,
-          probability: r.probability,
-          probabilityScore: r.probabilityScore,
-          severity: r.severity,
-          severityScore: r.severityScore
-        })) : undefined,
-        promptFeedback: promptFeedback ? {
-          safetyRatings: promptFeedback.safetyRatings,
-          blockReason: promptFeedback.blockReason
-        } : undefined,
-        raw: rawResponse // 念のため生レスポンス全体も保持
-      };
-
-      // Also include the full raw response just in case the structure is different
-      const fullResponseJsonBlob = new Blob([JSON.stringify(filteredResponse, null, 2)], { type: 'application/json' });
-      archiveFiles.push({ blob: fullResponseJsonBlob, path: `response.json` });
-
-      await saveArchive(stampedName, archiveFiles);
 
       window.dispatchEvent(new Event('tool:cache-updated'));
     } finally {

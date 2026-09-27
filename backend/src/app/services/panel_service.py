@@ -62,17 +62,27 @@ def split_panels(
     except Exception as e:
         raise PanelServiceError(f"画像ファイルの読み込みに失敗しました: {e}")
 
-    # Determine image format/mime for Gemini
-    format_lower = (pil_img.format or "PNG").lower()
-    if format_lower in ("jpg", "jpeg"):
-        mime_type = "image/jpeg"
-    elif format_lower == "webp":
-        mime_type = "image/webp"
-    else:
-        mime_type = "image/png"
+    # 2. Prepare image for Gemini API (Downscale if too large to avoid 20MB payload limit)
+    MAX_EDGE = 4096
+    inference_img = pil_img
+    
+    if width > MAX_EDGE or height > MAX_EDGE:
+        ratio = MAX_EDGE / float(max(width, height))
+        new_size = (int(width * ratio), int(height * ratio))
+        inference_img = pil_img.resize(new_size, Image.Resampling.LANCZOS)
+    
+    # Convert to JPEG to reduce base64 payload size for the API request
+    if inference_img.mode in ("RGBA", "P"):
+        inference_img = inference_img.convert("RGB")
+        
+    inference_io = io.BytesIO()
+    inference_img.save(inference_io, format="JPEG", quality=85)
+    inference_bytes = inference_io.getvalue()
+    
+    mime_type = "image/jpeg"
+    img_b64 = base64.b64encode(inference_bytes).decode("utf-8")
 
-    # 2. Call Gemini API for panel detection
-    img_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    # 3. Call Gemini API for panel detection
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{actual_model_name}:generateContent?key={key}"
 
     reading_order_desc = (
