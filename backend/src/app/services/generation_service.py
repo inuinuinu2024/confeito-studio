@@ -1,56 +1,31 @@
-from typing import Optional, Dict, Any
-from ..providers import provider_factory
-from ..providers.base import GenerationResult
+"""Multimodal image generation (Nano Banana Pro)."""
 
-class GenerationServiceError(Exception):
-    def __init__(self, message: str, raw_response: Optional[Dict[str, Any]] = None):
-        super().__init__(message)
-        self.raw_response = raw_response
+from typing import Any
 
-class GenerationProviderNotFoundError(GenerationServiceError):
+from ..errors import AppError, BadRequestError
+from ..providers import get_provider
+from ..providers.base import GenerationApi, GenerationResult
+
+
+class GenerationServiceError(AppError):
     pass
 
-class GenerationConfigError(GenerationServiceError):
+
+class GenerationProviderNotFoundError(GenerationServiceError, BadRequestError):
     pass
+
 
 async def generate_image(
     provider: str,
-    prompt: str,
-    image_bytes: Optional[bytes],
-    api_key: Optional[str]
-) -> bytes:
-    gen_provider = provider_factory.get_provider(provider)
-    if not gen_provider:
-        raise GenerationProviderNotFoundError(f"Unsupported provider: {provider}")
-
-    try:
-        result = await gen_provider.generate(
-            prompt=prompt,
-            image_bytes=image_bytes,
-            api_key=api_key,
-        )
-        return result.image_bytes
-    except Exception as e:
-        raise GenerationServiceError(str(e))
-
-async def generate_nano_banana_pro(
-    provider: str,
-    payload: Dict[str, Any],
-    api_key: Optional[str]
+    payload: dict[str, Any],
+    api_key: str | None,
+    api: GenerationApi = "interactions",
 ) -> GenerationResult:
-    gen_provider = provider_factory.get_provider(provider)
+    """``payload`` is the request body of ``api`` (Interactions or generateContent, plus ``model``)."""
+    gen_provider = get_provider(provider)
     if not gen_provider:
         raise GenerationProviderNotFoundError(f"Unsupported provider: {provider}")
-
-    if not hasattr(gen_provider, "generate_multimodal"):
-        raise GenerationConfigError(f"Provider {provider} does not support multimodal generation.")
-        
     try:
-        result = await gen_provider.generate_multimodal(
-            payload=payload,
-            api_key=api_key,
-        )
-        return result
+        return await gen_provider.generate_multimodal(payload=payload, api_key=api_key, api=api)
     except Exception as e:
-        raw = getattr(e, "raw_response", None)
-        raise GenerationServiceError(str(e), raw_response=raw)
+        raise GenerationServiceError(str(e), raw_response=getattr(e, "raw_response", None)) from e

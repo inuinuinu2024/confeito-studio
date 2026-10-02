@@ -1,20 +1,25 @@
 # dependencies
 **/node_modules/
+**/.venv/
 
-# build
+# build / caches
 **/dist/
-
-# Python
 **/__pycache__/
 **/*.egg-info/
-**/.venv/
 **/.ruff_cache/
+**/.pytest_cache/
 
-# Environment / secrets
+# E2E output (screenshots, observations.json, server logs)
+frontend/e2e/.output/
+
+# setup/start-app.ps1 debug logs ($LOG_ENABLED = $true)
+setup/*.log
+
+# Environment / secrets (GEMINI_API_KEY)
 .env
 
-# User Data
+# User data — never commit or delete
 archives/
 
-# Local Model
+# Local models (rembg isnet-anime.onnx)
 models/

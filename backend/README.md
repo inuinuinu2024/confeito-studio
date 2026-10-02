@@ -1,50 +1,36 @@
 # Confeito-Studio Backend
 
-Confeito-Studio のバックエンドサーバー。
-
-## 技術スタック
-
-- **Python 3.11+**
-- **FastAPI** — Web フレームワーク
-- **uvicorn** — ASGI サーバー
-- **psd-tools** — PSD ファイル処理
-- **uv** — パッケージ管理
+FastAPI 製のローカル API サーバー。設計は [docs/architecture/backend.md](../docs/architecture/backend.md) を参照。
 
 ## セットアップ
 
 ```bash
 cd backend
-uv sync
+uv sync            # 本体 + 開発用（pytest, ruff, httpx2）
 ```
 
 ## 起動
 
 ```bash
-uv run uvicorn src.app.main:app --reload --port 8000
+uv run python -m uvicorn src.app.main:app --reload --port 48000
 ```
 
-## API エンドポイント
+日常利用では `setup/start-app.ps1` がフロントエンドと一緒に起動する（`--reload` なし）。
 
-| Method | Path | 説明 |
-|--------|------|------|
-| GET | `/api/health` | ヘルスチェック |
+## 検証
+
+```bash
+uv run pytest                 # tests/ — 一時ディレクトリで実行され、実データ・API キーに触れない
+uv run ruff check .
+uv run ruff format --check .  # 整形は uv run ruff format .
+```
 
 ## 環境変数
 
-| 変数名 | デフォルト | 説明 |
-|--------|-----------|------|
-| `CONFEITO_API_PORT` | `8000` | サーバーポート |
-| `CONFEITO_API_HOST` | `127.0.0.1` | サーバーホスト |
-| `CONFEITO_WORKSPACE_DIR` | `./workspace` | PSD保存先ディレクトリ |
-
-## アーキテクチャ
-
-```
-src/app/
-├── main.py          # FastAPI アプリケーション
-├── config.py        # 設定（環境変数）
-├── providers/       # 生成AIプロバイダー（プロバイダーパターン）
-│   └── base.py      # 抽象基底クラス
-└── routers/         # APIルーター
-    └── health.py    # ヘルスチェック
-```
+| 変数 | 既定値 | 説明 |
+|---|---|---|
+| `GEMINI_API_KEY` | （`.env`） | Gemini API キー。設定画面から `.env` に保存できる |
+| `U2NET_HOME` | （`.env`: `models`） | rembg のモデル置き場（相対パスはリポジトリ基準） |
+| `CONFEITO_ENV_FILE` | `<repo>/.env` | 起動時に読み込む .env |
+| `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブ保存先 |
+| `CONFEITO_SETTINGS_DIR` | `<repo>/settings` | ツール設定（`default_prompts.json`） |

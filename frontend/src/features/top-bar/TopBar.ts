@@ -1,216 +1,123 @@
 /**
- * TopBar — Application header with logo, menu navigation,
- * and action buttons.
+ * TopBar — logo, menus (File / Edit / View / Help) and action icons.
+ * Menu items without an action show a "開発中" toast.
  */
-import { icon } from '../../shared/utils/dom';
-import { showToast } from '../../shared/utils/toast';
-import { createSettingsDialog } from './components/SettingsDialog';
-import { createBgColorDialog } from './components/BgColorDialog';
+import './top-bar.css';
+import { emit } from '../../shared/events';
+import { h, icon } from '../../shared/ui/dom';
+import { showToast } from '../../shared/ui/toast';
 import { historyManager } from '../../shared/utils/history';
+import { createBgColorDialog } from './components/BgColorDialog';
+import { createSettingsDialog } from './components/SettingsDialog';
+import { installShortcuts } from './shortcuts';
 
-type MenuItemDef = 
-  | { type: 'item'; label: string; checked?: boolean; shortcut?: string; action?: () => void }
-  | { type: 'separator' }
-  | { type: 'submenu'; label: string; items: MenuItemDef[] };
+type MenuItem = { type: 'item'; label: string; shortcut?: string; action?: () => void } | { type: 'separator' };
 
-const fileMenuItems: MenuItemDef[] = [
-  { type: 'item', label: 'Save Image', shortcut: 'Ctrl+S', action: () => window.dispatchEvent(new Event('file:save')) },
-  { type: 'item', label: 'Save Image As...', shortcut: 'Ctrl+Shift+S', action: () => window.dispatchEvent(new Event('file:save-as')) },
-  { type: 'separator' },
-  { type: 'item', label: 'Close Image', action: () => window.dispatchEvent(new Event('file:close')) }
-];
+interface MenuDef {
+  label: string;
+  items?: MenuItem[];
+}
 
-// We will attach the action to this menu item later when we have the dialog instance
-let openBgColorDialog = () => {};
-
-const editMenuItems: MenuItemDef[] = [
-  { type: 'item', label: 'Undo', shortcut: 'Ctrl+Z', action: () => historyManager.undo() },
-  { type: 'item', label: 'Redo', shortcut: 'Ctrl+Y', action: () => historyManager.redo() }
-];
-
-window.addEventListener('keydown', (e) => {
-  // Prevent undo/redo if typing in an input field
-  const target = e.target as HTMLElement;
-  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
-    return;
-  }
-  
-  if (e.ctrlKey || e.metaKey) {
-    if (e.key === 'z') {
-      e.preventDefault();
-      historyManager.undo();
-    } else if (e.key === 'y') {
-      e.preventDefault();
-      historyManager.redo();
-    } else if (e.key === 's') {
-      e.preventDefault();
-      window.dispatchEvent(new Event('file:save'));
-    } else if (e.key === 'S') {
-      e.preventDefault();
-      window.dispatchEvent(new Event('file:save-as'));
-    } else if (e.key === 'b' || e.key === 'B') {
-      e.preventDefault();
-      openBgColorDialog();
-    }
-  }
-});
-
-const viewMenuItems: MenuItemDef[] = [
-  {
-    type: 'item',
-    label: 'Background Color...',
-    shortcut: 'Ctrl+B',
-    action: () => openBgColorDialog()
-  }
-];
-
-const topMenuDefs: { label: string; items?: MenuItemDef[] }[] = [
-  { label: 'File', items: fileMenuItems },
-  { label: 'Edit', items: editMenuItems },
-  { label: 'View', items: viewMenuItems },
-  { label: 'Help' },
-];
-
-function buildMenuDOM(items: MenuItemDef[]): HTMLElement {
-  const container = document.createElement('div');
-  
+function buildMenu(items: MenuItem[]): HTMLDivElement {
+  const dropdown = h('div', { class: 'topbar__dropdown' });
   for (const item of items) {
     if (item.type === 'separator') {
-      const sep = document.createElement('div');
-      sep.className = 'topbar__dropdown-separator';
-      container.appendChild(sep);
+      dropdown.append(h('div', { class: 'topbar__dropdown-separator' }));
       continue;
     }
-
-    const a = document.createElement('a');
-    a.className = 'topbar__dropdown-item';
-    
-    // Checkmark
-    const check = document.createElement('div');
-    check.className = 'topbar__dropdown-item-check';
-    if (item.type === 'item' && item.checked) {
-      check.appendChild(icon('check', 14));
-    }
-    a.appendChild(check);
-
-    // Label
-    const label = document.createElement('div');
-    label.className = 'topbar__dropdown-item-label';
-    label.textContent = item.label;
-    a.appendChild(label);
-
-    if (item.type === 'item') {
-      if (item.shortcut) {
-        const shortcut = document.createElement('div');
-        shortcut.className = 'topbar__dropdown-item-shortcut';
-        shortcut.textContent = item.shortcut;
-        a.appendChild(shortcut);
-      }
-      
-      a.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (item.action) {
-           item.action();
-        } else {
-           showToast(`${item.label} clicked`, true);
-        }
-      });
-    } else if (item.type === 'submenu') {
-      const chevron = document.createElement('div');
-      chevron.className = 'topbar__dropdown-item-chevron';
-      chevron.appendChild(icon('chevron_right', 16));
-      a.appendChild(chevron);
-      
-      a.addEventListener('click', (e) => e.preventDefault());
-
-      const submenu = buildMenuDOM(item.items);
-      submenu.className = 'topbar__submenu';
-      a.appendChild(submenu);
-      a.classList.add('topbar__submenu-wrapper');
-    }
-    
-    container.appendChild(a);
+    dropdown.append(
+      h(
+        'a',
+        {
+          class: 'topbar__dropdown-item',
+          onclick: (e: MouseEvent) => {
+            e.preventDefault();
+            if (item.action) item.action();
+            else showToast(`${item.label} clicked`, 'mock');
+          },
+        },
+        h('div', { class: 'topbar__dropdown-item-check' }),
+        h('div', { class: 'topbar__dropdown-item-label', text: item.label }),
+        item.shortcut ? h('div', { class: 'topbar__dropdown-item-shortcut', text: item.shortcut }) : null,
+      ),
+    );
   }
-  
-  return container;
+  return dropdown;
 }
 
 export function createTopBar(): HTMLElement {
-  const header = document.createElement('header');
-  header.className = 'topbar';
+  const settingsDialog = createSettingsDialog();
+  const bgColorDialog = createBgColorDialog();
+  installShortcuts({ openBgColorDialog: bgColorDialog.open });
 
-  // ── Left side: Logo + Navigation ──
-  const left = document.createElement('div');
-  left.className = 'topbar__left';
+  const menus: MenuDef[] = [
+    {
+      label: 'File',
+      items: [
+        { type: 'item', label: 'Save Image', shortcut: 'Ctrl+S', action: () => emit('file:save') },
+        { type: 'item', label: 'Save Image As...', shortcut: 'Ctrl+Shift+S', action: () => emit('file:save-as') },
+        { type: 'separator' },
+        { type: 'item', label: 'Close Image', action: () => emit('file:close') },
+      ],
+    },
+    {
+      label: 'Edit',
+      items: [
+        { type: 'item', label: 'Undo', shortcut: 'Ctrl+Z', action: () => void historyManager.undo() },
+        { type: 'item', label: 'Redo', shortcut: 'Ctrl+Y', action: () => void historyManager.redo() },
+      ],
+    },
+    {
+      label: 'View',
+      items: [{ type: 'item', label: 'Background Color...', shortcut: 'Ctrl+B', action: bgColorDialog.open }],
+    },
+    { label: 'Help' },
+  ];
 
-  const logo = document.createElement('div');
-  logo.className = 'topbar__logo';
-  logo.textContent = 'ConfeitO-StudiO';
-  left.appendChild(logo);
+  const nav = h(
+    'nav',
+    { class: 'topbar__nav' },
+    ...menus.map(menu =>
+      h(
+        'div',
+        { class: 'topbar__nav-item-wrapper' },
+        h('a', {
+          class: 'topbar__nav-item',
+          text: menu.label,
+          onclick: (e: MouseEvent) => {
+            e.preventDefault();
+            if (!menu.items) showToast(`${menu.label} メニュー`, 'mock');
+          },
+        }),
+        menu.items ? buildMenu(menu.items) : null,
+      ),
+    ),
+  );
 
-  const nav = document.createElement('nav');
-  nav.className = 'topbar__nav';
-  for (const menuDef of topMenuDefs) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'topbar__nav-item-wrapper';
-
-    const a = document.createElement('a');
-    a.className = 'topbar__nav-item';
-    a.textContent = menuDef.label;
-
-    a.addEventListener('click', (e) => {
-      e.preventDefault();
-      if (!menuDef.items) {
-        showToast(`${menuDef.label} メニュー`, true);
-      }
-    });
-
-    wrapper.appendChild(a);
-
-    if (menuDef.items) {
-      const dropdown = buildMenuDOM(menuDef.items);
-      dropdown.className = 'topbar__dropdown';
-      wrapper.appendChild(dropdown);
-    }
-    
-    nav.appendChild(wrapper);
-  }
-  left.appendChild(nav);
-  header.appendChild(left);
-
-  // ── Right side: Status + Action buttons ──
-  const right = document.createElement('div');
-  right.className = 'topbar__right';
-
-  // Action icons
-  const actionButtons: { iconName: string; label: string; action?: () => void }[] = [
-    { iconName: 'settings', label: '設定', action: () => settingsDialog.open() },
+  const actions: { iconName: string; label: string; action?: () => void }[] = [
+    { iconName: 'settings', label: '設定', action: () => void settingsDialog.open() },
     { iconName: 'cloud_done', label: 'クラウド同期' },
     { iconName: 'account_circle', label: 'アカウント' },
   ];
-  
-  const settingsDialog = createSettingsDialog();
-  document.body.appendChild(settingsDialog.overlay);
 
-  const bgColorDialog = createBgColorDialog();
-  document.body.appendChild(bgColorDialog.overlay);
-  openBgColorDialog = () => bgColorDialog.open();
-
-  for (const action of actionButtons) {
-    const btn = document.createElement('button');
-    btn.className = 'topbar__action-btn';
-    btn.appendChild(icon(action.iconName));
-    btn.addEventListener('click', () => {
-      if (action.action) {
-        action.action();
-      } else {
-        showToast(action.label, true);
-      }
-    });
-    right.appendChild(btn);
-  }
-
-  header.appendChild(right);
-
-  return header;
+  return h(
+    'header',
+    { class: 'topbar' },
+    h('div', { class: 'topbar__left' }, h('div', { class: 'topbar__logo', text: 'ConfeitO-StudiO' }), nav),
+    h(
+      'div',
+      { class: 'topbar__right' },
+      ...actions.map(a =>
+        h(
+          'button',
+          {
+            class: 'topbar__action-btn',
+            title: a.label,
+            onclick: () => (a.action ? a.action() : showToast(a.label, 'mock')),
+          },
+          icon(a.iconName),
+        ),
+      ),
+    ),
+  );
 }

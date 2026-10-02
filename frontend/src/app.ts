@@ -1,10 +1,10 @@
 /**
- * ConfeitO-StudiO — Application Entry Point
+ * Application entry point.
  *
- * Assembles the toolbar, grid layout, and all panels
- * into the main application shell.
+ * Waits for the backend (/api/health) behind the splash screen, loads tool settings,
+ * then builds the shell grid: TopBar / ToolBar / ARCHIVES / Canvas / AI panel / StatusBar.
+ * In Compare mode the AI panel is swapped for a second ARCHIVES panel.
  */
-
 import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
 import '@fontsource/inter/600.css';
@@ -15,30 +15,33 @@ import 'material-symbols/outlined.css';
 
 import './shared/styles/variables.css';
 import './shared/styles/base.css';
+import './shared/styles/components.css';
 import './shared/styles/layout.css';
 
-import { createTopBar } from './features/top-bar/TopBar';
-import { createLayerPanel } from './features/layer-panel/LayerPanel';
-import { createCanvas } from './features/canvas/Canvas';
 import { createAIPanel } from './features/ai-panel/AIPanel';
-import { createStatusBar } from './features/status-bar/StatusBar';
+import { type ArchivePanel, createArchivePanel } from './features/archive-panel/ArchivePanel';
+import { createCanvas } from './features/canvas/Canvas';
 import { initDocumentManager } from './features/document/DocumentManager';
+import { createStatusBar } from './features/status-bar/StatusBar';
 import { createToolBar } from './features/tool-bar/ToolBar';
+import { createTopBar } from './features/top-bar/TopBar';
+import { isBackendHealthy } from './shared/api/system';
+import { on } from './shared/events';
+import { initializeSettings } from './shared/state/tool-settings';
 
-import { initializeSettings } from './shared/utils/settings';
+const HEALTH_POLL_MS = 1000;
 
 async function waitForBackend(): Promise<void> {
-  while (true) {
-    try {
-      const res = await fetch('http://127.0.0.1:48000/api/health');
-      if (res.ok) {
-        break;
-      }
-    } catch (e) {
-      // Backend not ready yet
-    }
-    await new Promise(r => setTimeout(r, 1000));
+  while (!(await isBackendHealthy())) {
+    await new Promise(resolve => setTimeout(resolve, HEALTH_POLL_MS));
   }
+}
+
+function hideSplash(): void {
+  const splash = document.getElementById('splash-screen');
+  if (!splash) return;
+  splash.style.opacity = '0';
+  setTimeout(() => splash.remove(), 300);
 }
 
 async function initApp(): Promise<void> {
@@ -46,50 +49,32 @@ async function initApp(): Promise<void> {
   if (!app) return;
 
   await waitForBackend();
-  const splash = document.getElementById('splash-screen');
-  if (splash) {
-    splash.style.opacity = '0';
-    setTimeout(() => splash.remove(), 300);
-  }
-
+  hideSplash();
   await initializeSettings();
 
-  // Main workspace grid
   const workspace = document.createElement('div');
   workspace.className = 'manga-grid';
 
-  const leftSidebar = createLayerPanel({ panelType: 'left' });
-  const canvas = createCanvas();
+  const archives = createArchivePanel({ side: 'left' });
   const aiPanel = createAIPanel();
-  let rightSidebar = aiPanel;
+  let comparePanel: ArchivePanel | null = null;
 
-  // Grid children in order: topbar (row 1 full), toolbar (row 2 col 1), layers (row 2 col 2),
-  // canvas (row 2 col 3), ai-panel (row 2 col 4), statusbar (row 3 full)
-  workspace.appendChild(createTopBar());
-  workspace.appendChild(createToolBar());
-  workspace.appendChild(leftSidebar);
-  workspace.appendChild(canvas);
-  workspace.appendChild(rightSidebar);
-  workspace.appendChild(createStatusBar());
+  // Grid order: topbar (row 1), toolbar | archives | canvas | right sidebar (row 2), statusbar (row 3)
+  workspace.append(createTopBar(), createToolBar(), archives.el, createCanvas(), aiPanel, createStatusBar());
 
-  // Listen for Compare Mode toggle to swap the right sidebar
-  window.addEventListener('compare-mode:toggle', (e: Event) => {
-    const isCompareMode = (e as CustomEvent).detail.enabled;
-    if (isCompareMode) {
-      const leftState = (leftSidebar as any).getUIState ? (leftSidebar as any).getUIState() : undefined;
-      const compareSidebar = createLayerPanel({ panelType: 'right', isCompareMode: true, initialState: leftState });
-      workspace.replaceChild(compareSidebar, rightSidebar);
-      rightSidebar = compareSidebar;
-    } else {
-      workspace.replaceChild(aiPanel, rightSidebar);
-      rightSidebar = aiPanel;
+  on('compare-mode:toggle', ({ enabled }) => {
+    if (enabled) {
+      comparePanel = createArchivePanel({ side: 'right', initialState: archives.getSelectionState() });
+      aiPanel.replaceWith(comparePanel.el);
+    } else if (comparePanel) {
+      comparePanel.destroy();
+      comparePanel.el.replaceWith(aiPanel);
+      comparePanel = null;
     }
   });
 
   app.appendChild(workspace);
-
-  // Initialize global managers after UI is fully built
   initDocumentManager();
 }
 
-document.addEventListener('DOMContentLoaded', initApp);
+document.addEventListener('DOMContentLoaded', () => void initApp());

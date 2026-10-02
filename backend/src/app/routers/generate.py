@@ -1,94 +1,93 @@
-from typing import Optional, List, Dict, Any
+"""/api/nano-banana-pro — multimodal image generation (Gemini Interactions API / generateContent)."""
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Header
+from typing import Any
+
+from fastapi import APIRouter, Header
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
-from ..services.generation_service import (
-    generate_image as svc_generate_image,
-    generate_nano_banana_pro as svc_generate_nano_banana_pro,
-    GenerationProviderNotFoundError,
-    GenerationConfigError,
-    GenerationServiceError
-)
+from ..providers.base import GenerationApi, GenerationResult
+from ..services.generation_service import generate_image
 
-router = APIRouter()
+router = APIRouter(tags=["generate"])
+
 
 class NanoBananaProRequest(BaseModel):
+    """Interactions API payload built by Nano Banana Pro (frontend features/tools/nano-banana-pro/).
+
+    Only these fields are forwarded; anything else is dropped.
+    """
+
     model: str
-    input: List[Dict[str, Any]]
-    response_format: Dict[str, Any]
+    input: list[dict[str, Any]]
+    response_format: dict[str, Any]
+    generation_config: dict[str, Any] | None = None
+    system_instruction: str | None = None
+    tools: list[dict[str, Any]] | None = None
+    store: bool | None = None
+    service_tier: str | None = None
 
-@router.post("")
-async def generate_image(
-    prompt: str = Form(...),
-    image: Optional[UploadFile] = File(None),
-    provider: str = Header(default="gemini", alias="X-Provider"),
-    api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
-):
-    """
-    Generate an image using the specified provider.
-    """
-    try:
-        image_bytes = None
-        if image:
-            image_bytes = await image.read()
 
-        result_bytes = await svc_generate_image(
-            provider=provider,
-            prompt=prompt,
-            image_bytes=image_bytes,
-            api_key=api_key
-        )
-        
-        return Response(content=result_bytes, media_type="image/png")
-    
-    except GenerationProviderNotFoundError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except GenerationServiceError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+class GenerateContentRequest(BaseModel):
+    """generateContent body built by Nano Banana Pro, plus ``model`` (moved into the URL by the provider).
+
+    Only these fields are forwarded; anything else is dropped.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    model: str
+    contents: list[dict[str, Any]]
+    generation_config: dict[str, Any] | None = Field(default=None, alias="generationConfig")
+    safety_settings: list[dict[str, Any]] | None = Field(default=None, alias="safetySettings")
+    system_instruction: dict[str, Any] | None = Field(default=None, alias="systemInstruction")
+    tools: list[dict[str, Any]] | None = None
+    service_tier: str | None = Field(default=None, alias="serviceTier")
+    store: bool | None = None
+
+
+async def _generate(
+    payload: dict[str, Any],
+    api: GenerationApi,
+    provider: str,
+    api_key: str | None,
+    requested_mime: str | None,
+) -> Response:
+    result: GenerationResult = await generate_image(provider=provider, payload=payload, api_key=api_key, api=api)
+    return Response(content=result.image_bytes, media_type=result.mime_type or requested_mime or "image/png")
+
 
 @router.post("/nano-banana-pro")
-async def generate_nano_banana_pro(
+async def api_generate_nano_banana_pro(
     request: NanoBananaProRequest,
     provider: str = Header(default="gemini", alias="X-Provider"),
-    api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
-    return_json: bool = False,
-):
+    api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> Response:
+    """Interactions API. Returns the image bytes (Content-Type = the image's MIME type).
+
+    Errors: 500 with ``detail`` = message, or ``{message, raw_response}`` when Gemini
+    returned a body (safety blocks etc.; the frontend records it in error.txt).
     """
-    Generate an image using the multimodal Interactions API format (Nano Banana Pro).
-    """
-    try:
-        result = await svc_generate_nano_banana_pro(
-            provider=provider,
-            payload=request.dict(exclude_none=True),
-            api_key=api_key
-        )
-        
-        if return_json:
-            import base64
-            image_b64 = base64.b64encode(result.image_bytes).decode("utf-8")
-            return {
-                "image_base64": image_b64,
-                "metadata": result.metadata
-            }
-        else:
-            mime_type = request.response_format.get("mime_type", "image/png")
-            return Response(content=result.image_bytes, media_type=mime_type)
-    
-    except GenerationProviderNotFoundError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except GenerationConfigError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except GenerationServiceError as e:
-        detail_data: Any = str(e)
-        if hasattr(e, "raw_response") and e.raw_response:
-            detail_data = {
-                "message": str(e),
-                "raw_response": e.raw_response
-            }
-        raise HTTPException(status_code=500, detail=detail_data)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return await _generate(
+        request.model_dump(exclude_none=True),
+        "interactions",
+        provider,
+        api_key,
+        request.response_format.get("mime_type"),
+    )
+
+
+@router.post("/nano-banana-pro/generate-content")
+async def api_generate_nano_banana_pro_generate_content(
+    request: GenerateContentRequest,
+    provider: str = Header(default="gemini", alias="X-Provider"),
+    api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> Response:
+    """generateContent API. Same responses and errors as ``/nano-banana-pro``."""
+    return await _generate(
+        request.model_dump(exclude_none=True, by_alias=True),
+        "generate_content",
+        provider,
+        api_key,
+        None,
+    )

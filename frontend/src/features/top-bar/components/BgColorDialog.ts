@@ -1,124 +1,46 @@
-import { showToast } from '../../../shared/utils/toast';
+/** Canvas background colour picker (View > Background Color..., Ctrl+B). */
+import { emit } from '../../../shared/events';
+import { createModal } from '../../../shared/ui/dialogs';
+import { h } from '../../../shared/ui/dom';
+import { button } from '../../../shared/ui/form';
+import { showToast } from '../../../shared/ui/toast';
 
-export function createBgColorDialog(): { overlay: HTMLElement; open: () => void; close: () => void } {
-  const overlay = document.createElement('div');
-  overlay.className = 'settings-overlay';
-  overlay.style.position = 'fixed';
-  overlay.style.top = '0';
-  overlay.style.left = '0';
-  overlay.style.width = '100vw';
-  overlay.style.height = '100vh';
-  overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-  overlay.style.display = 'none';
-  overlay.style.justifyContent = 'center';
-  overlay.style.alignItems = 'center';
-  overlay.style.zIndex = '9999';
+/** `checkerboard` is a special value understood by the canvas renderer. */
+const COLORS = [
+  { label: 'White', value: '#FFFFFF' },
+  { label: 'Light Gray', value: '#B3B3B3' },
+  { label: 'Dark Gray', value: '#666666' },
+  { label: 'Black', value: '#000000' },
+  { label: 'Checkerboard', value: 'checkerboard' },
+  { label: 'Blue', value: '#0000FF' },
+  { label: 'Green', value: '#00FF00' },
+  { label: 'Red', value: '#FF0000' },
+];
 
-  const dialog = document.createElement('div');
-  dialog.className = 'settings-dialog';
-  dialog.style.backgroundColor = 'var(--color-surface-container-highest)';
-  dialog.style.padding = '24px';
-  dialog.style.borderRadius = '8px';
-  dialog.style.width = '320px';
-  dialog.style.boxShadow = '0 8px 24px rgba(0,0,0,0.5)';
-  dialog.style.display = 'flex';
-  dialog.style.flexDirection = 'column';
-  dialog.style.gap = '16px';
-  dialog.style.border = '1px solid var(--color-outline-variant)';
+export function createBgColorDialog(): { open: () => void } {
+  const modal = createModal({ title: 'Canvas Background Color', width: '320px', overlayClass: 'settings-overlay' });
 
-  const title = document.createElement('h2');
-  title.textContent = 'Canvas Background Color';
-  title.style.margin = '0';
-  title.style.fontSize = '18px';
-  title.style.color = 'var(--color-on-surface)';
-  dialog.appendChild(title);
+  const swatches = COLORS.map(color =>
+    h('button', {
+      class: color.value === 'checkerboard' ? 'bg-swatch bg-swatch--checkerboard' : 'bg-swatch',
+      title: color.label,
+      style: color.value === 'checkerboard' ? undefined : { backgroundColor: color.value },
+      onclick: () => {
+        emit('canvas:bg-color', { color: color.value });
+        showToast(`Background set to ${color.label}`, 'success');
+        modal.close();
+      },
+    }),
+  );
 
-  const colors = [
-    { label: 'White', hex: '#FFFFFF' },
-    { label: 'Light Gray', hex: '#B3B3B3' },
-    { label: 'Dark Gray', hex: '#666666' },
-    { label: 'Black', hex: '#000000' },
-    { label: 'Checkerboard', hex: 'checkerboard' },
-    { label: 'Blue', hex: '#0000FF' },
-    { label: 'Green', hex: '#00FF00' },
-    { label: 'Red', hex: '#FF0000' },
-  ];
+  modal.panel.append(
+    h('div', { class: 'bg-swatches' }, ...swatches),
+    h(
+      'div',
+      { class: 'cs-modal__actions' },
+      button('Cancel', () => modal.close(), { variant: 'outline', size: 'dialog' }),
+    ),
+  );
 
-  const palette = document.createElement('div');
-  palette.style.display = 'grid';
-  palette.style.gridTemplateColumns = 'repeat(4, 1fr)';
-  palette.style.gap = '8px';
-
-  for (const color of colors) {
-    const btn = document.createElement('button');
-    btn.style.width = '100%';
-    btn.style.aspectRatio = '1 / 1';
-    btn.style.borderRadius = '4px';
-    btn.style.border = '1px solid var(--color-outline)';
-    if (color.hex === 'checkerboard') {
-      btn.style.backgroundImage = 'conic-gradient(#D9D9D9 90deg, #FFFFFF 90deg 180deg, #D9D9D9 180deg 270deg, #FFFFFF 270deg)';
-      btn.style.backgroundSize = '16px 16px';
-      btn.style.backgroundPosition = 'center';
-      btn.style.backgroundRepeat = 'repeat';
-    } else {
-      btn.style.backgroundColor = color.hex;
-    }
-    btn.style.cursor = 'pointer';
-    btn.title = color.label;
-    btn.style.transition = 'transform 0.1s ease';
-
-    btn.addEventListener('mouseenter', () => {
-      btn.style.transform = 'scale(1.1)';
-      btn.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
-    });
-    btn.addEventListener('mouseleave', () => {
-      btn.style.transform = 'scale(1)';
-      btn.style.boxShadow = 'none';
-    });
-
-    btn.addEventListener('click', () => {
-      window.dispatchEvent(new CustomEvent('canvas:bg-color', { detail: { color: color.hex } }));
-      showToast(`Background set to ${color.label}`, 'success');
-      close();
-    });
-
-    palette.appendChild(btn);
-  }
-  dialog.appendChild(palette);
-
-  const buttonGroup = document.createElement('div');
-  buttonGroup.style.display = 'flex';
-  buttonGroup.style.justifyContent = 'flex-end';
-  buttonGroup.style.gap = '8px';
-  buttonGroup.style.marginTop = '8px';
-
-
-
-  const cancelBtn = document.createElement('button');
-  cancelBtn.textContent = 'Cancel';
-  cancelBtn.style.padding = '8px 16px';
-  cancelBtn.style.borderRadius = '4px';
-  cancelBtn.style.border = 'none';
-  cancelBtn.style.backgroundColor = 'var(--color-surface-container-low)';
-  cancelBtn.style.color = 'var(--color-on-surface)';
-  cancelBtn.style.cursor = 'pointer';
-  cancelBtn.addEventListener('click', () => close());
-  buttonGroup.appendChild(cancelBtn);
-
-  dialog.appendChild(buttonGroup);
-  overlay.appendChild(dialog);
-
-  const open = () => {
-    overlay.style.display = 'flex';
-  };
-
-  const close = () => {
-    overlay.style.display = 'none';
-  };
-
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
-
-  return { overlay, open, close };
+  return { open: modal.open };
 }

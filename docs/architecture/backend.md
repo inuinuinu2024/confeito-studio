@@ -1,48 +1,90 @@
-# バックエンド設計方針
+# バックエンド設計
 
-## レイヤー構成
-2層のレイヤードアーキテクチャを採用。
-- **Controller層 (`routers/`)**: リクエストの受付・バリデーション・HTTPExceptionへの変換を行う薄いハンドラー。ビジネスロジックは持たない。
-- **Service層 (`services/`)**: 機能ごと（archives, psd, settings, generation, system）のビジネスロジックをカプセル化。Webフレームワークへの依存を極力排除。
+FastAPI（Python 3.11+、uv 管理）。起動: `cd backend && uv run python -m uvicorn src.app.main:app --port 48000`
 
-## API設計・通信方式
-- **REST API**: 単発リクエスト（設定取得、PSD保存など）。
-  - `GET /api/health`: 起動時にフロントエンドがバックエンドの準備完了を待機するためのヘルスチェックエンドポイント（ステータス `{"status": "ok"}` と `200 OK` を返却するのみの軽量な実装）。
-- **WebSocket**: 長時間実行される処理（画像生成など）の進捗通知用。
+## ディレクトリとレイヤー
 
-## 生成AIプロバイダー層
-画像生成バックエンドは `ImageGenerationProvider` 抽象クラスを介して差し替え可能。
-- 実装済み: `GeminiProvider` (Google Imagen APIを用いたマルチモーダル対応)
-- 制約: `gemini-3-pro-image` ではメディアごとの解像度指定（`resolution`）は未サポート（400エラーの原因となるため付与しない）。
-- タイムアウト: Gemini APIの通信タイムアウトは600秒（10分）。
-- **APIエラー伝播**: Gemini API等でセーフティフィルタによるブロックやエラー（400 Bad Request等）が発生した際、バックエンドはAPIから返却された生のJSONレスポンス（`raw_response`）を例外オブジェクトに保持させ、FastAPIのエラーレスポンス（`detail`）にそのまま含めることで、フロントエンドまで情報を欠落させずに伝播させる。
+```text
+backend/src/app/
+├── main.py          # create_app(): CORS, 例外ハンドラー, ルーター登録（全ルートは /api 配下）
+├── config.py        # パス・環境変数の唯一の定義。.env を os.environ に読み込む
+├── errors.py        # AppError 階層と unexpected_errors_as()
+├── routers/         # HTTP 層。入力を受けてサービスを呼ぶだけ（try/except を書かない）
+├── services/        # 業務ロジック。FastAPI に依存しない
+│   ├── archive_service.py   # アーカイブ（フォルダ）の読み書き・ゴミ箱・パス検証
+│   ├── panel_service.py     # コマ分割（Gemini 呼び出し + 切り出し + 保存）
+│   ├── panel_geometry.py    # コマ分割の純粋関数（プロンプト・座標変換・レスポンス解析）
+│   ├── merge_service.py     # コマ結合
+│   ├── generation_service.py# 画像生成（プロバイダー選択）
+│   ├── image_service.py     # rembg 背景除去（初回呼び出し時に import）
+│   ├── settings_service.py  # API キー(.env) とツール設定(JSON)
+│   └── system_service.py    # シャットダウン
+└── providers/       # 外部 AI の差し替え層
+    ├── base.py      # ImageGenerationProvider（generate_multimodal、api = interactions / generate_content）
+    └── gemini.py    # Gemini API（Interactions / generateContent）、GeminiAPIError
+```
 
-## その他仕様
-- 認証不要のローカル専用ツール。APIキー等はプロジェクト直下の `.env` で一元管理し、フロントエンドからは `/api/settings/*` で取得。
-- **背景除去**: `rembg[cpu]` パッケージを使用。推論モデルは `models/` ディレクトリに保存。
-- **PSD処理**: バックエンドではZIPエクスポート（PNG分解）や高品質レンダリングを担当。
-- **アーカイブ管理**:
-  - **保存形式**: ZIP圧縮形式から**通常ディレクトリ（フォルダ）形式**に刷新。`archives/{archive_name}/` ディレクトリ配下に直接ファイルが保存される。
-  - **追記・蓄積対応**: 既存のアーカイブフォルダへのファイル追加・上書きが高速かつ安全に可能。
-  - **ログ追記API (`POST /archives/{archive_name}/log`)**: アーカイブフォルダ内の `log.txt` に対して、作業ログメッセージを逐次追記可能（`append_archive_log`）。
-  - （既存の `.zip` レガシーアーカイブ自動移行処理は撤廃済）
-  - **ゴミ箱機能**: 削除時は `archives/.trash/` に移動され、復元APIにより即座に戻すことができる。パストラバーサル防止ガードを実装。
-- **コマ分割（Manga Panel Splitting）**:
-  - **APIエンドポイント (`POST /api/image/split-panels`)**: アップロードされた漫画画像からGeminiモデルを用いてコマ枠線を自動抽出し、各コマを個別のPNG画像に切り分けてアーカイブ保存する。
-  - **モデル選択・推論設定**:
-    - **モデル**: `gemini-3.8-flash`（標準・高速）または `gemini-3.1-pro-preview`（`gemini-3.1-pro` からのエイリアス自動正規化対応、高度推論）を選択可能。
-    - **推論設定（thinkingConfig）**: `thinkingLevel`（`LOW` / `MEDIUM` / `HIGH`）を設定可能。Thinkingモード有効時も最終テキストパート（非thought部）を正確に抽出してパース。
-    - **厳格なスキーマ保証**: `response_mime_type: "application/json"` に加え、`response_schema` を指定して正規化座標 `[ymin, xmin, ymax, xmax]`（0〜1000）を保証。
-  - **API送信前のリサイズ最適化（20MB制限回避）**: 高解像度の画像がGemini APIのファイルサイズ制限（約20MB）に抵触するのを防ぐため、APIに送信するペイロード作成時のみ、画像をアスペクト比を維持して長辺 `4096px` 以下にダウンスケールし、JPEG形式（quality: 85）で送信。推論結果は0〜1000の正規化相対座標で返るため、クロップ（切り出し）処理自体はオリジナルの高解像度画像のまま劣化なく実行される仕様。
-  - **読み順ソート**: 左上→右下（ウェブトゥーン・左開き標準、デフォルト）および日本のマンガ標準（右上→左下）の順序指定に対応。
-  - **画像切り分け**: Pillowを用いて各コマの正規化座標を実ピクセル座標（オリジナルの高解像度基準）に変換・パディング処理を行い、個別PNG画像としてクロップ。
-  - **アーカイブ保存 & 後続Pythonツール連携形式**:
-    - **保存先ディレクトリ決定**: `target_folder`（フロントエンドで現在選択中のアーカイブフォルダ）が指定されている場合は、その親アーカイブフォルダ配下に `YYYYMMDD_HHMMSS_コマ分割/` サブフォルダを作成して出力・保存（サブフォルダ内には `log.txt` は出力せず、元フォルダ直下の `log.txt` にのみ追記）。未指定時のみ ARCHIVES 直下に `YYYYMMDD_HHMMSS_コマ分割/` ディレクトリを新規作成。
-    - `{prefix}01.png`, `{prefix}02.png`, ...: 連番の各コマ画像（※`origin.png` 保存は不要化）。
-    - `{prefix}panels.json`: Pythonツール等で即座にコマ座標・サイズを再利用できるよう、Pillow/PASCAL VOC互換 `pixel_box: [xmin, ymin, xmax, ymax]`、COCO/OpenCV互換 `xywh: [xmin, ymin, width, height]`、Gemini正規化座標 `box_2d: [ymin, xmin, ymax, xmax]` を網羅した構造化メタデータを同梱。
-    - `log.txt` (元フォルダ直下): `[YYYY-MM-DD HH:mm:ss] コマ分割ツールを実行し、*コマに分割しました（元ファイル名 *、サブフォルダ名: *）` の一文のみを追記記録。
-- **プロセス管理とシャットダウン仕様**:
-  - **シャットダウン (`POST /api/shutdown`)**: フロントエンドの全タブクローズ検知時（`closeOnDisconnectPlugin`）に呼び出される。Windows環境では親プロセスやワーカーなどの残留・ゾンビ化を防ぐため、`taskkill /F /T /PID <pid>` を用いてプロセスツリー全体を強制終了する。
-  - **日常起動スクリプト (`start-app.ps1`)**:
-    - **セルフヒーリング（ポート解放ガード）**: 起動前にバックエンド（ポート48000）およびフロントエンド（ポート45173）をリッスンしている古い残留プロセスを自動検出し、強制終了してポートを確実に解放してからプロセスを生成する。
-    - **リロードフラグの分離**: 日常利用スクリプトでは `--reload` を外し、不要なリローダー子プロセスの多重生成を防ぐ（開発時のみ手動コマンドで `--reload` を指定）。
+- 依存方向: routers → services → providers / config / errors。services は routers を import しない。
+- 時間のかかる同期処理（rembg, Gemini への HTTP, Pillow）は `run_in_threadpool` で実行し、ヘルスチェック等を止めない。
+
+## エラー処理
+- サービスは `AppError` のサブクラスを投げる。`main.py` が `{"detail": exc.detail}` と `status_code` に変換する。
+  - `BadRequestError`(400) / `NotFoundError`(404) / `AppError`(500)
+  - `raw_response` を持つ場合 `detail` は `{"message": ..., "raw_response": ...}`（Gemini のセーフティブロック等をフロントまで伝える）
+- 想定外の例外は 500 `{"detail": str(exc)}`。ツール名を付けたい場合はルーターで `with unexpected_errors_as("コマ分割処理中にエラーが発生しました"):`。
+- フロントは `shared/api/http.ts` の `ApiError` でこの形式を解釈する。形式を変える時は両方を直す。
+
+## 設定（`config.py`）
+
+| 環境変数 | 既定値 | 用途 |
+|---|---|---|
+| `CONFEITO_ENV_FILE` | `<repo>/.env` | 起動時に os.environ へ読み込む（既存の環境変数が優先） |
+| `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブ保存先（ゴミ箱 `.trash/` を含む） |
+| `CONFEITO_SETTINGS_DIR` | `<repo>/settings` | `default_prompts.json` |
+| `GEMINI_API_KEY` | （.env） | Gemini API キー。リクエストの `X-API-Key` ヘッダーが優先 |
+| `U2NET_HOME` | （.env, `models`） | rembg モデルの場所（相対パスはリポジトリ基準） |
+
+## API 一覧（すべて `/api` 配下）
+
+| メソッド | パス | 用途 / フロントの呼び出し元 |
+|---|---|---|
+| GET | `/health` | 起動待ち・ステータスバー (`api/system.ts`) |
+| POST | `/shutdown` | 全タブクローズ時に Vite プラグインが呼ぶ |
+| GET | `/archives` | トップレベル一覧（新しい順） |
+| POST | `/archives` | multipart: `name`, `files[]`, `paths[]` で保存（既存なら追記・上書き） |
+| GET | `/archives/{name}/contents` | 配下の全フォルダ・ファイル（`folderId` で親子） |
+| GET | `/archives/{name}/extract?path=` | ファイル本体 |
+| DELETE | `/archives/{name}` | `.trash/` へ移動 |
+| POST | `/archives/{name}/restore` | `.trash/` から復元 |
+| POST | `/archives/{name}/delete_contents` | `{paths}` を `.trash/.items/{name}/` へ移動。空になったフォルダ・アーカイブは消す |
+| POST | `/archives/{name}/restore_contents` | `{paths}` を `.trash/.items/{name}/` から元の場所へ戻す（Undo） |
+| POST | `/archives/{name}/log` | `{message, file_name="log.txt"}` を追記 |
+| POST | `/image/remove-bg` | 背景除去（[specs/tools/remove-background.md](../specs/tools/remove-background.md)） |
+| POST | `/image/split-panels` | コマ分割（[specs/tools/panel-split-merge.md](../specs/tools/panel-split-merge.md)） |
+| POST | `/image/split-panels/preview` | コマ分割で Gemini に送るリクエストの確認用 |
+| POST | `/image/merge-panels` | コマ結合 |
+| POST | `/nano-banana-pro` | 画像生成・Interactions API（応答は画像そのもの） |
+| POST | `/nano-banana-pro/generate-content` | 画像生成・generateContent API（応答は上と同じ） |
+| GET/POST | `/settings/gemini` | API キーの有無 / 保存（.env） |
+| GET/POST | `/settings/prompts` | ツール設定マップ全体の取得 / 置換 |
+
+## Gemini プロバイダー（`providers/gemini.py`）
+- 画像生成は Interactions API（`/v1beta/interactions`）または `models/{model}:generateContent`（どちらもタイムアウト 600 秒）。
+  コマ検出は `models/{model}:generateContent`（90 秒）。
+- 画像生成の応答の Content-Type は、Gemini が返した画像の MIME タイプ
+  （不明ならバイト列から判定、それも不明なら要求した `mime_type`、既定 `image/png`）。
+- generateContent の画像は、最初に画像を含む候補の「思考ではない（`thought` が true でない）」最後の `inlineData`。
+  `promptFeedback.blockReason` があるとき、画像がないとき（`finishReason` を表示）は `raw_response` 付きのエラーにする。
+- API キーは `x-goog-api-key` ヘッダーで送る（URL に載せない）。
+- `gemini-3-pro-image` にはメディアごとの解像度指定（`resolution`）を付けない（400 エラーになる）。
+- "high demand" エラーには日本語の補足を付ける。エラー本文は `raw_response` として保持し上位へ伝える。
+- リクエストモデルは宣言した項目だけを Gemini に送り、それ以外のトップレベル項目は捨てる。
+  - `NanoBananaProRequest`（Interactions）: `model` / `input` / `response_format` / `generation_config` /
+    `system_instruction` / `tools` / `store` / `service_tier`。
+  - `GenerateContentRequest`: `model`（URL に移す）/ `contents` / `generationConfig` / `safetySettings` /
+    `systemInstruction` / `tools` / `serviceTier` / `store`。
+
+## 実装手順: エンドポイントを追加する
+1. ロジックを `services/<領域>.py` に書く。失敗は `AppError` 系で投げる（必要ならサービス固有のサブクラスを定義）。
+2. `routers/<領域>.py` に薄いハンドラーを追加（ブロッキング処理は `run_in_threadpool`）。新しいルーターは `main.py` の登録ループに追加。
+3. `tests/` にテストを追加（[testing.md](./testing.md)）。フロントは `shared/api/` に型付き関数を追加し、上の表を更新する。

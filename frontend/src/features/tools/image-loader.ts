@@ -1,107 +1,69 @@
-import { Tool, ToolContext } from '../../shared/types/tool.types';
-import { saveArchive } from '../../shared/utils/archives';
+/**
+ * 画像読み込み — imports an image file as a new archive "<YYYYMMDD_HHMMSS>_<name>" containing
+ * the file and log.txt, then selects it. Also used for drag & drop onto the canvas.
+ */
+import { saveArchive } from '../../shared/api/archives';
+import { IMAGE_ACCEPT, IMAGE_EXTENSIONS } from '../../shared/config';
+import { emit } from '../../shared/events';
+import { type Tool, ToolCancelled } from '../../shared/types/tool';
+import { showToast } from '../../shared/ui/toast';
+import { fileStamp, logStamp } from '../../shared/utils/datetime';
 import { DocumentManager } from '../document/DocumentManager';
-import { showToast } from '../../shared/utils/toast';
 
+/** Creates the archive for `file` and selects the image. Returns the archive name. */
 export async function importImageFile(file: File): Promise<string> {
-  const docManager = DocumentManager.getInstance();
-
-  // 1. Generate folder name: YYYYMMDD_HHMMSS_画像名
   const now = new Date();
-  const YYYY = now.getFullYear();
-  const MM = String(now.getMonth() + 1).padStart(2, '0');
-  const DD = String(now.getDate()).padStart(2, '0');
-  const HH = String(now.getHours()).padStart(2, '0');
-  const mm = String(now.getMinutes()).padStart(2, '0');
-  const SS = String(now.getSeconds()).padStart(2, '0');
-  const timeStamp = `${YYYY}${MM}${DD}_${HH}${mm}${SS}`;
+  const baseName = (file.name.replace(/\.[^/.]+$/, '') || file.name).replace(/[\\/:*?"<>|]/g, '_');
+  const folderName = `${fileStamp(now)}_${baseName}`;
+  const log = `[${logStamp(now)}] 画像読み込みツールにより読み込まれました (ファイル名: ${file.name})\n`;
 
-  const rawBaseName = file.name.replace(/\.[^/.]+$/, '') || file.name;
-  const cleanImageName = rawBaseName.replace(/[\\/:\*\?"<>\|]/g, '_');
-  const folderName = `${timeStamp}_${cleanImageName}`;
-
-  // 2. Create initial log.txt
-  const formattedDate = `${YYYY}-${MM}-${DD} ${HH}:${mm}:${SS}`;
-  const initialLog = `[${formattedDate}] 画像読み込みツールにより読み込まれました (ファイル名: ${file.name})\n`;
-  const logBlob = new Blob([initialLog], { type: 'text/plain; charset=utf-8' });
-
-  // 3. Save to ARCHIVES
-  const archiveFiles: { blob: Blob; path: string }[] = [
+  await saveArchive(folderName, [
     { blob: file, path: file.name },
-    { blob: logBlob, path: 'log.txt' },
-  ];
+    { blob: new Blob([log], { type: 'text/plain; charset=utf-8' }), path: 'log.txt' },
+  ]);
 
-  await saveArchive(folderName, archiveFiles);
-
-  // 4. Track current archive folder in DocumentManager & auto-select the image in ARCHIVES
-  docManager.setCurrentArchiveFolder(folderName);
-  const autoSelectKey = `${folderName}/${file.name}`;
-  window.dispatchEvent(new CustomEvent('tool:cache-updated', { detail: { autoSelectKey } }));
+  DocumentManager.getInstance().setCurrentArchiveFolder(folderName);
+  emit('archives:changed', { autoSelectKey: `${folderName}/${file.name}` });
   showToast(`アーカイブ「${folderName}」を作成し、画像を読み込みました`, 'success');
-
   return folderName;
+}
+
+/** Native file picker when available, otherwise a hidden <input type=file>. Null if cancelled. */
+async function pickImageFile(): Promise<File | null> {
+  if (window.showOpenFilePicker) {
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        multiple: false,
+        types: [{ description: 'Image Files', accept: { 'image/*': IMAGE_EXTENSIONS } }],
+      });
+      return await handle.getFile();
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return null;
+      console.warn('showOpenFilePicker failed, falling back to input:', err);
+    }
+  }
+  return new Promise(resolve => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = IMAGE_ACCEPT;
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.onchange = () => {
+      input.remove();
+      resolve(input.files?.[0] ?? null);
+    };
+    input.click();
+  });
 }
 
 export class ImageLoaderTool implements Tool {
   id = 'image-loader';
   name = '画像読み込み';
   icon = '';
-  hasSettings = false;
 
-  async execute(context: ToolContext): Promise<void> {
-    let file: File | null = null;
-
-    if ('showOpenFilePicker' in window) {
-      try {
-        const [fileHandle] = await (window as any).showOpenFilePicker({
-          multiple: false,
-          types: [
-            {
-              description: 'Image Files',
-              accept: {
-                'image/*': ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif'],
-              },
-            },
-          ],
-        });
-        file = await fileHandle.getFile();
-      } catch (err: any) {
-        if (err.name === 'AbortError') {
-          // User canceled file picker
-          const abortErr = new Error('AbortError');
-          abortErr.name = 'AbortError';
-          throw abortErr;
-        }
-        console.warn('showOpenFilePicker failed, falling back to input:', err);
-      }
-    }
-
-    if (!file) {
-      file = await new Promise<File | null>((resolve) => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = 'image/png, image/jpeg, image/webp, image/bmp, image/gif';
-        input.style.display = 'none';
-        document.body.appendChild(input);
-
-        input.onchange = () => {
-          const selected = input.files && input.files[0] ? input.files[0] : null;
-          if (document.body.contains(input)) {
-            document.body.removeChild(input);
-          }
-          resolve(selected);
-        };
-
-        input.click();
-      });
-    }
-
-    if (!file) {
-      const abortErr = new Error('AbortError');
-      abortErr.name = 'AbortError';
-      throw abortErr;
-    }
-
+  async execute(): Promise<void> {
+    const file = await pickImageFile();
+    if (!file) throw new ToolCancelled();
     await importImageFile(file);
   }
 }

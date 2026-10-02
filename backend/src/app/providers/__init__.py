@@ -1,14 +1,12 @@
-# providers package
+"""Registry of image generation providers, selected by the ``X-Provider`` header."""
 
+from .base import ImageGenerationProvider
 from .gemini import GeminiProvider
 
-class ProviderFactory:
-    def __init__(self):
-        self.providers = {
-            "gemini": GeminiProvider(),
-        }
+_PROVIDERS: dict[str, ImageGenerationProvider] = {
+    "gemini": GeminiProvider(),
+}
 
-    def get_provider(self, name: str):
-        return self.providers.get(name)
 
-provider_factory = ProviderFactory()
+def get_provider(name: str) -> ImageGenerationProvider | None:
+    return _PROVIDERS.get(name)

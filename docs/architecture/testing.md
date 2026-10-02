@@ -1,0 +1,31 @@
+# テストと検証
+
+変更後は該当する検証を必ず実行する。実際の Gemini API・ユーザーの `archives/`・`.env` には触れない。
+
+| 対象 | コマンド | 内容 |
+|---|---|---|
+| フロント型検査 | `cd frontend && npm run typecheck` | `tsconfig.json`（src）と `tsconfig.node.json`（vite 設定・e2e） |
+| フロント単体 | `cd frontend && npm test` | vitest。`src/**/*.test.ts` |
+| フロント一括 | `cd frontend && npm run check` | 型検査 + 単体 + ビルド |
+| バックエンド | `cd backend && uv run pytest` | API 契約・サービスのテスト（1 秒程度） |
+| バックエンド lint | `cd backend && uv run ruff check . && uv run ruff format --check .` | |
+| E2E | `cd frontend && npm run e2e` | 実ブラウザで主要操作を通す（約 1 分） |
+
+## バックエンドのテスト（`backend/tests/`）
+- `conftest.py` が import 前に `CONFEITO_ENV_FILE` を存在しないファイルに向け、テストごとに
+  `archives_dir` / `settings_dir` / `env_file` を `tmp_path` に差し替える（実データ・API キーを読まない）。
+- Gemini 呼び出しは `monkeypatch` で `gemini.generate_content` や `requests.post` を差し替える。
+- `client` フィクスチャ（`TestClient`）で HTTP 契約（ステータスコードと `detail` 形式）を検証する。
+
+## E2E スモークテスト（`frontend/e2e/smoke.mts`）
+- 一時ディレクトリをデータ置き場にして backend（48100）と Vite（45273）を起動し、インストール済みの
+  Microsoft Edge（なければ Chrome）をヘッドレスで操作する。起動中の本番アプリ（48000/45173）とは衝突しない。
+- 画像の読み込み（D&D）、ARCHIVES 選択、テキスト表示、ズーム、Overlay / Compare / Batch、各ツールの設定画面と
+  JSON プレビュー、未実装ツールのエラー記録、コマ結合、アーカイブの削除と Undo、ダイアログ、メニュー、
+  アーカイブ内のファイル・サブフォルダの削除と Undo、Batch モードでのファイル単体・複数選択を順に実行する。
+- 出力: `frontend/e2e/.output/latest/` に `observations.json`（各シナリオの UI 状態・キャンバスの画素サンプル）と
+  スクリーンショット（`NN-*.png`）。エージェントは画像を開いて直接確認できる。
+- 時刻は `2026-01-01 10:00:00` に固定され、`observations.json` 内のタイムスタンプは `<STAMP>` / `<DATETIME>` に置換される。
+  リファクタリング前後で `observations.json` を比較すれば振る舞いの差分を検出できる。
+- オプション: `--headed`（ブラウザを表示）, `--keep`（一時データを残す）, `--out <dir>`, `--backend-port`, `--frontend-port`, `--root`, `--python`。
+- 新しい UI を追加したら、その操作をシナリオに追加する。

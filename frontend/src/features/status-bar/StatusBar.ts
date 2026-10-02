@@ -1,157 +1,81 @@
 /**
- * StatusBar — Bottom footer with processing status, progress bar,
- * links, and VRAM info.
+ * StatusBar — tool progress (left) and backend / internet / Gemini key status (right).
+ * Backend and Gemini status are polled every 10s.
  */
-import { showToast } from '../../shared/utils/toast';
+import './status-bar.css';
+import { getGeminiKeyStatus } from '../../shared/api/settings';
+import { BACKEND_ORIGIN, isBackendHealthy } from '../../shared/api/system';
+import { on } from '../../shared/events';
+import { h, setShown } from '../../shared/ui/dom';
+
+const POLL_INTERVAL_MS = 10000;
+
+function statusItem(initial: string) {
+  const dot = h('span', { class: 'statusbar__status-dot' });
+  const text = document.createTextNode(initial);
+  return {
+    el: h('div', { class: 'statusbar__status-item' }, dot, text),
+    set(ok: boolean, label: string) {
+      dot.classList.toggle('statusbar__status-dot--ok', ok);
+      dot.classList.toggle('statusbar__status-dot--error', !ok);
+      text.textContent = label;
+    },
+  };
+}
 
 export function createStatusBar(): HTMLElement {
-  const footer = document.createElement('footer');
-  footer.className = 'statusbar';
+  const statusText = h('span', { text: 'Ready' });
+  const progress = h(
+    'div',
+    { class: 'statusbar__progress', style: { display: 'none' } },
+    h('div', { class: 'statusbar__progress-fill' }),
+  );
 
-  // ── Left: Processing status ──
-  const left = document.createElement('div');
-  left.className = 'statusbar__left';
+  const backend = statusItem('Backend: Checking...');
+  const internet = statusItem('');
+  const gemini = statusItem('Gemini API: Checking...');
 
-  const statusText = document.createElement('span');
-  statusText.textContent = 'Ready';
-  left.appendChild(statusText);
-
-  // Progress bar
-  const progress = document.createElement('div');
-  progress.className = 'statusbar__progress';
-  progress.style.display = 'none'; // hidden by default
-
-  const fill = document.createElement('div');
-  fill.className = 'statusbar__progress-fill';
-  fill.style.width = '100%';
-  fill.style.animation = 'progress-indeterminate 1.5s infinite linear';
-  progress.appendChild(fill);
-  left.appendChild(progress);
-
-  const steps = document.createElement('span');
-  steps.className = 'statusbar__steps';
-  steps.textContent = '';
-  left.appendChild(steps);
-
-  footer.appendChild(left);
-
-  // ── Right: Status Indicators ──
-  const right = document.createElement('div');
-  right.className = 'statusbar__right';
-
-  // Backend Status
-  const backendStatus = document.createElement('div');
-  backendStatus.className = 'statusbar__status-item';
-  
-  const backendDot = document.createElement('span');
-  backendDot.className = 'statusbar__status-dot';
-  const backendText = document.createTextNode('Backend: Checking...');
-  
-  backendStatus.appendChild(backendDot);
-  backendStatus.appendChild(backendText);
-  right.appendChild(backendStatus);
-
-  const backendUrl = 'http://127.0.0.1:48000';
-
-  const updateBackendStatus = async () => {
+  const updateBackend = async () => {
+    const ok = await isBackendHealthy();
+    backend.set(ok, ok ? `Backend: ${BACKEND_ORIGIN}` : 'Backend: Offline');
+  };
+  const updateInternet = () => {
+    internet.set(navigator.onLine, `Internet: ${navigator.onLine ? 'Online' : 'Offline'}`);
+  };
+  const updateGemini = async () => {
     try {
-      const res = await fetch(`${backendUrl}/api/health`, { method: 'GET' });
-      if (res.ok) {
-        backendDot.style.backgroundColor = 'var(--color-success, #4ade80)';
-        backendDot.style.boxShadow = '0 0 8px var(--color-success, #4ade80)';
-        backendText.textContent = `Backend: ${backendUrl}`;
-      } else {
-        throw new Error('Not OK');
-      }
-    } catch (e) {
-      backendDot.style.backgroundColor = 'var(--color-error, #f87171)';
-      backendDot.style.boxShadow = '0 0 8px var(--color-error, #f87171)';
-      backendText.textContent = 'Backend: Offline';
+      const { has_key } = await getGeminiKeyStatus();
+      gemini.set(has_key, has_key ? 'Gemini API: Ready' : 'Gemini API: Missing Key');
+    } catch {
+      gemini.set(false, 'Gemini API: Backend Error');
     }
   };
 
-  // Check periodically every 10 seconds
-  setInterval(updateBackendStatus, 10000);
-  updateBackendStatus();
+  void updateBackend();
+  updateInternet();
+  void updateGemini();
+  setInterval(updateBackend, POLL_INTERVAL_MS);
+  setInterval(updateGemini, POLL_INTERVAL_MS);
+  window.addEventListener('online', updateInternet);
+  window.addEventListener('offline', updateInternet);
+  on('settings:updated', () => void updateGemini());
 
-  // Internet Status
-  const internetStatus = document.createElement('div');
-  internetStatus.className = 'statusbar__status-item';
-  
-  const internetDot = document.createElement('span');
-  internetDot.className = 'statusbar__status-dot';
-  const internetText = document.createTextNode('');
-  
-  internetStatus.appendChild(internetDot);
-  internetStatus.appendChild(internetText);
-  right.appendChild(internetStatus);
-
-  const updateInternetStatus = () => {
-    const isOnline = navigator.onLine;
-    internetDot.style.backgroundColor = isOnline ? 'var(--color-success, #4ade80)' : 'var(--color-error, #f87171)';
-    internetDot.style.boxShadow = isOnline ? '0 0 8px var(--color-success, #4ade80)' : '0 0 8px var(--color-error, #f87171)';
-    internetText.textContent = `Internet: ${isOnline ? 'Online' : 'Offline'}`;
-  };
-  
-  window.addEventListener('online', updateInternetStatus);
-  window.addEventListener('offline', updateInternetStatus);
-  updateInternetStatus();
-
-  // Gemini Status
-  const geminiStatus = document.createElement('div');
-  geminiStatus.className = 'statusbar__status-item';
-  
-  const geminiDot = document.createElement('span');
-  geminiDot.className = 'statusbar__status-dot';
-  
-  const geminiText = document.createTextNode('Gemini API: Checking...');
-  
-  geminiStatus.appendChild(geminiDot);
-  geminiStatus.appendChild(geminiText);
-  right.appendChild(geminiStatus);
-
-  const updateGeminiStatus = async () => {
-    try {
-      const res = await fetch('http://127.0.0.1:48000/api/settings/gemini');
-      const data = await res.json();
-      if (data.has_key) {
-        geminiDot.style.backgroundColor = 'var(--color-success, #4ade80)';
-        geminiDot.style.boxShadow = '0 0 8px var(--color-success, #4ade80)';
-        geminiText.textContent = 'Gemini API: Ready';
-      } else {
-        geminiDot.style.backgroundColor = 'var(--color-error, #f87171)';
-        geminiDot.style.boxShadow = '0 0 8px var(--color-error, #f87171)';
-        geminiText.textContent = 'Gemini API: Missing Key';
-      }
-    } catch (e) {
-      geminiDot.style.backgroundColor = 'var(--color-error, #f87171)';
-      geminiDot.style.boxShadow = '0 0 8px var(--color-error, #f87171)';
-      geminiText.textContent = 'Gemini API: Backend Error';
-    }
-  };
-
-  window.addEventListener('settings:updated', updateGeminiStatus);
-  updateGeminiStatus();
-  setInterval(updateGeminiStatus, 10000);
-
-  footer.appendChild(right);
-
-  // ── Event Listeners ──
-  window.addEventListener('tool:start', (e: Event) => {
-    const customEvent = e as CustomEvent<{ toolName: string }>;
-    statusText.textContent = `Running: ${customEvent.detail.toolName}...`;
-    progress.style.display = 'block';
+  on('tool:start', ({ toolName }) => {
+    statusText.textContent = `Running: ${toolName}...`;
+    setShown(progress, true, 'block');
   });
-
-  window.addEventListener('tool:progress', (e: Event) => {
-    const customEvent = e as CustomEvent<{ message: string }>;
-    statusText.textContent = customEvent.detail.message;
+  on('tool:progress', ({ message }) => {
+    statusText.textContent = message;
   });
-
-  window.addEventListener('tool:end', () => {
+  on('tool:end', () => {
     statusText.textContent = 'Ready';
-    progress.style.display = 'none';
+    setShown(progress, false);
   });
 
-  return footer;
+  return h(
+    'footer',
+    { class: 'statusbar' },
+    h('div', { class: 'statusbar__left' }, statusText, progress),
+    h('div', { class: 'statusbar__right' }, backend.el, internet.el, gemini.el),
+  );
 }

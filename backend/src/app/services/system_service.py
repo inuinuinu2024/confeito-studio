@@ -1,3 +1,5 @@
+"""Process lifecycle (called when the last browser tab closes)."""
+
 import os
 import signal
 import subprocess
@@ -5,23 +7,22 @@ import sys
 import threading
 import time
 
+
 def trigger_shutdown(delay: float = 0.5) -> None:
-    """
-    バックエンドサーバーを安全に終了させる。
-    Windowsではプロセスツリー全体を確実に終了させる。
-    """
-    def suicide():
+    """Terminates this server after ``delay`` seconds (whole process tree on Windows)."""
+
+    def terminate() -> None:
         time.sleep(delay)
         pid = os.getpid()
         if sys.platform == "win32":
             try:
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True)
                 return
-            except Exception:
+            except OSError:
                 pass
         try:
             os.kill(pid, signal.SIGTERM)
-        except Exception:
+        except OSError:
             pass
 
-    threading.Thread(target=suicide, daemon=True).start()
+    threading.Thread(target=terminate, daemon=True).start()

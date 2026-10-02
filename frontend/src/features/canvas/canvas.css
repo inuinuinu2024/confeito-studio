@@ -1,0 +1,294 @@
+/* ── Canvas area (Canvas.ts) ──────────────────────────────── */
+.canvas-area {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #000000;
+}
+
+/* Floating toolbar (toolbars.ts): Compare / Overlay option groups */
+.canvas-toolbar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 12px;
+  transform: translateX(-50%);
+  background: var(--color-surface-container);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-full);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.canvas-toolbar__compare {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.canvas-toolbar__compare-label {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--color-on-surface-variant);
+  transition: color 150ms ease;
+}
+
+.canvas-toolbar__spacer {
+  width: 16px;
+}
+
+.canvas-toolbar__swatches {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.canvas-toolbar__swatch {
+  width: 18px;
+  height: 18px;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.canvas-toolbar__swatch--active {
+  border-color: var(--color-on-surface);
+}
+
+.canvas-toolbar input.canvas-toolbar__opacity {
+  width: 100px;
+  margin-left: 4px;
+  cursor: pointer;
+}
+
+.canvas-toolbar__opacity-value {
+  min-width: 32px;
+  margin-left: 4px;
+}
+
+.canvas-toolbar__reset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 16px;
+  border-radius: 4px;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+  transition:
+    background-color 0.1s ease,
+    color 0.1s ease;
+}
+
+.canvas-toolbar__reset:hover {
+  background-color: var(--color-surface-container-highest);
+  color: var(--color-on-surface);
+}
+
+/* Zoom bar (zoom.ts) */
+.canvas-zoom-bar {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: var(--color-surface-container);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-full);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.canvas-zoom-bar button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--color-on-surface);
+  font-size: 16px;
+  transition: background-color 150ms ease;
+}
+
+.canvas-zoom-bar button:hover {
+  background: var(--color-surface-container-highest);
+}
+
+.canvas-zoom-bar__label {
+  min-width: 40px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--color-on-surface);
+  text-align: right;
+  user-select: none;
+}
+
+.canvas-zoom-bar input[type='range'] {
+  width: 100px;
+  cursor: pointer;
+}
+
+/* Scroll area > inner (sized by zoom.ts) > two panes */
+.canvas-split {
+  position: relative;
+  display: flex;
+  flex: 1;
+  padding: 32px;
+  overflow: auto;
+}
+
+.canvas-split__inner {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  width: 100%;
+  height: 100%;
+  margin: auto;
+}
+
+.canvas-split__panel {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  overflow: hidden;
+}
+
+.canvas-split__content-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform-origin: center center;
+  transition: transform 0.1s ease-out;
+}
+
+.canvas-split__canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Compare slider (wipe): both panes stacked, the front one clipped at the divider */
+.canvas-split__inner--slider .canvas-split__panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  flex: none;
+  width: 100%;
+  height: 100%;
+}
+
+.canvas-split__inner--slider .canvas-split__panel--front {
+  z-index: 2;
+}
+
+.canvas-split__divider {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2px;
+  height: 100%;
+  background: var(--color-primary);
+  cursor: col-resize;
+}
+
+.canvas-split__inner--slider .canvas-split__divider {
+  position: absolute;
+  z-index: 3;
+}
+
+.canvas-split__divider:hover {
+  width: 4px;
+}
+
+.canvas-split__divider--vertical {
+  width: 100% !important;
+  height: 2px !important;
+  cursor: row-resize !important;
+}
+
+.canvas-split__divider--vertical:hover {
+  height: 4px !important;
+}
+
+.canvas-split__divider-handle {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--color-surface);
+  border: 2px solid var(--color-primary);
+  border-radius: 50%;
+}
+
+.canvas-split__divider-handle .material-symbols-outlined {
+  font-size: 14px;
+}
+
+/* Text / JSON preview of archive files */
+.canvas-text-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  display: none;
+  width: 100%;
+  height: 100%;
+  padding: 20px;
+  overflow: auto;
+  background-color: var(--color-surface-container);
+  color: var(--color-on-surface);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  cursor: text;
+}
+
+.canvas-text-overlay::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.canvas-text-overlay::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.canvas-text-overlay::-webkit-scrollbar-thumb {
+  background: var(--color-outline-variant);
+  border-radius: 4px;
+}
+
+.canvas-text-overlay::-webkit-scrollbar-thumb:hover {
+  background: var(--color-on-surface-variant);
+}
+
+.canvas-text-overlay::selection {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+}

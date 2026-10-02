@@ -1,1990 +1,527 @@
 /**
- * Canvas — Central workspace with split compare view and floating toolbar.
+ * Canvas — the central viewing area: two panes (left/right) holding one <canvas> and one
+ * text overlay each, the zoom bar, and the floating Compare / Overlay toolbars.
+ *
+ * Inputs (events):  archive:item-selected(:right), archive:selection-cleared(:right),
+ *                   archive:batch-selected, overlay:underdrawing-selected(:right),
+ *                   <mode>-mode:toggle, document:loaded/closed/redraw, canvas:bg-color
+ * Drawing:          render.ts (from CanvasState in canvas-state.ts)
+ * Zoom:             zoom.ts
+ * Image files dropped on the area are imported with the image loader tool.
  */
-import { icon } from '../../shared/utils/dom';
-import { extractArchiveFile } from '../../shared/utils/archives';
-import { showToast } from '../../shared/utils/toast';
+import './canvas.css';
+import { fetchArchiveKey } from '../../shared/api/archives';
+import { IMAGE_FILE_PATTERN, TEXT_FILE_PATTERN } from '../../shared/config';
+import { emit, on } from '../../shared/events';
+import { h, icon, setShown } from '../../shared/ui/dom';
+import { showToast } from '../../shared/ui/toast';
+import { blobToCanvas } from '../../shared/utils/image';
 import { DocumentManager } from '../document/DocumentManager';
 import { importImageFile } from '../tools/image-loader';
+import { type BatchImage, contentSize, createCanvasState, isTextActive, type Side } from './canvas-state';
+import { batchGridSize, renderSide, topImageRect } from './render';
+import { createCompareToolbar, createOverlayToolbar } from './toolbars';
+import { createZoomController } from './zoom';
+
+const isTextBlob = (name: string, blob: Blob) =>
+  TEXT_FILE_PATTERN.test(name) || blob.type.startsWith('text/') || blob.type === 'application/json';
 
 export function createCanvas(): HTMLElement {
-  const main = document.createElement('main');
-  main.className = 'canvas-area';
+  const state = createCanvasState();
+  const canvases: Record<Side, HTMLCanvasElement | null> = { left: null, right: null };
 
-  // Variables for layer preview
-  let currentSourceCanvas: HTMLCanvasElement | null = null;
-  let currentResultCanvas: HTMLCanvasElement | null = null;
-  let psdWidth = 0;
-  let psdHeight = 0;
-  let canvasDrawWidth = 0;
-  let canvasDrawHeight = 0;
-  let currentPsd: any = null;
-  let currentImage: HTMLCanvasElement | HTMLImageElement | null = null;
+  // ── DOM ──
+  const main = h('main', { class: 'canvas-area' });
+  const panels = {
+    left: h('div', { class: 'canvas-split__panel' }),
+    right: h('div', { class: 'canvas-split__panel' }),
+  };
+  const wrappers = {
+    left: h('div', { class: 'canvas-split__content-wrapper' }),
+    right: h('div', { class: 'canvas-split__content-wrapper' }),
+  };
+  const textOverlays = {
+    left: h('div', { class: 'canvas-text-overlay' }),
+    right: h('div', { class: 'canvas-text-overlay' }),
+  };
+  const divider = h(
+    'div',
+    { class: 'canvas-split__divider' },
+    h('div', { class: 'canvas-split__divider-handle' }, icon('drag_indicator', 14)),
+  );
+  const inner = h('div', { class: 'canvas-split__inner' }, panels.left, divider, panels.right);
+  const scrollArea = h('div', { class: 'canvas-split' }, inner);
+  panels.left.append(wrappers.left);
+  panels.right.append(wrappers.right);
 
-  let leftSelectedLayer: any = null;
-  let rightSelectedLayer: any = null;
+  const zoom = createZoomController(state, scrollArea, inner);
 
-  let leftHiddenLayers = new Set<any>();
-  let rightHiddenLayers = new Set<any>();
-
-  let isBatchMode = false;
-  let batchImages: { key: string, name: string, blob: Blob | null, canvas: HTMLCanvasElement | null }[] = [];
-
-  // Drag and drop image files directly onto canvas
-  main.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  const compareToolbar = createCompareToolbar({
+    onSlider: () => {
+      if (!state.slider && !state.compare) return; // the slider compares the two Compare-mode panes
+      state.slider = !state.slider;
+      if (!state.slider) resetSliderOptions();
+      compareToolbar.slider.set(state.slider);
+      updateLayout();
+    },
+    onVertical: () => {
+      state.vertical = !state.vertical;
+      compareToolbar.vertical.set(state.vertical);
+      updateLayout();
+    },
+    onFlip: () => {
+      state.flipped = !state.flipped;
+      compareToolbar.flip.set(state.flipped);
+      updateLayout();
+    },
   });
+  const overlayToolbar = createOverlayToolbar({
+    initialTint: state.tint,
+    onTint: tint => {
+      state.tint = tint;
+      redraw();
+    },
+    onOpacity: percent => {
+      state.topOpacity = percent;
+      redraw();
+    },
+    onResetPosition: () => {
+      state.sides.left.topOffset = { x: 0, y: 0 };
+      state.sides.right.topOffset = { x: 0, y: 0 };
+      redraw();
+    },
+  });
+  setShown(overlayToolbar, false);
+  const toolbar = h('div', { class: 'canvas-toolbar' }, compareToolbar.el, overlayToolbar);
+  main.append(toolbar, zoom.bar, scrollArea);
 
-  main.addEventListener('drop', async (e) => {
-    e.preventDefault();
-    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      if (file.type.startsWith('image/') || file.name.match(/\.(png|jpe?g|webp|bmp|gif)$/i)) {
-        await importImageFile(file);
-      } else {
-        showToast('画像ファイル（PNG/JPG/WebP/BMP/GIF）をドロップしてください', 'error');
+  // ── Rendering ──
+  function redraw(): void {
+    for (const side of ['left', 'right'] as const) {
+      const ctx = canvases[side]?.getContext('2d');
+      if (ctx) renderSide(ctx, state, side);
+    }
+    updateTooltips();
+  }
+
+  function updateTooltips(): void {
+    if (!canvases.left || !canvases.right) return;
+    const size = (img: HTMLCanvasElement | null) => (img ? `${img.width} x ${img.height}px` : null);
+    const fallback = `${state.drawW} x ${state.drawH}px`;
+    const { left, right } = state.sides;
+    canvases.left.title = (!state.overlay && state.compare && size(left.image)) || fallback;
+    canvases.right.title = (!state.overlay && state.compare ? size(right.image) : size(left.image)) || fallback;
+  }
+
+  /** (Re)creates both canvases when the base size changes. */
+  function initializeCanvases(width: number, height: number): void {
+    if (canvases.left && canvases.right && state.baseW === width && state.baseH === height) return;
+    state.baseW = state.drawW = width;
+    state.baseH = state.drawH = height;
+    for (const side of ['left', 'right'] as const) {
+      const canvas = h('canvas', { class: 'canvas-split__canvas', width, height, title: `${width} x ${height}px` });
+      canvases[side] = canvas;
+      const ctx = canvas.getContext('2d');
+      if (ctx) renderSide(ctx, state, side);
+      wrappers[side].replaceChildren(canvas, textOverlays[side]);
+      panels[side].replaceChildren(wrappers[side]);
+    }
+    updateTooltips();
+  }
+
+  /** Resizes the canvases to the content of the current mode and re-applies the zoom. */
+  function updateDrawSize(fit: boolean): void {
+    if (!state.compare && !state.slider && state.sides.left.text) {
+      zoom.fitToScreen();
+      return;
+    }
+    const { w, h: height } = contentSize(state);
+    if (!w || !height) return;
+    const sizeChanged = state.drawW !== w || state.drawH !== height;
+    state.drawW = w;
+    state.drawH = height;
+    if (!canvases.left || !canvases.right) {
+      initializeCanvases(w, height);
+    } else {
+      for (const canvas of [canvases.left, canvases.right]) {
+        if (canvas.width !== w || canvas.height !== height) {
+          canvas.width = w;
+          canvas.height = height;
+        }
       }
     }
-  });
+    if (fit) zoom.fitToScreen();
+    else if (sizeChanged) zoom.resetTo100();
+    else zoom.apply(state.zoom, undefined, undefined, true);
+    updateTooltips();
+  }
 
-  // ── Floating Canvas Toolbar ──
-  const toolbar = document.createElement('div');
-  toolbar.className = 'canvas-toolbar';
+  function setText(side: Side, text: string | null): void {
+    state.sides[side].text = text !== null;
+    if (text !== null) textOverlays[side].textContent = text;
+    textOverlays[side].style.display = text !== null ? 'block' : 'none';
+  }
 
-  const compareGroup = document.createElement('div');
-  compareGroup.className = 'canvas-toolbar__compare';
+  function resetSliderOptions(): void {
+    state.slider = state.vertical = state.flipped = false;
+    compareToolbar.slider.set(false);
+    compareToolbar.vertical.set(false);
+    compareToolbar.flip.set(false);
+  }
 
-  // Hidden until slider mode is ON
-  compareGroup.style.display = 'none';
-
-  let isSliderMode = false;
-
-  const sliderLabel = document.createElement('span');
-  sliderLabel.className = 'canvas-toolbar__compare-label';
-  sliderLabel.textContent = 'Slider';
-  compareGroup.appendChild(sliderLabel);
-
-  const sliderToggle = document.createElement('div');
-  sliderToggle.className = 'toggle toggle--off';
-  const sliderKnob = document.createElement('div');
-  sliderKnob.className = 'toggle__knob';
-  sliderToggle.appendChild(sliderKnob);
-
-  sliderToggle.addEventListener('click', () => {
-    if (!isSliderMode) {
-      if (!checkSliderModeValidity(true)) return;
+  /** The slider (wipe) view only exists in Compare mode. */
+  function ensureSliderValid(): void {
+    if (state.slider && !state.compare) {
+      resetSliderOptions();
+      updateLayout();
     }
-    isSliderMode = !isSliderMode;
-    sliderToggle.classList.toggle('toggle--on', isSliderMode);
-    sliderToggle.classList.toggle('toggle--off', !isSliderMode);
-    
-    if (!isSliderMode) {
-      isVerticalSplit = false;
-      switchToggle.classList.remove('toggle--on');
-      switchToggle.classList.add('toggle--off');
-      
-      isFlipped = false;
-      reverseToggle.classList.remove('toggle--on');
-      reverseToggle.classList.add('toggle--off');
+  }
+
+  function updateLayout(): void {
+    const textActive = isTextActive(state);
+    setShown(zoom.bar, !state.batch && !textActive, 'flex');
+    if (textActive) Object.assign(inner.style, { width: '100%', height: '100%', margin: '0' });
+    else zoom.apply(state.zoom, undefined, undefined, true);
+
+    if (state.compare) {
+      wrappers.left.append(textOverlays.left);
+      wrappers.right.append(textOverlays.right);
+    } else {
+      wrappers.left.append(textOverlays.left);
     }
-    
-    updateCanvasLayout();
-  });
-  
-  compareGroup.appendChild(sliderToggle);
 
-  const sliderSpacer = document.createElement('div');
-  sliderSpacer.style.width = '16px';
-  compareGroup.appendChild(sliderSpacer);
+    setShown(compareToolbar.el, state.compare, 'flex');
+    setShown(toolbar, state.compare || state.overlay, 'flex');
+    compareToolbar.showSliderOptions(state.slider);
 
-  const switchLabel = document.createElement('span');
-  switchLabel.className = 'canvas-toolbar__compare-label';
-  switchLabel.textContent = 'Transpose';
-  compareGroup.appendChild(switchLabel);
+    const twoPanes = state.compare || state.slider;
+    panels.right.style.display = twoPanes ? '' : 'none';
+    divider.style.display = state.slider ? 'flex' : 'none';
+    inner.style.gap = twoPanes && !state.slider ? '16px' : '0';
+    inner.classList.toggle('canvas-split__inner--slider', state.slider);
+    divider.classList.toggle('canvas-split__divider--vertical', state.slider && state.vertical);
 
-  let isGlobalCompareMode = false;
-  let isVerticalSplit = false;
-
-  const switchToggle = document.createElement('div');
-  switchToggle.className = 'toggle toggle--off';
-  const switchKnob = document.createElement('div');
-  switchKnob.className = 'toggle__knob';
-  switchToggle.appendChild(switchKnob);
-  
-  switchToggle.addEventListener('click', () => {
-    isVerticalSplit = !isVerticalSplit;
-    switchToggle.classList.toggle('toggle--on', isVerticalSplit);
-    switchToggle.classList.toggle('toggle--off', !isVerticalSplit);
-    updateCanvasLayout();
-  });
-  
-  compareGroup.appendChild(switchToggle);
-
-  // Spacer
-  const spacer = document.createElement('div');
-  spacer.style.width = '16px';
-  compareGroup.appendChild(spacer);
-
-  let isFlipped = false;
-
-  const reverseLabel = document.createElement('span');
-  reverseLabel.className = 'canvas-toolbar__compare-label';
-  reverseLabel.textContent = 'Flip';
-  compareGroup.appendChild(reverseLabel);
-
-  const reverseToggle = document.createElement('div');
-  reverseToggle.className = 'toggle toggle--off';
-  const reverseKnob = document.createElement('div');
-  reverseKnob.className = 'toggle__knob';
-  reverseToggle.appendChild(reverseKnob);
-  
-  reverseToggle.addEventListener('click', () => {
-    isFlipped = !isFlipped;
-    reverseToggle.classList.toggle('toggle--on', isFlipped);
-    reverseToggle.classList.toggle('toggle--off', !isFlipped);
-    updateCanvasLayout();
-  });
-
-  compareGroup.appendChild(reverseToggle);
-
-  toolbar.appendChild(compareGroup);
-
-  // ── Overlay Mode Toolbar ──
-  const overlayGroup = document.createElement('div');
-  overlayGroup.className = 'canvas-toolbar__compare';
-  overlayGroup.style.display = 'none'; // Hidden until overlay mode is ON
-
-  const underdrawingLabel = document.createElement('span');
-  underdrawingLabel.className = 'canvas-toolbar__compare-label';
-  underdrawingLabel.textContent = 'Underdrawing';
-  overlayGroup.appendChild(underdrawingLabel);
-
-  let currentUnderdrawingColor: string | null = 'blue';
-  
-  const underdrawingColorGroup = document.createElement('div');
-  underdrawingColorGroup.style.display = 'flex';
-  underdrawingColorGroup.style.gap = '8px';
-  underdrawingColorGroup.style.alignItems = 'center';
-
-  const colors = [
-    { id: 'blue', hex: '#448aff' },
-    { id: 'green', hex: '#4caf50' },
-    { id: 'red', hex: '#ff5252' },
-    { id: 'gray', hex: '#9e9e9e' }
-  ];
-  
-  const colorBtns: HTMLDivElement[] = [];
-
-  colors.forEach(c => {
-    const btn = document.createElement('div');
-    btn.style.width = '18px';
-    btn.style.height = '18px';
-    btn.style.backgroundColor = c.hex;
-    btn.style.border = '2px solid transparent';
-    btn.style.borderRadius = '4px';
-    btn.style.cursor = 'pointer';
-    btn.style.boxSizing = 'border-box';
-    if (currentUnderdrawingColor === c.id) {
-      btn.style.borderColor = 'var(--color-on-surface)';
-    }
-    
-    btn.addEventListener('click', () => {
-      if (currentUnderdrawingColor === c.id) {
-        currentUnderdrawingColor = null;
-      } else {
-        currentUnderdrawingColor = c.id;
+    if (state.slider) {
+      const front = state.flipped ? panels.right : panels.left;
+      const back = state.flipped ? panels.left : panels.right;
+      front.classList.add('canvas-split__panel--front');
+      back.classList.remove('canvas-split__panel--front');
+      back.style.clipPath = 'none';
+      applySplit(front);
+    } else {
+      for (const panel of [panels.left, panels.right]) {
+        panel.classList.remove('canvas-split__panel--front');
+        panel.style.clipPath = 'none';
       }
-      
-      colorBtns.forEach((b, idx) => {
-        b.style.borderColor = (currentUnderdrawingColor === colors[idx].id) 
-          ? 'var(--color-on-surface)' 
-          : 'transparent';
+      Object.assign(divider.style, { top: '', bottom: '', left: '', right: '', transform: '' });
+    }
+  }
+
+  /** Clips the front pane at state.splitPct and moves the divider there. */
+  function applySplit(front: HTMLElement): void {
+    const pct = state.splitPct;
+    if (state.vertical) {
+      front.style.clipPath = `polygon(0 0, 100% 0, 100% ${pct}%, 0 ${pct}%)`;
+      Object.assign(divider.style, {
+        top: `${pct}%`,
+        bottom: 'auto',
+        left: '0',
+        right: '0',
+        transform: 'translateY(-50%)',
       });
-      
-      window.dispatchEvent(new CustomEvent('overlay:underdrawing-color', { detail: { color: currentUnderdrawingColor } }));
-      window.dispatchEvent(new Event('document:redraw'));
-    });
-    
-    colorBtns.push(btn);
-    underdrawingColorGroup.appendChild(btn);
+    } else {
+      front.style.clipPath = `polygon(0 0, ${pct}% 0, ${pct}% 100%, 0 100%)`;
+      Object.assign(divider.style, {
+        top: '0',
+        bottom: '0',
+        left: `${pct}%`,
+        right: 'auto',
+        transform: 'translateX(-50%)',
+      });
+    }
+  }
+
+  // ── Pointer interaction: pan, slider divider, Overlay T drag/select ──
+  let pan: { x: number; y: number; scrollLeft: number; scrollTop: number } | null = null;
+  let draggingDivider = false;
+  let topDrag: { side: Side; x: number; y: number; offsetX: number; offsetY: number } | null = null;
+
+  /** Side under the pointer and the pointer position in canvas pixels (Overlay mode hit testing). */
+  const canvasPoint = (e: MouseEvent) => {
+    const side: Side =
+      !state.compare || (e.target as HTMLElement).closest('.canvas-split__panel') === panels.left ? 'left' : 'right';
+    const canvas = canvases[side];
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const scale = Math.min(rect.width / state.drawW, rect.height / state.drawH);
+    return {
+      side,
+      scale,
+      x: (e.clientX - rect.left - (rect.width - state.drawW * scale) / 2) / scale,
+      y: (e.clientY - rect.top - (rect.height - state.drawH * scale) / 2) / scale,
+    };
+  };
+  const hitsTop = (side: Side, x: number, y: number) => {
+    const r = topImageRect(state, side);
+    return !!r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+  };
+  const isControl = (target: EventTarget | null) =>
+    !!(target as HTMLElement).closest('.canvas-split__divider, .canvas-toolbar, .canvas-zoom-bar');
+
+  scrollArea.addEventListener('mousedown', e => {
+    if (isControl(e.target) || (e.target as HTMLElement).closest('.canvas-text-overlay')) return;
+    if (state.overlay) {
+      const p = canvasPoint(e);
+      const me = p && state.sides[p.side];
+      if (p && me?.image && me.topSelected) {
+        if (hitsTop(p.side, p.x, p.y)) {
+          topDrag = { side: p.side, x: e.clientX, y: e.clientY, offsetX: me.topOffset.x, offsetY: me.topOffset.y };
+          document.body.style.cursor = 'move';
+          return;
+        }
+        me.topSelected = false; // clicking outside T deselects it
+        redraw();
+      }
+    }
+    pan = { x: e.clientX, y: e.clientY, scrollLeft: scrollArea.scrollLeft, scrollTop: scrollArea.scrollTop };
+    document.body.style.cursor = 'grabbing';
+    inner.style.transition = 'none';
   });
-  
-  overlayGroup.appendChild(underdrawingColorGroup);
 
-  // Spacer
-  const overlaySpacer = document.createElement('div');
-  overlaySpacer.style.width = '16px';
-  overlayGroup.appendChild(overlaySpacer);
-
-  const topLabel = document.createElement('span');
-  topLabel.className = 'canvas-toolbar__compare-label';
-  topLabel.textContent = 'Top';
-  overlayGroup.appendChild(topLabel);
-
-  let topOpacity = 50;
-  const topSlider = document.createElement('input');
-  topSlider.type = 'range';
-  topSlider.min = '0';
-  topSlider.max = '100';
-  topSlider.value = '50';
-  topSlider.style.width = '100px';
-  topSlider.style.cursor = 'pointer';
-  topSlider.style.marginLeft = '4px';
-
-  const opacityValueLabel = document.createElement('span');
-  opacityValueLabel.className = 'canvas-toolbar__compare-label';
-  opacityValueLabel.style.marginLeft = '4px';
-  opacityValueLabel.style.minWidth = '32px';
-  opacityValueLabel.textContent = '50%';
-  
-  topSlider.addEventListener('input', (e) => {
-    topOpacity = parseInt((e.target as HTMLInputElement).value, 10);
-    opacityValueLabel.textContent = `${topOpacity}%`;
-    window.dispatchEvent(new CustomEvent('overlay:top-opacity', { detail: { opacity: topOpacity } }));
-    window.dispatchEvent(new Event('document:redraw'));
+  scrollArea.addEventListener('dblclick', e => {
+    if (!state.overlay || isControl(e.target)) return;
+    const p = canvasPoint(e);
+    if (p && hitsTop(p.side, p.x, p.y)) {
+      state.sides[p.side].topSelected = !state.sides[p.side].topSelected;
+      redraw();
+    }
   });
-  
-  overlayGroup.appendChild(topSlider);
-  overlayGroup.appendChild(opacityValueLabel);
 
-  const resetBtn = document.createElement('div');
-  resetBtn.style.marginLeft = '16px';
-  resetBtn.style.cursor = 'pointer';
-  resetBtn.style.display = 'flex';
-  resetBtn.style.alignItems = 'center';
-  resetBtn.style.justifyContent = 'center';
-  resetBtn.style.width = '24px';
-  resetBtn.style.height = '24px';
-  resetBtn.style.borderRadius = '4px';
-  resetBtn.style.color = 'var(--color-on-surface-variant)';
-  resetBtn.style.transition = 'background-color 0.1s ease, color 0.1s ease';
-  resetBtn.appendChild(icon('home', 18));
-  
-  resetBtn.addEventListener('mouseenter', () => {
-    resetBtn.style.backgroundColor = 'var(--color-surface-container-highest)';
-    resetBtn.style.color = 'var(--color-on-surface)';
-  });
-  resetBtn.addEventListener('mouseleave', () => {
-    resetBtn.style.backgroundColor = 'transparent';
-    resetBtn.style.color = 'var(--color-on-surface-variant)';
-  });
-  
-  resetBtn.addEventListener('click', () => {
-    leftOverlayTopOffsetX = 0;
-    leftOverlayTopOffsetY = 0;
-    rightOverlayTopOffsetX = 0;
-    rightOverlayTopOffsetY = 0;
-    window.dispatchEvent(new Event('document:redraw'));
-  });
-  
-  overlayGroup.appendChild(resetBtn);
-
-  toolbar.appendChild(overlayGroup);
-  main.appendChild(toolbar);
-
-  // ── Split View ──
-  const splitView = document.createElement('div');
-  splitView.className = 'canvas-split';
-  splitView.style.overflow = 'auto';
-
-  // Source panel
-  const sourcePanel = document.createElement('div');
-  sourcePanel.className = 'canvas-split__panel';
-  sourcePanel.style.backgroundImage = 'none';
-  sourcePanel.style.backgroundSize = 'contain';
-  sourcePanel.style.backgroundPosition = 'center';
-  sourcePanel.style.backgroundRepeat = 'no-repeat';
-
-
-
-  // Divider
-  const splitDivider = document.createElement('div');
-  splitDivider.className = 'canvas-split__divider';
-  const handle = document.createElement('div');
-  handle.className = 'canvas-split__divider-handle';
-  handle.appendChild(icon('drag_indicator', 14));
-  splitDivider.appendChild(handle);
-  splitDivider.appendChild(handle);
-
-  // Draggable divider logic
-  let isDragging = false;
-  splitDivider.addEventListener('mousedown', () => {
-    isDragging = true;
+  divider.addEventListener('mousedown', () => {
+    draggingDivider = true;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   });
-  document.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-    const rect = splitViewInner.getBoundingClientRect();
-    const leftPanel = isFlipped ? resultPanel : sourcePanel;
-    const rightPanel = isFlipped ? sourcePanel : resultPanel;
-    const frontPanel = leftPanel;
-    
-    if (isVerticalSplit) {
-      const y = e.clientY - rect.top;
-      splitPct = Math.max(0, Math.min(100, (y / rect.height) * 100));
-      frontPanel.style.clipPath = `polygon(0 0, 100% 0, 100% ${splitPct}%, 0 ${splitPct}%)`;
-      splitDivider.style.top = `${splitPct}%`;
-    } else {
-      const x = e.clientX - rect.left;
-      splitPct = Math.max(0, Math.min(100, (x / rect.width) * 100));
-      frontPanel.style.clipPath = `polygon(0 0, ${splitPct}% 0, ${splitPct}% 100%, 0 100%)`;
-      splitDivider.style.left = `${splitPct}%`;
+
+  window.addEventListener('mousemove', e => {
+    if (draggingDivider) {
+      const rect = inner.getBoundingClientRect();
+      const pos = state.vertical ? (e.clientY - rect.top) / rect.height : (e.clientX - rect.left) / rect.width;
+      state.splitPct = Math.max(0, Math.min(100, pos * 100));
+      applySplit(state.flipped ? panels.right : panels.left);
     }
-  });
-  document.addEventListener('mouseup', () => {
-    if (isDragging) {
-      isDragging = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+    if (pan) {
+      scrollArea.scrollLeft = pan.scrollLeft + (pan.x - e.clientX);
+      scrollArea.scrollTop = pan.scrollTop + (pan.y - e.clientY);
     }
-  });
-
-  // AI Result panel
-  const resultPanel = document.createElement('div');
-  resultPanel.className = 'canvas-split__panel';
-  resultPanel.style.backgroundImage = 'none';
-  resultPanel.style.backgroundSize = 'contain';
-  resultPanel.style.backgroundPosition = 'center';
-  resultPanel.style.backgroundRepeat = 'no-repeat';
-
-  // Inner container to avoid padding issues with absolute positioning
-  const splitViewInner = document.createElement('div');
-  splitViewInner.style.flexShrink = '0';
-  splitViewInner.style.display = 'flex';
-  splitViewInner.style.position = 'relative';
-  splitViewInner.style.width = '100%';
-  splitViewInner.style.height = '100%';
-  splitViewInner.style.margin = 'auto';
-  
-  const sourceContentWrapper = document.createElement('div');
-  sourceContentWrapper.className = 'canvas-split__content-wrapper';
-  sourcePanel.appendChild(sourceContentWrapper);
-
-  const resultContentWrapper = document.createElement('div');
-  resultContentWrapper.className = 'canvas-split__content-wrapper';
-  resultPanel.appendChild(resultContentWrapper);
-
-  splitViewInner.appendChild(sourcePanel);
-  splitViewInner.appendChild(splitDivider);
-  splitViewInner.appendChild(resultPanel);
-
-  splitView.appendChild(splitViewInner);
-
-  // ── Zoom & Pan ──
-  let currentZoom = 100;
-
-  let isPanning = false;
-  let panStartX = 0;
-  let panStartY = 0;
-  let panInitialX = 0;
-  let panInitialY = 0;
-  let leftIsOverlayTopSelected = false;
-  let rightIsOverlayTopSelected = false;
-
-  window.addEventListener('mousemove', (e) => {
-    if (isPanning) {
-      const dx = panStartX - e.clientX;
-      const dy = panStartY - e.clientY;
-      splitView.scrollLeft = panInitialX + dx;
-      splitView.scrollTop = panInitialY + dy;
-    }
-  });
-
-  window.addEventListener('mouseup', () => {
-    if (isPanning) {
-      isPanning = false;
-      document.body.style.cursor = '';
-    }
-  });
-
-  // ── Text Overlays (JSON, TXT, MD preview) ──
-  const leftTextOverlay = document.createElement('div');
-  const rightTextOverlay = document.createElement('div');
-
-  function styleTextOverlay(overlay: HTMLDivElement) {
-    overlay.className = 'canvas-text-overlay';
-    overlay.style.position = 'absolute';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.width = '100%';
-    overlay.style.height = '100%';
-    overlay.style.zIndex = '2';
-    overlay.style.backgroundColor = 'var(--color-surface-container)';
-    overlay.style.color = 'var(--color-on-surface)';
-    overlay.style.padding = '20px';
-    overlay.style.overflow = 'auto';
-    overlay.style.whiteSpace = 'pre-wrap';
-    overlay.style.wordBreak = 'break-word';
-    overlay.style.fontFamily = 'Consolas, Monaco, "Courier New", monospace';
-    overlay.style.fontSize = '13px';
-    overlay.style.lineHeight = '1.6';
-    overlay.style.boxSizing = 'border-box';
-    overlay.style.borderRadius = '8px';
-    overlay.style.border = '1px solid var(--color-outline-variant)';
-    overlay.style.display = 'none';
-    overlay.style.userSelect = 'text';
-    overlay.style.cursor = 'text';
-  }
-
-  styleTextOverlay(leftTextOverlay);
-  styleTextOverlay(rightTextOverlay);
-
-  function isTextActive(): boolean {
-    if (isGlobalCompareMode) {
-      return leftTextOverlay.style.display === 'block' || rightTextOverlay.style.display === 'block';
-    }
-    return leftTextOverlay.style.display === 'block';
-  }
-
-  const zoomBar = document.createElement('div');
-  zoomBar.className = 'canvas-zoom-bar';
-  
-  const zoomOutBtn = document.createElement('button');
-  zoomOutBtn.textContent = '-';
-  zoomOutBtn.title = 'Zoom Out';
-  
-  const zoomSlider = document.createElement('input');
-  zoomSlider.type = 'range';
-  zoomSlider.min = '10';
-  zoomSlider.max = '1000';
-  zoomSlider.value = '100';
-  
-  const zoomInBtn = document.createElement('button');
-  zoomInBtn.textContent = '+';
-  zoomInBtn.title = 'Zoom In';
-
-  const zoomLabel = document.createElement('span');
-  zoomLabel.className = 'canvas-zoom-bar__label';
-  zoomLabel.textContent = '100%';
-
-  function resetTo100Percent() {
-    if (isTextActive()) {
-      splitViewInner.style.width = '100%';
-      splitViewInner.style.height = '100%';
-      splitViewInner.style.marginTop = '0';
-      splitViewInner.style.marginBottom = '0';
-      splitViewInner.style.marginLeft = '0';
-      splitViewInner.style.marginRight = '0';
-      splitView.scrollLeft = 0;
-      splitView.scrollTop = 0;
-      return;
-    }
-
-    const oldZoom = currentZoom;
-    currentZoom = 100;
-    updateZoom(oldZoom, undefined, undefined, true);
-
-    setTimeout(() => {
-      splitView.scrollLeft = Math.max(0, (splitView.scrollWidth - splitView.clientWidth) / 2);
-      splitView.scrollTop = 0;
-    }, 0);
-  }
-
-  const resetZoomBtn = document.createElement('button');
-  resetZoomBtn.appendChild(icon('home', 16));
-  resetZoomBtn.style.display = 'flex';
-  resetZoomBtn.style.alignItems = 'center';
-  resetZoomBtn.style.justifyContent = 'center';
-  
-  resetZoomBtn.addEventListener('click', () => {
-    resetTo100Percent();
-  });
-
-  function fitToScreen() {
-    if (isTextActive()) {
-      splitViewInner.style.width = '100%';
-      splitViewInner.style.height = '100%';
-      splitViewInner.style.marginTop = '0';
-      splitViewInner.style.marginBottom = '0';
-      splitViewInner.style.marginLeft = '0';
-      splitViewInner.style.marginRight = '0';
-      splitView.scrollLeft = 0;
-      splitView.scrollTop = 0;
-      return;
-    }
-
-    if (!canvasDrawWidth || !canvasDrawHeight) return;
-    const pad = 64;
-    const availableW = Math.max(1, splitView.clientWidth - pad);
-    const availableH = Math.max(1, splitView.clientHeight - pad);
-    const scale = Math.min(availableW / canvasDrawWidth, availableH / canvasDrawHeight);
-    
-    const fitPct = Math.max(10, Math.min(100, Math.floor(scale * 100)));
-    const oldZoom = currentZoom;
-    currentZoom = fitPct;
-    updateZoom(oldZoom, undefined, undefined, true);
-
-    setTimeout(() => {
-      splitView.scrollLeft = (splitView.scrollWidth - splitView.clientWidth) / 2;
-      splitView.scrollTop = (splitView.scrollHeight - splitView.clientHeight) / 2;
-    }, 0);
-  }
-
-  function updateZoom(oldZoom: number, focusX?: number, focusY?: number, force = false) {
-    if (isTextActive()) {
-      splitViewInner.style.width = '100%';
-      splitViewInner.style.height = '100%';
-      splitViewInner.style.marginTop = '0';
-      splitViewInner.style.marginBottom = '0';
-      splitViewInner.style.marginLeft = '0';
-      splitViewInner.style.marginRight = '0';
-      return;
-    }
-
-    if (oldZoom === currentZoom && !force) return;
-
-    zoomSlider.value = currentZoom.toString();
-    zoomLabel.textContent = `${currentZoom}%`;
-
-    const oldScale = oldZoom / 100;
-    const newScale = currentZoom / 100;
-
-    const innerRect = splitViewInner.getBoundingClientRect();
-    const splitRect = splitView.getBoundingClientRect();
-
-    const cx = focusX !== undefined ? focusX : splitRect.width / 2;
-    const cy = focusY !== undefined ? focusY : splitRect.height / 2;
-    
-    const screenFocusX = splitRect.left + cx;
-    const screenFocusY = splitRect.top + cy;
-    
-    const contentFocusX = screenFocusX - innerRect.left;
-    const contentFocusY = screenFocusY - innerRect.top;
-
-    const ratio = newScale / oldScale;
-
-    if (canvasDrawWidth && canvasDrawHeight) {
-      const pad = 64;
-      const availableW = Math.max(1, splitView.clientWidth - pad);
-      const availableH = Math.max(1, splitView.clientHeight - pad);
-      
-      const baseScale = Math.min(availableW / canvasDrawWidth, availableH / canvasDrawHeight);
-      const renderW = Math.round(canvasDrawWidth * baseScale * newScale);
-      const renderH = Math.round(canvasDrawHeight * baseScale * newScale);
-
-      splitViewInner.style.width = `${renderW}px`;
-      splitViewInner.style.height = `${renderH}px`;
-      
-      splitViewInner.style.marginTop = renderH > splitView.clientHeight ? '0' : 'auto';
-      splitViewInner.style.marginBottom = renderH > splitView.clientHeight ? '0' : 'auto';
-      splitViewInner.style.marginLeft = renderW > splitView.clientWidth ? '0' : 'auto';
-      splitViewInner.style.marginRight = renderW > splitView.clientWidth ? '0' : 'auto';
-    }
-
-    const newContentFocusX = contentFocusX * ratio;
-    const newContentFocusY = contentFocusY * ratio;
-
-    splitView.scrollLeft = newContentFocusX - cx;
-    splitView.scrollTop = newContentFocusY - cy;
-  }
-
-  zoomOutBtn.addEventListener('click', () => {
-    const oldZoom = currentZoom;
-    currentZoom = Math.max(10, currentZoom - 10);
-    updateZoom(oldZoom);
-  });
-
-  zoomInBtn.addEventListener('click', () => {
-    const oldZoom = currentZoom;
-    currentZoom = Math.min(1000, currentZoom + 10);
-    updateZoom(oldZoom);
-  });
-
-  zoomSlider.addEventListener('input', (e) => {
-    const oldZoom = currentZoom;
-    currentZoom = parseInt((e.target as HTMLInputElement).value, 10);
-    updateZoom(oldZoom);
-  });
-  
-  zoomSlider.addEventListener('change', () => {
-  });
-
-  // Enable mouse wheel zooming with Ctrl key
-  main.addEventListener('wheel', (e) => {
-    if (e.ctrlKey) {
-      e.preventDefault();
-      
-      const rect = splitView.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
-      const oldZoom = currentZoom;
-      if (e.deltaY < 0) {
-        currentZoom = Math.min(1000, currentZoom + 10);
-      } else {
-        currentZoom = Math.max(10, currentZoom - 10);
-      }
-      updateZoom(oldZoom, mouseX, mouseY);
-    }
-  }, { passive: false });
-
-  const fitWidthBtn = document.createElement('button');
-  fitWidthBtn.appendChild(icon('fit_screen', 16));
-  fitWidthBtn.title = 'Fit to Screen';
-  fitWidthBtn.style.display = 'flex';
-  fitWidthBtn.style.alignItems = 'center';
-  fitWidthBtn.style.justifyContent = 'center';
-  
-  fitWidthBtn.addEventListener('click', () => {
-    fitToScreen();
-  });
-
-  const fitHeightBtn = document.createElement('button');
-  fitHeightBtn.appendChild(icon('height', 16));
-  fitHeightBtn.title = 'Fit Height';
-  fitHeightBtn.style.display = 'flex';
-  fitHeightBtn.style.alignItems = 'center';
-  fitHeightBtn.style.justifyContent = 'center';
-  
-  fitHeightBtn.addEventListener('click', () => {
-    if (!canvasDrawWidth || !canvasDrawHeight) return;
-    const oldZoom = currentZoom;
-    const pad = 64;
-    const availableW = Math.max(1, splitView.clientWidth - pad);
-    const availableH = Math.max(1, splitView.clientHeight - pad);
-    const baseScale = Math.min(availableW / canvasDrawWidth, availableH / canvasDrawHeight);
-    const fitH = canvasDrawHeight * baseScale;
-    
-    currentZoom = Math.max(10, Math.min(1000, Math.floor(100 * availableH / fitH)));
-    updateZoom(oldZoom, undefined, undefined, true);
-    
-    splitView.scrollLeft = (splitView.scrollWidth - splitView.clientWidth) / 2;
-    splitView.scrollTop = (splitView.scrollHeight - splitView.clientHeight) / 2;
-  });
-
-  zoomBar.appendChild(zoomOutBtn);
-  zoomBar.appendChild(zoomSlider);
-  zoomBar.appendChild(zoomInBtn);
-  zoomBar.appendChild(zoomLabel);
-  zoomBar.appendChild(fitWidthBtn);
-  zoomBar.appendChild(fitHeightBtn);
-  zoomBar.appendChild(resetZoomBtn);
-  main.appendChild(zoomBar);
-
-
-
-  let splitPct = 50;
-
-  let leftCacheCanvas: HTMLCanvasElement | null = null;
-  let rightCacheCanvas: HTMLCanvasElement | null = null;
-
-  let currentBgColor = 'checkerboard'; // Default to Checkerboard
-  let isOverlayMode = false;
-
-  function updateCanvasLayout() {
-    const textActive = isTextActive();
-    if (isBatchMode) {
-      zoomBar.style.display = 'none';
-    } else {
-      zoomBar.style.display = textActive ? 'none' : 'flex';
-    }
-
-    if (textActive) {
-      splitViewInner.style.width = '100%';
-      splitViewInner.style.height = '100%';
-      splitViewInner.style.marginTop = '0';
-      splitViewInner.style.marginBottom = '0';
-      splitViewInner.style.marginLeft = '0';
-      splitViewInner.style.marginRight = '0';
-    } else {
-      updateZoom(currentZoom, undefined, undefined, true);
-    }
-
-    const hasLeftCache = leftCacheCanvas !== null || leftTextOverlay.style.display === 'block';
-    const showTwoPanes = isGlobalCompareMode || isSliderMode;
-
-    if (isGlobalCompareMode) {
-      sourceContentWrapper.appendChild(leftTextOverlay);
-      resultContentWrapper.appendChild(rightTextOverlay);
-    } else if (isSliderMode) {
-      resultContentWrapper.appendChild(leftTextOverlay);
-    } else {
-      sourceContentWrapper.appendChild(leftTextOverlay);
-    }
-
-    compareGroup.style.display = isGlobalCompareMode ? 'flex' : 'none';
-    toolbar.style.display = (isGlobalCompareMode || isOverlayMode) ? 'flex' : 'none';
-    
-    const displayStyle = isSliderMode ? '' : 'none';
-    sliderSpacer.style.display = displayStyle;
-    switchLabel.style.display = displayStyle;
-    switchToggle.style.display = displayStyle;
-    spacer.style.display = displayStyle;
-    reverseLabel.style.display = displayStyle;
-    reverseToggle.style.display = displayStyle;
-    
-    if (showTwoPanes) {
-      resultPanel.style.display = '';
-      
-      if (isSliderMode) {
-        splitDivider.style.display = 'flex';
-        splitViewInner.style.gap = '0';
-        
-        const leftPanel = isFlipped ? resultPanel : sourcePanel;
-        const rightPanel = isFlipped ? sourcePanel : resultPanel;
-        
-        const frontPanel = leftPanel;
-        const backPanel = rightPanel;
-
-        frontPanel.style.flex = 'none';
-        frontPanel.style.position = 'absolute';
-        frontPanel.style.top = '0';
-        frontPanel.style.left = '0';
-        frontPanel.style.width = '100%';
-        frontPanel.style.height = '100%';
-        frontPanel.style.zIndex = '2';
-
-        backPanel.style.flex = 'none';
-        backPanel.style.position = 'absolute';
-        backPanel.style.top = '0';
-        backPanel.style.left = '0';
-        backPanel.style.width = '100%';
-        backPanel.style.height = '100%';
-        backPanel.style.zIndex = '1';
-        backPanel.style.clipPath = 'none';
-
-        splitDivider.style.position = 'absolute';
-        splitDivider.style.zIndex = '3';
-
-        if (isVerticalSplit) {
-          splitDivider.classList.add('canvas-split__divider--vertical');
-          frontPanel.style.clipPath = `polygon(0 0, 100% 0, 100% ${splitPct}%, 0 ${splitPct}%)`;
-          splitDivider.style.top = `${splitPct}%`;
-          splitDivider.style.bottom = 'auto';
-          splitDivider.style.left = '0';
-          splitDivider.style.right = '0';
-          splitDivider.style.transform = 'translateY(-50%)';
-        } else {
-          splitDivider.classList.remove('canvas-split__divider--vertical');
-          frontPanel.style.clipPath = `polygon(0 0, ${splitPct}% 0, ${splitPct}% 100%, 0 100%)`;
-          splitDivider.style.top = '0';
-          splitDivider.style.bottom = '0';
-          splitDivider.style.left = `${splitPct}%`;
-          splitDivider.style.right = 'auto';
-          splitDivider.style.transform = 'translateX(-50%)';
-        }
-        
-      } else {
-        splitDivider.style.display = 'none';
-        splitViewInner.style.gap = '16px';
-        
-        sourcePanel.style.flex = '1';
-        sourcePanel.style.position = 'relative';
-        sourcePanel.style.width = 'auto';
-        sourcePanel.style.height = '100%';
-        sourcePanel.style.zIndex = '';
-        sourcePanel.style.clipPath = 'none';
-        sourcePanel.style.opacity = '1';
-
-        resultPanel.style.flex = '1';
-        resultPanel.style.position = 'relative';
-        resultPanel.style.width = 'auto';
-        resultPanel.style.height = '100%';
-        resultPanel.style.zIndex = '';
-        resultPanel.style.clipPath = 'none';
-        resultPanel.style.opacity = '1';
-      }
-    } else {
-      resultPanel.style.display = 'none';
-      splitDivider.style.display = 'none';
-      splitViewInner.style.gap = '0';
-      
-      sourcePanel.style.flex = '1';
-      sourcePanel.style.position = 'relative';
-      sourcePanel.style.width = 'auto';
-      sourcePanel.style.height = '100%';
-      sourcePanel.style.zIndex = '';
-      sourcePanel.style.clipPath = 'none';
-      sourcePanel.style.opacity = '1';
-    }
-  }
-
-  function checkSliderModeValidity(showToastMsg = false): boolean {
-    if (isGlobalCompareMode) return true;
-
-    if (leftTextOverlay.style.display === 'block') {
-      if (showToastMsg) showToast('テキスト表示中はスライダー比較を利用できません', 'error');
-      return false;
-    }
-
-    const hasCache = leftCacheCanvas;
-    if (!hasCache) {
-      if (showToastMsg) showToast('比較するキャッシュが選択されていません', 'error');
-      return false;
-    }
-
-    let hasVisibleLayer = false;
-    if (currentPsd && currentPsd.children) {
-      const checkVisibility = (node: any) => {
-        if (hasVisibleLayer || leftHiddenLayers.has(node)) return;
-        if (node.children) {
-          for (let i = 0; i < node.children.length; i++) {
-            checkVisibility(node.children[i]);
-          }
-        } else if (node.canvas) {
-          hasVisibleLayer = true;
-        }
-      };
-      for (let i = 0; i < currentPsd.children.length; i++) {
-        checkVisibility(currentPsd.children[i]);
-      }
-    }
-
-    if (!hasVisibleLayer) {
-      if (showToastMsg) showToast('比較するレイヤーがありません', 'error');
-      return false;
-    }
-
-    return true;
-  }
-
-  function ensureSliderModeValid() {
-    if (isSliderMode && !checkSliderModeValidity(false)) {
-      isSliderMode = false;
-      sliderToggle.classList.remove('toggle--on');
-      sliderToggle.classList.add('toggle--off');
-      
-      isVerticalSplit = false;
-      switchToggle.classList.remove('toggle--on');
-      switchToggle.classList.add('toggle--off');
-      
-      isFlipped = false;
-      reverseToggle.classList.remove('toggle--on');
-      reverseToggle.classList.add('toggle--off');
-      
-      updateCanvasLayout();
-    }
-  }
-
-  window.addEventListener('compare-mode:toggle', (e: Event) => {
-    const isCompareMode = (e as CustomEvent).detail.enabled;
-    isGlobalCompareMode = isCompareMode;
-
-    if (isGlobalCompareMode) {
-      rightSelectedLayer = leftSelectedLayer;
-      rightHiddenLayers = new Set(leftHiddenLayers);
-      rightCacheCanvas = leftCacheCanvas;
-      
-      if (currentResultCanvas) {
-        const ctx = currentResultCanvas.getContext('2d');
-        if (ctx) renderSideContext(ctx, rightSelectedLayer, rightHiddenLayers);
-      }
-    } else {
-      if (isSliderMode) {
-        isSliderMode = false;
-        sliderToggle.classList.remove('toggle--on');
-        sliderToggle.classList.add('toggle--off');
-        isVerticalSplit = false;
-        switchToggle.classList.remove('toggle--on');
-        switchToggle.classList.add('toggle--off');
-        isFlipped = false;
-        reverseToggle.classList.remove('toggle--on');
-        reverseToggle.classList.add('toggle--off');
-      }
-    }
-    updateCanvasLayout();
-    window.dispatchEvent(new Event('document:redraw'));
-    ensureSliderModeValid();
-  });
-
-
-
-  window.addEventListener('overlay-mode:toggle', (e: Event) => {
-    isOverlayMode = (e as CustomEvent).detail.enabled;
-    overlayGroup.style.display = isOverlayMode ? 'flex' : 'none';
-    if (isOverlayMode) {
-      if (!leftOverlayUCacheImg && !leftOverlayULayer) {
-        if (leftCacheCanvas) {
-          leftOverlayUCacheImg = leftCacheCanvas;
-        } else if (currentImage) {
-          leftOverlayUCacheImg = currentImage as any;
-        }
-      }
-    }
-    updateCanvasDrawSize(true);
-    updateCanvasLayout();
-    window.dispatchEvent(new Event('document:redraw'));
-  });
-  
-  // Initial layout state
-  updateCanvasLayout();
-
-  main.appendChild(splitView);
-
-  function drawNode(ctx: CanvasRenderingContext2D, node: any, hiddenLayers: Set<any>) {
-    if (hiddenLayers.has(node)) return;
-    if (node.children) {
-      for (let i = 0; i < node.children.length; i++) {
-        drawNode(ctx, node.children[i], hiddenLayers);
-      }
-    } else if (node.canvas) {
-      ctx.drawImage(node.canvas, node.left || 0, node.top || 0);
-    }
-  }
-
-  let leftOverlayULayer: any = null;
-  let leftOverlayUCacheKey: string | null = null;
-  let leftOverlayUCacheImg: HTMLCanvasElement | null = null;
-
-  let rightOverlayULayer: any = null;
-  let rightOverlayUCacheKey: string | null = null;
-  let rightOverlayUCacheImg: HTMLCanvasElement | null = null;
-
-  let leftIsInputImage = false;
-  let rightIsInputImage = false;
-
-  function updateCanvasDrawSize(shouldFit = false) {
-    if (!isGlobalCompareMode && !isSliderMode && leftTextOverlay.style.display === 'block') {
-      fitToScreen();
-      return;
-    }
-
-    let mw = 0;
-    let mh = 0;
-
-    const mainW = currentImage ? currentImage.width : (currentPsd ? currentPsd.width : 0);
-    const mainH = currentImage ? currentImage.height : (currentPsd ? currentPsd.height : 0);
-
-    if (isBatchMode) {
-      mw = psdWidth;
-      mh = psdHeight;
-    } else if (!isOverlayMode && !isGlobalCompareMode && !isSliderMode) {
-      // Normal Mode: when viewing an archive image, canvas matches archive image exactly
-      if (leftCacheCanvas) {
-        mw = leftCacheCanvas.width;
-        mh = leftCacheCanvas.height;
-      } else {
-        mw = mainW;
-        mh = mainH;
-      }
-    } else {
-      // Compare or Overlay Mode: bounding box across active images
-      mw = mainW;
-      mh = mainH;
-      if (leftCacheCanvas) {
-        mw = Math.max(mw, leftCacheCanvas.width);
-        mh = Math.max(mh, leftCacheCanvas.height);
-      }
-      if (rightCacheCanvas) {
-        mw = Math.max(mw, rightCacheCanvas.width);
-        mh = Math.max(mh, rightCacheCanvas.height);
-      }
-      if (leftOverlayUCacheImg) {
-        mw = Math.max(mw, leftOverlayUCacheImg.width);
-        mh = Math.max(mh, leftOverlayUCacheImg.height);
-      }
-      if (rightOverlayUCacheImg) {
-        mw = Math.max(mw, rightOverlayUCacheImg.width);
-        mh = Math.max(mh, rightOverlayUCacheImg.height);
-      }
-    }
-
-    if (mw === 0 || mh === 0) return;
-
-    const sizeChanged = (canvasDrawWidth !== mw || canvasDrawHeight !== mh);
-    canvasDrawWidth = mw;
-    canvasDrawHeight = mh;
-
-    if (!currentSourceCanvas || !currentResultCanvas) {
-      initializeCanvases(mw, mh);
-    } else {
-      if (currentSourceCanvas.width !== canvasDrawWidth || currentSourceCanvas.height !== canvasDrawHeight) {
-        currentSourceCanvas.width = canvasDrawWidth;
-        currentSourceCanvas.height = canvasDrawHeight;
-      }
-      if (currentResultCanvas.width !== canvasDrawWidth || currentResultCanvas.height !== canvasDrawHeight) {
-        currentResultCanvas.width = canvasDrawWidth;
-        currentResultCanvas.height = canvasDrawHeight;
-      }
-    }
-
-    if (shouldFit) {
-      fitToScreen();
-    } else if (sizeChanged) {
-      resetTo100Percent();
-    } else {
-      updateZoom(currentZoom, undefined, undefined, true);
-    }
-
-    updateCanvasTooltips();
-  }
-
-  function updateCanvasTooltips() {
-    if (!currentSourceCanvas || !currentResultCanvas) return;
-
-    let sourceW = canvasDrawWidth;
-    let sourceH = canvasDrawHeight;
-    let resultW = canvasDrawWidth;
-    let resultH = canvasDrawHeight;
-
-    if (!isOverlayMode) {
-      if (isGlobalCompareMode) {
-        if (leftCacheCanvas) { sourceW = leftCacheCanvas.width; sourceH = leftCacheCanvas.height; }
-        if (rightCacheCanvas) { resultW = rightCacheCanvas.width; resultH = rightCacheCanvas.height; }
-      } else {
-        if (leftCacheCanvas) { resultW = leftCacheCanvas.width; resultH = leftCacheCanvas.height; }
-      }
-    } else {
-      if (leftCacheCanvas) { resultW = leftCacheCanvas.width; resultH = leftCacheCanvas.height; }
-    }
-
-    currentSourceCanvas.title = `${sourceW} x ${sourceH}px`;
-    currentResultCanvas.title = `${resultW} x ${resultH}px`;
-  }
-
-  async function getArchiveImage(key: string): Promise<Blob | null> {
-    const parts = key.split('/');
-    if (parts.length < 2) return null;
-    const zipName = parts[0];
-    const path = parts.slice(1).join('/');
-    try {
-      return await extractArchiveFile(zipName, path);
-    } catch {
-      return null;
-    }
-  }
-
-  async function loadCacheImg(key: string | null): Promise<HTMLCanvasElement | null> {
-    if (!key) return null;
-    const blob = await getArchiveImage(key);
-    if (!blob || !blob.type.startsWith('image/')) return null;
-    return new Promise((resolve) => {
-      const url = URL.createObjectURL(blob);
-      const img = new Image();
-      img.onload = () => {
-         const canvas = document.createElement('canvas');
-         canvas.width = img.width;
-         canvas.height = img.height;
-         const ctx = canvas.getContext('2d');
-         if (ctx) ctx.drawImage(img, 0, 0);
-         URL.revokeObjectURL(url);
-         resolve(canvas);
-      };
-      img.onerror = () => resolve(null);
-      img.src = url;
-    });
-  }
-
-  window.addEventListener('overlay:select-u', async (e: Event) => {
-    const d = (e as CustomEvent).detail;
-    leftOverlayULayer = d.layer;
-    leftOverlayUCacheKey = d.cacheKey;
-    leftOverlayUCacheImg = await loadCacheImg(leftOverlayUCacheKey);
-    updateCanvasDrawSize(true);
-    window.dispatchEvent(new Event('document:redraw'));
-  });
-
-  window.addEventListener('overlay:select-u:right', async (e: Event) => {
-    const d = (e as CustomEvent).detail;
-    rightOverlayULayer = d.layer;
-    rightOverlayUCacheKey = d.cacheKey;
-    rightOverlayUCacheImg = await loadCacheImg(rightOverlayUCacheKey);
-    updateCanvasDrawSize(true);
-    window.dispatchEvent(new Event('document:redraw'));
-  });
-  
-  let overlayTopOpacity: number = 50;
-  window.addEventListener('overlay:top-opacity', (e: Event) => {
-    overlayTopOpacity = (e as CustomEvent).detail.opacity;
-    window.dispatchEvent(new Event('document:redraw'));
-  });
-  
-  let overlayUnderdrawingColor: string | null = 'blue';
-  window.addEventListener('overlay:underdrawing-color', (e: Event) => {
-    overlayUnderdrawingColor = (e as CustomEvent).detail.color;
-    window.dispatchEvent(new Event('document:redraw'));
-  });
-
-  let leftOverlayTopOffsetX = 0;
-  let leftOverlayTopOffsetY = 0;
-  let rightOverlayTopOffsetX = 0;
-  let rightOverlayTopOffsetY = 0;
-
-  let isDraggingOverlay = false;
-  let dragStartX = 0;
-  let dragStartY = 0;
-  let initialOffsetX = 0;
-  let initialOffsetY = 0;
-  let dragIsLeft = true;
-
-  splitView.addEventListener('mousedown', (e) => {
-    if ((e.target as HTMLElement).closest('.canvas-split__divider')) return;
-    if ((e.target as HTMLElement).closest('.canvas-toolbar')) return;
-    if ((e.target as HTMLElement).closest('.canvas-zoom-bar')) return;
-    if ((e.target as HTMLElement).closest('.canvas-text-overlay')) return;
-
-    if (isOverlayMode) {
-      const isLeft = !isGlobalCompareMode || (e.target as HTMLElement).closest('.canvas-split__panel') === sourcePanel;
-      const activeCanvas = isLeft ? currentSourceCanvas : currentResultCanvas;
-
-      if (activeCanvas) {
-        const rect = activeCanvas.getBoundingClientRect();
-        const scale = Math.min(rect.width / canvasDrawWidth, rect.height / canvasDrawHeight);
-        const imgW = canvasDrawWidth * scale;
-        const imgH = canvasDrawHeight * scale;
-        const offsetX = (rect.width - imgW) / 2;
-        const offsetY = (rect.height - imgH) / 2;
-        const mouseX = (e.clientX - rect.left - offsetX) / scale;
-        const mouseY = (e.clientY - rect.top - offsetY) / scale;
-
-        let topX = isLeft ? leftOverlayTopOffsetX : rightOverlayTopOffsetX;
-        let topY = isLeft ? leftOverlayTopOffsetY : rightOverlayTopOffsetY;
-        let topW = 0;
-        let topH = 0;
-
-        const cx = canvasDrawWidth / 2;
-        const cy = canvasDrawHeight / 2;
-        const psdOffsetX = cx - psdWidth / 2;
-        const psdOffsetY = cy - psdHeight / 2;
-
-        const tCacheImg = isLeft ? leftCacheCanvas : rightCacheCanvas;
-        const tLayer = isLeft ? leftSelectedLayer : rightSelectedLayer;
-        const isTopSelected = isLeft ? leftIsOverlayTopSelected : rightIsOverlayTopSelected;
-
-        if (tCacheImg) {
-          topX += cx - tCacheImg.width / 2;
-          topY += cy - tCacheImg.height / 2;
-          topW = tCacheImg.width;
-          topH = tCacheImg.height;
-        } else if (tLayer && tLayer.canvas) {
-          topX += psdOffsetX + (tLayer.left || 0);
-          topY += psdOffsetY + (tLayer.top || 0);
-          topW = tLayer.canvas.width;
-          topH = tLayer.canvas.height;
-        }
-
-        if (topW > 0 && topH > 0) {
-          const isHit = (mouseX >= topX && mouseX <= topX + topW && mouseY >= topY && mouseY <= topY + topH);
-
-          if (isHit && isTopSelected) {
-            isDraggingOverlay = true;
-            dragIsLeft = isLeft;
-            dragStartX = e.clientX;
-            dragStartY = e.clientY;
-            initialOffsetX = isLeft ? leftOverlayTopOffsetX : rightOverlayTopOffsetX;
-            initialOffsetY = isLeft ? leftOverlayTopOffsetY : rightOverlayTopOffsetY;
-            document.body.style.cursor = 'move';
-            return;
-          } else if (!isHit && isTopSelected) {
-            if (isLeft) leftIsOverlayTopSelected = false;
-            else rightIsOverlayTopSelected = false;
-            window.dispatchEvent(new Event('document:redraw'));
-          }
-        }
-      }
-    }
-
-    isPanning = true;
-    panStartX = e.clientX;
-    panStartY = e.clientY;
-    panInitialX = splitView.scrollLeft;
-    panInitialY = splitView.scrollTop;
-    document.body.style.cursor = 'grabbing';
-    splitViewInner.style.transition = 'none';
-  });
-
-  splitView.addEventListener('dblclick', (e) => {
-    if ((e.target as HTMLElement).closest('.canvas-split__divider')) return;
-    if ((e.target as HTMLElement).closest('.canvas-toolbar')) return;
-    if ((e.target as HTMLElement).closest('.canvas-zoom-bar')) return;
-
-    if (isOverlayMode) {
-      const isLeft = !isGlobalCompareMode || (e.target as HTMLElement).closest('.canvas-split__panel') === sourcePanel;
-      const activeCanvas = isLeft ? currentSourceCanvas : currentResultCanvas;
-      
-      if (activeCanvas) {
-        const rect = activeCanvas.getBoundingClientRect();
-        const scale = Math.min(rect.width / canvasDrawWidth, rect.height / canvasDrawHeight);
-        const imgW = canvasDrawWidth * scale;
-        const imgH = canvasDrawHeight * scale;
-        const offsetX = (rect.width - imgW) / 2;
-        const offsetY = (rect.height - imgH) / 2;
-        const mouseX = (e.clientX - rect.left - offsetX) / scale;
-        const mouseY = (e.clientY - rect.top - offsetY) / scale;
-
-        let topX = isLeft ? leftOverlayTopOffsetX : rightOverlayTopOffsetX;
-        let topY = isLeft ? leftOverlayTopOffsetY : rightOverlayTopOffsetY;
-        let topW = 0;
-        let topH = 0;
-
-        const cx = canvasDrawWidth / 2;
-        const cy = canvasDrawHeight / 2;
-        const psdOffsetX = cx - psdWidth / 2;
-        const psdOffsetY = cy - psdHeight / 2;
-
-        const tCacheImg = isLeft ? leftCacheCanvas : rightCacheCanvas;
-        const tLayer = isLeft ? leftSelectedLayer : rightSelectedLayer;
-
-        if (tCacheImg) {
-          topX += cx - tCacheImg.width / 2;
-          topY += cy - tCacheImg.height / 2;
-          topW = tCacheImg.width;
-          topH = tCacheImg.height;
-        } else if (tLayer && tLayer.canvas) {
-          topX += psdOffsetX + (tLayer.left || 0);
-          topY += psdOffsetY + (tLayer.top || 0);
-          topW = tLayer.canvas.width;
-          topH = tLayer.canvas.height;
-        }
-
-        if (topW > 0 && topH > 0) {
-          const isHit = (mouseX >= topX && mouseX <= topX + topW && mouseY >= topY && mouseY <= topY + topH);
-
-          if (isHit) {
-            if (isLeft) leftIsOverlayTopSelected = !leftIsOverlayTopSelected;
-            else rightIsOverlayTopSelected = !rightIsOverlayTopSelected;
-            window.dispatchEvent(new Event('document:redraw'));
-          }
-        }
-      }
-    }
-  });
-
-  window.addEventListener('mousemove', (e) => {
-    if (isDraggingOverlay) {
-      const activeCanvas = dragIsLeft ? currentSourceCanvas : currentResultCanvas;
-      if (activeCanvas) {
-        const rect = activeCanvas.getBoundingClientRect();
-        const scale = Math.min(rect.width / canvasDrawWidth, rect.height / canvasDrawHeight);
-        
-        if (dragIsLeft) {
-          leftOverlayTopOffsetX = initialOffsetX + (e.clientX - dragStartX) / scale;
-          leftOverlayTopOffsetY = initialOffsetY + (e.clientY - dragStartY) / scale;
-        } else {
-          rightOverlayTopOffsetX = initialOffsetX + (e.clientX - dragStartX) / scale;
-          rightOverlayTopOffsetY = initialOffsetY + (e.clientY - dragStartY) / scale;
-        }
-        window.dispatchEvent(new Event('document:redraw'));
-      }
-    }
-  });
-
-  window.addEventListener('mouseup', () => {
-    if (isDraggingOverlay) {
-      isDraggingOverlay = false;
-      document.body.style.cursor = '';
-    }
-  });
-
-  window.addEventListener('keydown', (e) => {
-    if (!isOverlayMode) return;
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
-    let dx = 0;
-    let dy = 0;
-    const step = e.shiftKey ? 10 : 1;
-
-    if (e.key === 'ArrowUp') dy = -step;
-    else if (e.key === 'ArrowDown') dy = step;
-    else if (e.key === 'ArrowLeft') dx = -step;
-    else if (e.key === 'ArrowRight') dx = step;
-
-    if (dx !== 0 || dy !== 0) {
-      if (leftIsOverlayTopSelected) {
-        leftOverlayTopOffsetX += dx;
-        leftOverlayTopOffsetY += dy;
-      }
-      if (rightIsOverlayTopSelected) {
-        rightOverlayTopOffsetX += dx;
-        rightOverlayTopOffsetY += dy;
-      }
-      window.dispatchEvent(new Event('document:redraw'));
-      e.preventDefault();
-    }
-  });
-
-  function getTintedCanvas(source: HTMLCanvasElement | HTMLImageElement, colorHex: string): HTMLCanvasElement {
-    const canvas = document.createElement('canvas');
-    canvas.width = source.width;
-    canvas.height = source.height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return source as any;
-
-    ctx.filter = 'grayscale(100%)';
-    ctx.drawImage(source, 0, 0);
-    ctx.filter = 'none';
-
-    ctx.globalCompositeOperation = 'screen';
-    ctx.fillStyle = colorHex;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.globalCompositeOperation = 'destination-in';
-    ctx.drawImage(source, 0, 0);
-
-    return canvas;
-  }
-
-  function renderSideContext(ctx: CanvasRenderingContext2D, selectedLayer: any, hiddenLayers: Set<any>) {
-    ctx.clearRect(0, 0, canvasDrawWidth, canvasDrawHeight);
-
-    const cx = canvasDrawWidth / 2;
-    const cy = canvasDrawHeight / 2;
-    const psdOffsetX = cx - psdWidth / 2;
-    const psdOffsetY = cy - psdHeight / 2;
-
-    let bgDrawW = psdWidth;
-    let bgDrawH = psdHeight;
-    let bgDrawX = psdOffsetX;
-    let bgDrawY = psdOffsetY;
-
-    const isLeft = ctx.canvas === currentSourceCanvas;
-    const uCacheImg = isLeft ? leftOverlayUCacheImg : rightOverlayUCacheImg;
-    const tCacheImg = isLeft ? leftCacheCanvas : rightCacheCanvas;
-    const uLayer = isLeft ? leftOverlayULayer : rightOverlayULayer;
-    const tLayer = isLeft ? leftSelectedLayer : rightSelectedLayer;
-    const topOffsetX = isLeft ? leftOverlayTopOffsetX : rightOverlayTopOffsetX;
-    const topOffsetY = isLeft ? leftOverlayTopOffsetY : rightOverlayTopOffsetY;
-    const isTopSelected = isLeft ? leftIsOverlayTopSelected : rightIsOverlayTopSelected;
-
-    let cacheToDraw: HTMLCanvasElement | null = null;
-    let textToShow = false;
-
-    if (!isOverlayMode) {
-      if (isGlobalCompareMode) {
-        if (ctx.canvas === currentSourceCanvas) {
-           cacheToDraw = leftCacheCanvas;
-           textToShow = leftTextOverlay.style.display === 'block';
-        } else if (ctx.canvas === currentResultCanvas) {
-           cacheToDraw = rightCacheCanvas;
-           textToShow = rightTextOverlay.style.display === 'block';
-        }
-      } else if (isSliderMode) {
-        if (ctx.canvas === currentResultCanvas) {
-           cacheToDraw = leftCacheCanvas;
-           textToShow = leftTextOverlay.style.display === 'block';
-        }
-      } else {
-        // Normal Mode
-        if (ctx.canvas === currentSourceCanvas) {
-           const hasLeftCache = leftCacheCanvas !== null || leftTextOverlay.style.display === 'block';
-           if (hasLeftCache) {
-             cacheToDraw = leftCacheCanvas;
-             textToShow = leftTextOverlay.style.display === 'block';
-           }
-        }
-      }
-    }
-
-    let skipPsdDraw = false;
-    if (!isOverlayMode && !isSliderMode && !isGlobalCompareMode) {
-      // Normal Mode: キャンバスに表示されるのはARCHIVES欄で選択中の画像のみ
-      skipPsdDraw = true;
-    } else if (cacheToDraw || textToShow) {
-      skipPsdDraw = true;
-    }
-
-    let shouldDrawBg = true;
-    let hasVisibleLayer = false;
-    
-    if (currentImage && !skipPsdDraw) {
-      hasVisibleLayer = true;
-    } else if (currentPsd && currentPsd.children && !skipPsdDraw) {
-      const checkVisibility = (node: any) => {
-        if (hasVisibleLayer || hiddenLayers.has(node)) return;
-        if (node.children) {
-          for (let i = 0; i < node.children.length; i++) {
-            checkVisibility(node.children[i]);
-          }
-        } else if (node.canvas) {
-          hasVisibleLayer = true;
-        }
-      };
-      for (let i = 0; i < currentPsd.children.length; i++) {
-        checkVisibility(currentPsd.children[i]);
-      }
-    }
-    
-    if (cacheToDraw || textToShow || isOverlayMode) {
-      hasVisibleLayer = true;
-    }
-    if (isBatchMode) {
-      hasVisibleLayer = true;
-    }
-    if (!hasVisibleLayer) {
-      shouldDrawBg = false;
-    }
-
-    // Batch mode: render grid and return early
-    if (isBatchMode) {
-      
-      const tileW = 800;
-      const tileH = 600;
-      const columns = 2;
-      const margin = 20;
-      
-      let col = 0;
-      let row = 0;
-      
-      const pCanvas = document.createElement('canvas');
-      pCanvas.width = 16; pCanvas.height = 16;
-      const pCtx = pCanvas.getContext('2d');
-      if(pCtx) {
-         pCtx.fillStyle = '#FFFFFF'; pCtx.fillRect(0,0,16,16);
-         pCtx.fillStyle = '#D9D9D9'; pCtx.fillRect(0,0,8,8); pCtx.fillRect(8,8,8,8);
-      }
-      const checkerPattern = ctx.createPattern(pCanvas, 'repeat') || '#FFFFFF';
-      
-      for (const bImg of batchImages) {
-        if (bImg.canvas) {
-           const startX = psdOffsetX + margin + col * (tileW + margin);
-           const startY = psdOffsetY + margin + row * (tileH + margin);
-           
-           ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--color-surface-container-low') || '#f5f5f5';
-           ctx.fillRect(startX, startY, tileW, tileH);
-           
-           ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--color-outline-variant') || '#555555';
-           ctx.lineWidth = 1;
-           ctx.strokeRect(startX + 0.5, startY + 0.5, tileW - 1, tileH - 1);
-           
-           const titleHeight = 40;
-           const padding = 20;
-           
-           // Draw filename
-           ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--color-on-surface') || '#000000';
-           ctx.font = 'bold 16px sans-serif';
-           ctx.textAlign = 'left';
-           ctx.textBaseline = 'middle';
-           let displayName = bImg.name || 'Image';
-           const slashIdx = displayName.lastIndexOf('/');
-           if (slashIdx !== -1) displayName = displayName.substring(slashIdx + 1);
-           ctx.fillText(displayName, startX + padding, startY + padding + titleHeight/2 - 4);
-           
-           // Half of tile for each image
-           const halfW = (tileW - padding * 2 - padding) / 2;
-           const halfH = tileH - titleHeight - padding * 2;
-           const fitScale = Math.min(halfW / bImg.canvas.width, halfH / bImg.canvas.height);
-           const drawW = bImg.canvas.width * fitScale;
-           const drawH = bImg.canvas.height * fitScale;
-           
-           const origX = startX + padding + (halfW - drawW)/2;
-           const origY = startY + padding + titleHeight + (halfH - drawH)/2;
-           ctx.drawImage(bImg.canvas, origX, origY, drawW, drawH);
-           
-           const dummyX = startX + padding + halfW + padding + (halfW - drawW)/2;
-           const dummyY = origY;
-           ctx.fillStyle = checkerPattern;
-           ctx.fillRect(dummyX, dummyY, drawW, drawH);
-           ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--color-outline-variant') || '#888888';
-           ctx.lineWidth = 1;
-           ctx.strokeRect(dummyX, dummyY, drawW, drawH);
-           
-           col++;
-           if (col >= columns) {
-              col = 0;
-              row++;
-           }
-        }
-      }
-      return;
-    }
-
-    if (shouldDrawBg && currentBgColor && currentBgColor !== 'transparent') {
-      if (currentBgColor === 'checkerboard') {
-        const patternCanvas = document.createElement('canvas');
-        patternCanvas.width = 16;
-        patternCanvas.height = 16;
-        const pCtx = patternCanvas.getContext('2d');
-        if (pCtx) {
-          pCtx.fillStyle = '#FFFFFF';
-          pCtx.fillRect(0, 0, 16, 16);
-          pCtx.fillStyle = '#D9D9D9';
-          pCtx.fillRect(0, 0, 8, 8);
-          pCtx.fillRect(8, 8, 8, 8);
-          const pattern = ctx.createPattern(patternCanvas, 'repeat');
-          ctx.fillStyle = pattern || '#FFFFFF';
-        } else {
-          ctx.fillStyle = '#FFFFFF';
-        }
-      } else {
-        ctx.fillStyle = currentBgColor;
-      }
-
-      const drawPsdBg = !skipPsdDraw;
-      if (drawPsdBg) {
-         ctx.fillRect(psdOffsetX, psdOffsetY, psdWidth, psdHeight);
-      }
-      
-      if (cacheToDraw) {
-         const cacheDrawX = cx - cacheToDraw.width / 2;
-         const cacheDrawY = cy - cacheToDraw.height / 2;
-         ctx.fillRect(cacheDrawX, cacheDrawY, cacheToDraw.width, cacheToDraw.height);
-      }
-    }
-
-    if (isOverlayMode) {
-       let hasDrawnSomething = false;
-       const uSource = uCacheImg || (uLayer && uLayer.canvas) || (!tCacheImg && !tLayer ? (leftCacheCanvas || currentImage) : null);
-
-       // Draw U
-       if (uSource) {
-          let source: HTMLCanvasElement | HTMLImageElement = uSource;
-          let drawLeft = 0;
-          let drawTop = 0;
-          
-          if (!uCacheImg && uLayer && uLayer.canvas) {
-             drawLeft = psdOffsetX + (uLayer.left || 0);
-             drawTop = psdOffsetY + (uLayer.top || 0);
-          } else {
-             drawLeft = cx - source.width / 2;
-             drawTop = cy - source.height / 2;
-          }
-          
-          if (overlayUnderdrawingColor) {
-             const tintColors: Record<string, string> = {
-                'blue': '#448aff',
-                'green': '#4caf50',
-                'red': '#ff5252',
-                'gray': '#9e9e9e'
-             };
-             if (tintColors[overlayUnderdrawingColor]) {
-                source = getTintedCanvas(source, tintColors[overlayUnderdrawingColor]);
-             }
-          }
-          
-          ctx.drawImage(source, drawLeft, drawTop);
-          hasDrawnSomething = true;
-       }
-       
-       // Draw T with slider opacity
-       if (tCacheImg || (tLayer && tLayer.canvas)) {
-          ctx.globalAlpha = overlayTopOpacity / 100;
-          let drawLeft = topOffsetX;
-          let drawTop = topOffsetY;
-          let drawW = 0;
-          let drawH = 0;
-
-          if (tCacheImg) {
-             drawLeft += cx - tCacheImg.width / 2;
-             drawTop += cy - tCacheImg.height / 2;
-             ctx.drawImage(tCacheImg, drawLeft, drawTop);
-             drawW = tCacheImg.width;
-             drawH = tCacheImg.height;
-          } else if (tLayer && tLayer.canvas) {
-             drawLeft += psdOffsetX + (tLayer.left || 0);
-             drawTop += psdOffsetY + (tLayer.top || 0);
-             ctx.drawImage(tLayer.canvas, drawLeft, drawTop);
-             drawW = tLayer.canvas.width;
-             drawH = tLayer.canvas.height;
-          }
-          ctx.globalAlpha = 1.0;
-          hasDrawnSomething = true;
-
-          if (isTopSelected && drawW > 0 && drawH > 0) {
-             ctx.strokeStyle = '#0078d4';
-             ctx.lineWidth = 2 / (currentZoom / 100);
-             ctx.setLineDash([5 / (currentZoom / 100), 5 / (currentZoom / 100)]);
-             ctx.strokeRect(drawLeft, drawTop, drawW, drawH);
-             ctx.setLineDash([]);
-          }
-       }
-
-       if (!hasDrawnSomething) {
-          ctx.fillStyle = 'var(--color-on-surface-variant)';
-          ctx.font = '500 14px var(--font-body, sans-serif)';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('ARCHIVESから重ね合わせる画像（U: 下絵 / T: 上絵）を選択してください', cx, cy);
-       }
-       return;
-    }
-
-    if (currentImage && !skipPsdDraw) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(psdOffsetX, psdOffsetY, psdWidth, psdHeight);
-      ctx.clip();
-      ctx.drawImage(currentImage, psdOffsetX, psdOffsetY);
-      ctx.restore();
-    } else if (currentPsd && currentPsd.children && !skipPsdDraw) {
-      ctx.save();
-      
-      ctx.beginPath();
-      ctx.rect(psdOffsetX, psdOffsetY, psdWidth, psdHeight);
-      ctx.clip();
-      
-      ctx.translate(psdOffsetX, psdOffsetY);
-      for (let i = 0; i < currentPsd.children.length; i++) {
-        drawNode(ctx, currentPsd.children[i], hiddenLayers);
-      }
-      ctx.restore();
-    }
-
-    // Draw cache images directly on canvas
-    if (!isOverlayMode && cacheToDraw) {
-      const offsetX = cx - cacheToDraw.width / 2;
-      const offsetY = cy - cacheToDraw.height / 2;
-      ctx.drawImage(cacheToDraw, offsetX, offsetY);
-    }
-  }
-
-  function initializeCanvases(width: number, height: number) {
-    if (currentSourceCanvas && currentResultCanvas && psdWidth === width && psdHeight === height) {
-      return; // Already initialized with this size
-    }
-
-    sourcePanel.style.backgroundImage = 'none';
-    resultPanel.style.backgroundImage = 'none';
-
-    sourceContentWrapper.innerHTML = '';
-    resultContentWrapper.innerHTML = '';
-
-    sourcePanel.innerHTML = '';
-    resultPanel.innerHTML = '';
-
-    sourcePanel.appendChild(sourceContentWrapper);
-    resultPanel.appendChild(resultContentWrapper);
-
-    psdWidth = width;
-    psdHeight = height;
-    canvasDrawWidth = psdWidth;
-    canvasDrawHeight = psdHeight;
-
-    currentSourceCanvas = document.createElement('canvas');
-    currentSourceCanvas.width = canvasDrawWidth;
-    currentSourceCanvas.height = canvasDrawHeight;
-    currentSourceCanvas.title = `${psdWidth} x ${psdHeight}px`;
-    const ctxSource = currentSourceCanvas.getContext('2d');
-    if (ctxSource) renderSideContext(ctxSource, leftSelectedLayer, leftHiddenLayers);
-
-    currentResultCanvas = document.createElement('canvas');
-    currentResultCanvas.width = canvasDrawWidth;
-    currentResultCanvas.height = canvasDrawHeight;
-    currentResultCanvas.title = `${psdWidth} x ${psdHeight}px`;
-    const ctxResult = currentResultCanvas.getContext('2d');
-    if (ctxResult) renderSideContext(ctxResult, rightSelectedLayer, rightHiddenLayers);
-
-    updateCanvasTooltips();
-
-    const styleCanvas = (c: HTMLCanvasElement) => {
-      c.style.width = '100%';
-      c.style.height = '100%';
-      c.style.objectFit = 'contain';
-      c.style.position = 'absolute';
-      c.style.top = '0';
-      c.style.left = '0';
-      c.style.zIndex = '0';
-    };
-
-    styleCanvas(currentSourceCanvas);
-    styleCanvas(currentResultCanvas);
-    
-    sourcePanel.style.position = 'relative';
-    resultPanel.style.position = 'relative';
-
-    sourceContentWrapper.appendChild(currentSourceCanvas);
-    sourceContentWrapper.appendChild(leftTextOverlay);
-    
-    resultContentWrapper.appendChild(currentResultCanvas);
-    resultContentWrapper.appendChild(rightTextOverlay);
-  }
-
-  // Listen for image/document loaded event to render the image
-  window.addEventListener('document:loaded', (e: Event) => {
-    const customEvent = e as CustomEvent<{ psd?: any; canvas?: HTMLCanvasElement; image?: HTMLCanvasElement; filename: string; width?: number; height?: number }>;
-    const detail = customEvent.detail;
-    currentPsd = detail.psd || null;
-    currentImage = detail.canvas || detail.image || null;
-    leftSelectedLayer = null;
-    rightSelectedLayer = null;
-
-    const w = detail.width || (currentImage ? currentImage.width : (currentPsd ? currentPsd.width : 0));
-    const h = detail.height || (currentImage ? currentImage.height : (currentPsd ? currentPsd.height : 0));
-
-    if (w && h) {
-      initializeCanvases(w, h);
-      updateCanvasDrawSize(false);
-      resetTo100Percent();
-      updateCanvasLayout();
-      window.dispatchEvent(new Event('document:redraw'));
-    }
-  });
-
-  window.addEventListener('document:closed', () => {
-    currentPsd = null;
-    currentImage = null;
-    leftSelectedLayer = null;
-    rightSelectedLayer = null;
-    currentSourceCanvas = null;
-    currentResultCanvas = null;
-    
-    sourcePanel.style.backgroundImage = 'none';
-    resultPanel.style.backgroundImage = 'none';
-    
-    sourceContentWrapper.innerHTML = '';
-    resultContentWrapper.innerHTML = '';
-    sourcePanel.innerHTML = '';
-    resultPanel.innerHTML = '';
-    sourcePanel.appendChild(sourceContentWrapper);
-    resultPanel.appendChild(resultContentWrapper);
-  });
-
-  window.addEventListener('document:redraw', () => {
-    if (!isGlobalCompareMode) {
-      rightSelectedLayer = leftSelectedLayer;
-      rightHiddenLayers = new Set(leftHiddenLayers);
-    }
-    
-    if (currentSourceCanvas) {
-      const ctx = currentSourceCanvas.getContext('2d');
-      if (ctx) renderSideContext(ctx, leftSelectedLayer, leftHiddenLayers);
-    }
-    if (currentResultCanvas) {
-      const ctx = currentResultCanvas.getContext('2d');
-      if (ctx) renderSideContext(ctx, rightSelectedLayer, rightHiddenLayers);
-    }
-    updateCanvasTooltips();
-  });
-
-  window.addEventListener('document:resized', () => {
-    if (currentPsd) {
-      psdWidth = currentPsd.width;
-      psdHeight = currentPsd.height;
-      updateCanvasDrawSize();
-      updateCanvasLayout();
-      window.dispatchEvent(new Event('document:redraw'));
-    }
-  });
-
-  window.addEventListener('layer:selected', async (e: Event) => {
-    const customEvent = e as CustomEvent<{ layer: any }>;
-    leftSelectedLayer = customEvent.detail.layer;
-    if (leftSelectedLayer && leftSelectedLayer.fileBlob) {
-      const text = await leftSelectedLayer.fileBlob.text();
-      leftTextOverlay.textContent = text;
-      leftTextOverlay.style.display = 'block';
-    } else {
-      leftTextOverlay.style.display = 'none';
-    }
-    ensureSliderModeValid();
-    updateCanvasDrawSize(true);
-    updateCanvasLayout();
-    if (currentSourceCanvas) {
-      const ctx = currentSourceCanvas.getContext('2d');
-      if (ctx) renderSideContext(ctx, leftSelectedLayer, leftHiddenLayers);
-    }
-  });
-  
-  window.addEventListener('layer:selected:right', async (e: Event) => {
-    const customEvent = e as CustomEvent<{ layer: any }>;
-    rightSelectedLayer = customEvent.detail.layer;
-    if (rightSelectedLayer && rightSelectedLayer.fileBlob) {
-      const text = await rightSelectedLayer.fileBlob.text();
-      rightTextOverlay.textContent = text;
-      rightTextOverlay.style.display = 'block';
-    } else {
-      rightTextOverlay.style.display = 'none';
-    }
-    updateCanvasDrawSize(true);
-    updateCanvasLayout();
-    if (currentResultCanvas) {
-      const ctx = currentResultCanvas.getContext('2d');
-      if (ctx) renderSideContext(ctx, rightSelectedLayer, rightHiddenLayers);
-    }
-  });
-
-  window.addEventListener('layer:visibility', (e: Event) => {
-    const customEvent = e as CustomEvent<{ hiddenLayers: Set<any> }>;
-    leftHiddenLayers = customEvent.detail.hiddenLayers;
-    ensureSliderModeValid();
-  });
-
-  window.addEventListener('layer:visibility:right', (e: Event) => {
-    const customEvent = e as CustomEvent<{ hiddenLayers: Set<any> }>;
-    rightHiddenLayers = customEvent.detail.hiddenLayers;
-  });
-
-  window.addEventListener('batch-mode:toggle', (e: Event) => {
-    isBatchMode = (e as CustomEvent).detail.enabled;
-    if (!isBatchMode) {
-      batchImages = [];
-    }
-    updateCanvasLayout();
-    window.dispatchEvent(new Event('document:redraw'));
-  });
-
-  window.addEventListener('tool:batch-result-ready', async (e: Event) => {
-    if (!isBatchMode) return;
-    const customEvent = e as CustomEvent<{ items: { key: string, toolName: string }[] }>;
-
-    
-    batchImages = [];
-    let maxWidth = 0;
-    let maxHeight = 0;
-    let validCount = 0;
-
-    for (const item of customEvent.detail.items) {
-      const blob = await getArchiveImage(item.key);
-      let canvas = null;
-      if (blob && !blob.type.startsWith('text/') && blob.type !== 'application/json') {
-        const url = URL.createObjectURL(blob);
-        canvas = await new Promise<HTMLCanvasElement | null>((resolve) => {
-          const img = new Image();
-          img.onload = () => {
-            const c = document.createElement('canvas');
-            c.width = img.width;
-            c.height = img.height;
-            const ctx = c.getContext('2d');
-            if (ctx) ctx.drawImage(img, 0, 0);
-            URL.revokeObjectURL(url);
-            resolve(c);
-          };
-          img.onerror = () => resolve(null);
-          img.src = url;
-        });
-      }
-
+    if (topDrag) {
+      const canvas = canvases[topDrag.side];
       if (canvas) {
-        maxWidth = Math.max(maxWidth, canvas.width);
-        maxHeight = Math.max(maxHeight, canvas.height);
-        validCount++;
-      }
-      batchImages.push({ key: item.key, name: item.toolName, blob, canvas });
-    }
-    
-
-    const tileW = 800;
-    const tileH = 600;
-    const columns = 2;
-    const rows = Math.ceil(validCount / columns);
-    
-    const margin = 20;
-    const gridW = (tileW * columns) + (margin * (columns + 1));
-    const gridH = (tileH * rows) + (margin * (rows + 1));
-    
-    initializeCanvases(gridW, gridH);
-    updateCanvasDrawSize(false);
-    resetTo100Percent();
-    updateCanvasLayout();
-    window.dispatchEvent(new Event('document:redraw'));
-  });
-
-  window.addEventListener('tool:result-ready', async (e: Event) => {
-    const customEvent = e as CustomEvent<{ key: string, toolName: string }>;
-    leftIsInputImage = customEvent.detail.key.includes('Inputs/');
-    const blob = await getArchiveImage(customEvent.detail.key);
-    if (blob) {
-      if (customEvent.detail.toolName.match(/\.(json|txt|md)$/i) || blob.type.startsWith('text/') || blob.type === 'application/json') {
-        const text = await blob.text();
-        leftTextOverlay.textContent = text;
-        leftTextOverlay.style.display = 'block';
-        leftCacheCanvas = null;
-        
-        if (!currentSourceCanvas) {
-          initializeCanvases(800, 600);
-        }
-        
-        ensureSliderModeValid();
-        updateCanvasDrawSize(true);
-        updateCanvasLayout();
-        window.dispatchEvent(new Event('document:redraw'));
-      } else {
-        leftTextOverlay.style.display = 'none';
-        
-        const url = URL.createObjectURL(blob);
-        const img = new Image();
-        img.onload = () => {
-          leftCacheCanvas = document.createElement('canvas');
-          leftCacheCanvas.width = img.width;
-          leftCacheCanvas.height = img.height;
-          const ctx = leftCacheCanvas.getContext('2d');
-          if (ctx) ctx.drawImage(img, 0, 0);
-          URL.revokeObjectURL(url);
-          
-          const docManager = DocumentManager.getInstance();
-          docManager.setCanvas(leftCacheCanvas, customEvent.detail.toolName);
-          const parts = customEvent.detail.key.split('/');
-          if (parts.length > 1) {
-            docManager.setCurrentArchiveFolder(parts[0]);
-          }
-
-          if (!currentSourceCanvas) {
-            initializeCanvases(img.width, img.height);
-          }
-          
-          updateCanvasDrawSize(false);
-          resetTo100Percent();
-          updateCanvasLayout();
-          window.dispatchEvent(new Event('document:redraw'));
+        const rect = canvas.getBoundingClientRect();
+        const scale = Math.min(rect.width / state.drawW, rect.height / state.drawH);
+        state.sides[topDrag.side].topOffset = {
+          x: topDrag.offsetX + (e.clientX - topDrag.x) / scale,
+          y: topDrag.offsetY + (e.clientY - topDrag.y) / scale,
         };
-        img.src = url;
+        redraw();
       }
     }
   });
 
-  window.addEventListener('tool:result-cleared', () => {
-    leftCacheCanvas = null;
-    leftIsInputImage = false;
-    leftTextOverlay.style.display = 'none';
-    batchImages = [];
-    const docManager = DocumentManager.getInstance();
-    docManager.setCanvas(null);
-    updateCanvasDrawSize(true);
-    updateCanvasLayout();
-    window.dispatchEvent(new Event('document:redraw'));
-    ensureSliderModeValid();
+  window.addEventListener('mouseup', () => {
+    if (draggingDivider || pan || topDrag) document.body.style.cursor = '';
+    if (draggingDivider) document.body.style.userSelect = '';
+    draggingDivider = false;
+    pan = null;
+    topDrag = null;
   });
 
-  window.addEventListener('tool:result-ready:right', async (e: Event) => {
-    const customEvent = e as CustomEvent<{ key: string, toolName: string }>;
-    rightIsInputImage = customEvent.detail.key.includes('Inputs/');
-    const blob = await getArchiveImage(customEvent.detail.key);
-    if (blob) {
-      if (customEvent.detail.toolName.match(/\.(json|txt|md)$/i) || blob.type.startsWith('text/') || blob.type === 'application/json') {
-        const text = await blob.text();
-        rightTextOverlay.textContent = text;
-        rightTextOverlay.style.display = 'block';
-        rightCacheCanvas = null;
-        
-        if (!currentSourceCanvas) {
-          initializeCanvases(800, 600);
-        }
-        
-        updateCanvasDrawSize(true);
-        updateCanvasLayout();
-        window.dispatchEvent(new Event('document:redraw'));
-      } else {
-        rightTextOverlay.style.display = 'none';
-        
-        const url = URL.createObjectURL(blob);
-        const img = new Image();
-        img.onload = () => {
-          rightCacheCanvas = document.createElement('canvas');
-          rightCacheCanvas.width = img.width;
-          rightCacheCanvas.height = img.height;
-          const ctx = rightCacheCanvas.getContext('2d');
-          if (ctx) ctx.drawImage(img, 0, 0);
-          URL.revokeObjectURL(url);
-          
-          if (!currentSourceCanvas) {
-            initializeCanvases(img.width, img.height);
-          }
-          
-          updateCanvasDrawSize(false);
-          resetTo100Percent();
-          updateCanvasLayout();
-          window.dispatchEvent(new Event('document:redraw'));
-        };
-        img.src = url;
-      }
+  // Overlay mode: arrow keys move the selected T (Shift = 10px).
+  window.addEventListener('keydown', e => {
+    if (!state.overlay || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    const step = e.shiftKey ? 10 : 1;
+    const delta = { ArrowUp: [0, -step], ArrowDown: [0, step], ArrowLeft: [-step, 0], ArrowRight: [step, 0] }[e.key];
+    if (!delta) return;
+    for (const side of ['left', 'right'] as const) {
+      const me = state.sides[side];
+      if (me.topSelected) me.topOffset = { x: me.topOffset.x + delta[0], y: me.topOffset.y + delta[1] };
+    }
+    redraw();
+    e.preventDefault();
+  });
+
+  main.addEventListener(
+    'wheel',
+    e => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const rect = scrollArea.getBoundingClientRect();
+      zoom.zoomBy(e.deltaY < 0 ? 1 : -1, e.clientX - rect.left, e.clientY - rect.top);
+    },
+    { passive: false },
+  );
+
+  main.addEventListener('dragover', e => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  });
+  main.addEventListener('drop', async e => {
+    e.preventDefault();
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    if (file.type.startsWith('image/') || IMAGE_FILE_PATTERN.test(file.name)) await importImageFile(file);
+    else showToast('画像ファイル（PNG/JPG/WebP/BMP/GIF）をドロップしてください', 'error');
+  });
+
+  // ── View modes ──
+  on('compare-mode:toggle', ({ enabled }) => {
+    state.compare = enabled;
+    if (enabled) {
+      state.sides.right.image = state.sides.left.image;
+      const ctx = canvases.right?.getContext('2d');
+      if (ctx) renderSide(ctx, state, 'right');
+    } else if (state.slider) {
+      resetSliderOptions();
+    }
+    updateLayout();
+    redraw();
+    ensureSliderValid();
+  });
+
+  on('overlay-mode:toggle', ({ enabled }) => {
+    state.overlay = enabled;
+    setShown(overlayToolbar, enabled, 'flex');
+    if (enabled && !state.sides.left.underdrawing) {
+      state.sides.left.underdrawing = state.sides.left.image ?? state.docImage;
+    }
+    updateDrawSize(true);
+    updateLayout();
+    redraw();
+  });
+
+  on('batch-mode:toggle', ({ enabled }) => {
+    state.batch = enabled;
+    if (!enabled) state.batchImages = [];
+    updateLayout();
+    redraw();
+  });
+
+  // ── Document ──
+  on('document:loaded', ({ canvas, width, height }) => {
+    state.docImage = canvas;
+    if (width && height) {
+      initializeCanvases(width, height);
+      updateDrawSize(false);
+      zoom.resetTo100();
+      updateLayout();
+      redraw();
     }
   });
 
-  window.addEventListener('tool:result-cleared:right', () => {
-    rightCacheCanvas = null;
-    rightIsInputImage = false;
-    rightTextOverlay.style.display = 'none';
-    updateCanvasDrawSize(true);
-    updateCanvasLayout();
-    window.dispatchEvent(new Event('document:redraw'));
+  on('document:closed', () => {
+    state.docImage = null;
+    canvases.left = canvases.right = null;
+    for (const side of ['left', 'right'] as const) {
+      wrappers[side].replaceChildren();
+      panels[side].replaceChildren(wrappers[side]);
+    }
   });
 
-  window.addEventListener('canvas:bg-color', (e: Event) => {
-    const customEvent = e as CustomEvent<{ color: string }>;
-    currentBgColor = customEvent.detail.color;
-    window.dispatchEvent(new CustomEvent('document:redraw'));
+  on('document:redraw', redraw);
+
+  on('canvas:bg-color', ({ color }) => {
+    state.bgColor = color;
+    redraw();
   });
 
+  // ── ARCHIVES selection ──
+  const showSelection = async (side: Side, key: string, name: string) => {
+    const blob = await fetchArchiveKey(key);
+    if (!blob) return;
+    if (isTextBlob(name, blob)) {
+      setText(side, await blob.text());
+      state.sides[side].image = null;
+      if (!canvases.left) initializeCanvases(800, 600);
+      if (side === 'left') ensureSliderValid();
+      updateDrawSize(true);
+      updateLayout();
+      redraw();
+      return;
+    }
+    setText(side, null);
+    const image = await blobToCanvas(blob);
+    if (!image) return;
+    state.sides[side].image = image;
+    if (side === 'left') {
+      const docManager = DocumentManager.getInstance();
+      docManager.setCanvas(image, name); // emits document:loaded synchronously
+      const archive = key.split('/');
+      if (archive.length > 1) docManager.setCurrentArchiveFolder(archive[0]);
+    }
+    if (!canvases.left) initializeCanvases(image.width, image.height);
+    updateDrawSize(false);
+    zoom.resetTo100();
+    updateLayout();
+    redraw();
+  };
+
+  const clearSelection = (side: Side) => {
+    state.sides[side].image = null;
+    setText(side, null);
+    if (side === 'left') {
+      state.batchImages = [];
+      DocumentManager.getInstance().setCanvas(null);
+    }
+    updateDrawSize(true);
+    updateLayout();
+    redraw();
+    if (side === 'left') ensureSliderValid();
+  };
+
+  on('archive:item-selected', ({ key, name }) => void showSelection('left', key, name));
+  on('archive:item-selected:right', ({ key, name }) => void showSelection('right', key, name));
+  on('archive:selection-cleared', () => clearSelection('left'));
+  on('archive:selection-cleared:right', () => clearSelection('right'));
+
+  // Selections can change while images load (Ctrl+click): only the latest request is shown.
+  let batchRequest = 0;
+  on('archive:batch-selected', async ({ items }) => {
+    if (!state.batch) return;
+    const request = ++batchRequest;
+    const images: BatchImage[] = [];
+    for (const item of items) {
+      const blob = await fetchArchiveKey(item.key);
+      const canvas =
+        blob && !blob.type.startsWith('text/') && blob.type !== 'application/json' ? await blobToCanvas(blob) : null;
+      images.push({ key: item.key, name: item.name, canvas });
+    }
+    if (request !== batchRequest || !state.batch) return;
+    state.batchImages = images;
+    const grid = batchGridSize(images.filter(i => i.canvas).length);
+    initializeCanvases(grid.w, grid.h);
+    updateDrawSize(false);
+    zoom.resetTo100();
+    updateLayout();
+    redraw();
+  });
+
+  on('overlay:underdrawing-selected', async ({ cacheKey }) => {
+    state.sides.left.underdrawing = await loadArchiveCanvas(cacheKey);
+    updateDrawSize(true);
+    emit('document:redraw');
+  });
+  on('overlay:underdrawing-selected:right', async ({ cacheKey }) => {
+    state.sides.right.underdrawing = await loadArchiveCanvas(cacheKey);
+    updateDrawSize(true);
+    emit('document:redraw');
+  });
+
+  updateLayout();
   return main;
+}
+
+async function loadArchiveCanvas(key: string | null): Promise<HTMLCanvasElement | null> {
+  if (!key) return null;
+  const blob = await fetchArchiveKey(key);
+  return blob && blob.type.startsWith('image/') ? blobToCanvas(blob) : null;
 }

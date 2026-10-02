@@ -1,19 +1,40 @@
-# Confeito-Studio アーキテクチャ
+# Confeito-Studio アーキテクチャ概要
 
-本ドキュメントは、Confeito-Studioの仕様・設計の基本参照先です。決定事項のみを記録し、変更経緯は記録しません。
-各ファイルが200〜300文字（行）を超える場合は適宜分割してください（例：フロントエンドのUIブロック別、バックエンドのレイヤー別など）。
+ローカル専用の漫画着彩ワークスペース。ブラウザで動く UI（Vite + TypeScript）と、
+ローカルの FastAPI バックエンド（ファイル保存・Gemini API 中継・画像処理）で構成される。
 
-## 全体像
-- デスクトップアプリライクなWebアプリケーション（モノレポ構成）
-- Vite + TypeScript (フロントエンド) と FastAPI + Python (バックエンド) の構成
+## プロセスとポート
+
+| プロセス | ポート | 起動 | 役割 |
+|---|---|---|---|
+| backend (uvicorn) | 48000 | `setup/start-app.ps1` / 手動 | `/api/*`。アーカイブ保存、Gemini 呼び出し、rembg、コマ分割/結合 |
+| frontend (Vite dev server) | 45173 | 同上 | UI 配信。全タブが閉じたら backend ごと終了 |
+
+- フロントエンドは `http://127.0.0.1:48000/api` を直接呼ぶ（`VITE_API_BASE` で変更可。E2E は 48100/45273 を使う）。
+- バックエンドの CORS は localhost / 127.0.0.1 の任意ポートを許可（ローカル専用・認証なし）。
+
+## データの置き場所（リポジトリ直下）
+
+| パス | 内容 | git |
+|---|---|---|
+| `archives/` | ユーザーの作業データ（アーカイブ = フォルダ）。`.trash/` はゴミ箱（削除したアーカイブと `.items/` に削除したファイル） | 除外（**消さないこと**） |
+| `settings/default_prompts.json` | 各ツールの設定値（フラットな文字列マップ） | 管理対象 |
+| `.env` | `GEMINI_API_KEY`, `U2NET_HOME=models` | 除外（秘密情報） |
+| `models/` | rembg モデル（isnet-anime.onnx） | 除外 |
+
+バックエンドの各パスは `CONFEITO_ARCHIVES_DIR` / `CONFEITO_SETTINGS_DIR` / `CONFEITO_ENV_FILE` で差し替え可能（テストと E2E が一時ディレクトリを使うため）。
 
 ## 技術選定理由
 - **Vite 5**: 高速な開発体験とビルドのため。
-- **TypeScript (strict)**: 型安全性の担保。
-- **Vanilla CSS**: React等のフレームワークに依存せず、軽量かつ柔軟なスタイリングを実現。
-- **FastAPI**: 型安全で高速なバックエンドAPIの構築。
-- **psd-tools**: PythonでのPSD解析およびエクスポートが容易なため。
+- **TypeScript (strict)**: 型安全性の担保。UI フレームワークは使わず DOM API で組み立てる（軽量・依存が少ない）。
+- **Vanilla CSS**: フレームワークに依存せず、デザイントークン（CSS Custom Properties）で一元管理。
+- **FastAPI**: 型安全で高速なバックエンド API の構築。
+- **rembg (isnet-anime)**: ローカルで完結する背景除去。
+- **Gemini API**: 画像生成（Interactions API）とコマ検出（generateContent + JSON スキーマ）。
 
-## リンク集
-- [フロントエンド設計方針](./frontend.md)
-- [バックエンド設計方針](./backend.md)
+## ドキュメントの構成
+- 設計（どう作られているか）: [frontend.md](./frontend.md) / [backend.md](./backend.md) / [testing.md](./testing.md)
+- 仕様（何をどう振る舞うか・決定事項）: [../specs/](../specs/README.md)
+- セットアップと起動: [../../setup/README.md](../../setup/README.md)
+
+決定事項のみを記録し、変更経緯は記録しない（経緯は git 履歴）。1 ファイルが 200 行を超えたら分割する。

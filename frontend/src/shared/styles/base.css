@@ -1,5 +1,6 @@
 /* ============================================================
-   Confeito-Studio — Base Styles & Reusable Components
+   Confeito-Studio — Base styles: reset, form element defaults, icons,
+   scrollbars and the toast (shared/ui/toast.ts)
    ============================================================ */
 
 /* ── Reset ────────────────────────────────────────────────── */
@@ -11,7 +12,8 @@
   box-sizing: border-box;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   overflow: hidden;
 }
@@ -57,7 +59,7 @@ textarea {
   resize: none;
 }
 
-input[type="range"] {
+input[type='range'] {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
@@ -68,7 +70,7 @@ input[type="range"] {
   cursor: pointer;
 }
 
-input[type="range"]::-webkit-slider-thumb {
+input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 12px;
@@ -79,87 +81,18 @@ input[type="range"]::-webkit-slider-thumb {
   transition: transform 100ms ease;
 }
 
-input[type="range"]::-webkit-slider-thumb:hover {
+input[type='range']::-webkit-slider-thumb:hover {
   transform: scale(1.2);
-}
-
-/* ── Typography Classes ───────────────────────────────────── */
-.text-headline-lg {
-  font-family: var(--font-headline);
-  font-size: 24px;
-  line-height: 32px;
-  letter-spacing: -0.02em;
-  font-weight: 600;
-}
-
-.text-headline-md {
-  font-family: var(--font-headline);
-  font-size: 18px;
-  line-height: 24px;
-  letter-spacing: -0.01em;
-  font-weight: 600;
-}
-
-.text-body-md {
-  font-family: var(--font-body);
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 400;
-}
-
-.text-body-sm {
-  font-family: var(--font-body);
-  font-size: 13px;
-  line-height: 18px;
-  font-weight: 400;
-}
-
-.text-label-md {
-  font-family: var(--font-label);
-  font-size: 12px;
-  line-height: 16px;
-  letter-spacing: 0.02em;
-  font-weight: 500;
-}
-
-.text-label-xs {
-  font-family: var(--font-label);
-  font-size: 10px;
-  line-height: 12px;
-  letter-spacing: 0.05em;
-  font-weight: 600;
 }
 
 /* ── Material Icons ───────────────────────────────────────── */
 .material-symbols-outlined {
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
   user-select: none;
-}
-
-/* ── Animations ───────────────────────────────────────────── */
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-.animate-pulse {
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@keyframes shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(400%); }
-}
-
-/* ── Utility ──────────────────────────────────────────────── */
-.truncate {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.uppercase {
-  text-transform: uppercase;
 }
 
 /* ── Scrollbar ────────────────────────────────────────────── */
@@ -200,7 +133,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 200ms ease, transform 200ms ease;
+  transition:
+    opacity 200ms ease,
+    transform 200ms ease;
   z-index: 9999;
   display: flex;
   align-items: center;

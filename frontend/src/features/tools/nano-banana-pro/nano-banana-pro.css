@@ -1,0 +1,127 @@
+/* ── Nano Banana Pro settings (nano-banana-pro.ts) ────────── */
+
+.nbp-step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 6px;
+}
+
+.nbp-step--second {
+  padding: 6px 12px;
+}
+
+.nbp-step__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+.nbp-step__subtitle {
+  font-size: 11px;
+  color: var(--color-on-surface-variant);
+}
+
+.nbp-model-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 0;
+}
+
+.nbp-model-info__name {
+  color: var(--color-on-surface);
+}
+
+.nbp-details {
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+}
+
+.nbp-section__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--color-outline-variant);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+.nbp-section__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.nbp-caption {
+  font-size: 11px;
+  color: var(--color-on-surface-variant);
+}
+
+.nbp-aspect {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nbp-textarea {
+  height: 80px;
+}
+
+.nbp-details .cs-input:invalid {
+  border-color: var(--color-error);
+}
+
+/* Aspect ratio picker: a "既定" row, then 5 columns (7 when the model has 14 ratios).
+   The 1px gap over the outline-colored background draws the cell borders. */
+.ar-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--color-outline);
+  border-radius: 4px;
+  background-color: var(--color-outline);
+}
+
+.ar-grid--wide {
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.ar-grid__btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 2px;
+  background-color: var(--color-surface-container-lowest);
+  color: var(--color-on-surface-variant);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.ar-grid__btn--unset {
+  grid-column: 1 / -1;
+  padding: 6px 4px;
+}
+
+.ar-grid__btn--selected {
+  background-color: var(--color-surface-container-high);
+  color: var(--color-primary);
+}
+
+.ar-grid__icon {
+  border: 2px solid var(--color-on-surface-variant);
+  border-radius: 2px;
+}
+
+.ar-grid__btn--selected .ar-grid__icon {
+  border-color: var(--color-primary);
+}

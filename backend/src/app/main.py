@@ -1,54 +1,53 @@
-"""Confeito-Studio Backend — FastAPI application."""
+"""Confeito-Studio backend — FastAPI application.
 
-from fastapi import FastAPI
+Run (from backend/):  uv run python -m uvicorn src.app.main:app --port 48000
+"""
+
+import logging
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-import os
-from pathlib import Path
-
-# Load project root .env
-root_env = Path(__file__).parent.parent.parent.parent / ".env"
-if root_env.exists():
-    with open(root_env, "r", encoding="utf-8") as f:
-        for line in f:
-            if "=" in line and not line.strip().startswith("#"):
-                k, v = line.strip().split("=", 1)
-                if k.strip() not in os.environ:
-                    val = v.strip()
-                    if k.strip() == "U2NET_HOME" and not os.path.isabs(val):
-                        # Make U2NET_HOME absolute relative to project root
-                        val = str((root_env.parent / val).resolve())
-                    os.environ[k.strip()] = val
-
-
-
-app = FastAPI(
-    title="Confeito-Studio Backend",
-    version="0.1.0",
-    description="Image generation proxy & PSD processing backend for Confeito-Studio",
+from . import (
+    __version__,
+    config,  # noqa: F401  (imported first: loads .env into os.environ)
 )
+from .errors import AppError
+from .routers import archives, generate, health, image
+from .routers import settings as settings_router
 
-# CORS — ローカル開発用。フロントエンド (Vite) からのリクエストを許可
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:45173",   # Vite dev server
-        "http://127.0.0.1:45173",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+logger = logging.getLogger(__name__)
 
-# ── Routers ──
-from .routers import health, psd, generate, settings, archives, image
 
-app.include_router(health.router, prefix="/api")
-app.include_router(psd.router, prefix="/api")
-app.include_router(generate.router, prefix="/api")
-app.include_router(settings.router, prefix="/api")
-app.include_router(archives.router, prefix="/api")
-app.include_router(image.router, prefix="/api")
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="Confeito-Studio Backend",
+        version=__version__,
+        description="Archive storage, Gemini image generation proxy and image processing",
+    )
 
+    # Local-only tool: accept the Vite dev server on any localhost port.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"^http://(localhost|127\.0\.0\.1)(:\d+)?$",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    @app.exception_handler(AppError)
+    async def handle_app_error(_request: Request, exc: AppError) -> JSONResponse:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    @app.exception_handler(Exception)
+    async def handle_unexpected_error(_request: Request, exc: Exception) -> JSONResponse:
+        logger.exception("Unhandled error", exc_info=exc)
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+    for module in (health, archives, image, generate, settings_router):
+        app.include_router(module.router, prefix="/api")
+    return app
+
+
+app = create_app()

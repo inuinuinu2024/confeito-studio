@@ -1,136 +1,51 @@
-import { showToast } from '../../../shared/utils/toast';
+/** Settings dialog (gear icon): stores the Gemini API key in the project .env. */
+import { getGeminiKeyStatus, saveGeminiKey } from '../../../shared/api/settings';
+import { emit } from '../../../shared/events';
+import { createModal } from '../../../shared/ui/dialogs';
+import { h } from '../../../shared/ui/dom';
+import { button, field } from '../../../shared/ui/form';
+import { showToast } from '../../../shared/ui/toast';
 
-export function createSettingsDialog(): { overlay: HTMLElement; open: () => void; close: () => void } {
-  const overlay = document.createElement('div');
-  overlay.className = 'settings-overlay';
-  overlay.style.position = 'fixed';
-  overlay.style.top = '0';
-  overlay.style.left = '0';
-  overlay.style.width = '100vw';
-  overlay.style.height = '100vh';
-  overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-  overlay.style.display = 'none';
-  overlay.style.justifyContent = 'center';
-  overlay.style.alignItems = 'center';
-  overlay.style.zIndex = '9999';
+export function createSettingsDialog(): { open: () => Promise<void> } {
+  const modal = createModal({ title: 'Settings', overlayClass: 'settings-overlay' });
+  const input = h('input', { class: 'cs-input', type: 'password', placeholder: 'AIzaSy...' });
 
-  const dialog = document.createElement('div');
-  dialog.className = 'settings-dialog';
-  dialog.style.backgroundColor = 'var(--color-surface-container-highest)';
-  dialog.style.padding = '24px';
-  dialog.style.borderRadius = '8px';
-  dialog.style.width = '400px';
-  dialog.style.boxShadow = '0 8px 24px rgba(0,0,0,0.5)';
-  dialog.style.display = 'flex';
-  dialog.style.flexDirection = 'column';
-  dialog.style.gap = '16px';
-  dialog.style.border = '1px solid var(--color-outline-variant)';
-
-  const title = document.createElement('h2');
-  title.textContent = 'Settings';
-  title.style.margin = '0';
-  title.style.fontSize = '18px';
-  title.style.color = 'var(--color-on-surface)';
-  dialog.appendChild(title);
-
-  const fieldGroup = document.createElement('div');
-  fieldGroup.style.display = 'flex';
-  fieldGroup.style.flexDirection = 'column';
-  fieldGroup.style.gap = '8px';
-
-  const label = document.createElement('label');
-  label.textContent = 'Gemini API Key';
-  label.style.fontSize = '14px';
-  label.style.color = 'var(--color-on-surface-variant)';
-  fieldGroup.appendChild(label);
-
-  const input = document.createElement('input');
-  input.type = 'password';
-  input.placeholder = 'AIzaSy...';
-  input.style.padding = '8px';
-  input.style.borderRadius = '4px';
-  input.style.border = '1px solid var(--color-outline)';
-  input.style.backgroundColor = 'var(--color-surface-container-lowest)';
-  input.style.color = 'var(--color-on-surface)';
-  input.style.width = '100%';
-  fieldGroup.appendChild(input);
-
-  dialog.appendChild(fieldGroup);
-
-  const buttonGroup = document.createElement('div');
-  buttonGroup.style.display = 'flex';
-  buttonGroup.style.justifyContent = 'flex-end';
-  buttonGroup.style.gap = '8px';
-  buttonGroup.style.marginTop = '8px';
-
-  const cancelBtn = document.createElement('button');
-  cancelBtn.textContent = 'Cancel';
-  cancelBtn.style.padding = '8px 16px';
-  cancelBtn.style.borderRadius = '4px';
-  cancelBtn.style.border = '1px solid var(--color-outline)';
-  cancelBtn.style.backgroundColor = 'transparent';
-  cancelBtn.style.color = 'var(--color-on-surface)';
-  cancelBtn.style.cursor = 'pointer';
-  buttonGroup.appendChild(cancelBtn);
-
-  const saveBtn = document.createElement('button');
-  saveBtn.textContent = 'Save';
-  saveBtn.style.padding = '8px 16px';
-  saveBtn.style.borderRadius = '4px';
-  saveBtn.style.border = 'none';
-  saveBtn.style.backgroundColor = 'var(--color-primary)';
-  saveBtn.style.color = 'var(--color-on-primary)';
-  saveBtn.style.cursor = 'pointer';
-  buttonGroup.appendChild(saveBtn);
-
-  dialog.appendChild(buttonGroup);
-  overlay.appendChild(dialog);
-
-  const open = async () => {
-    try {
-      const res = await fetch('http://127.0.0.1:48000/api/settings/gemini');
-      const data = await res.json();
-      if (data.has_key) {
-        input.placeholder = '******** (Saved in .env)';
-        input.value = '';
-      } else {
-        input.placeholder = 'Enter Gemini API Key';
-        input.value = '';
-      }
-    } catch (e) {
-      console.error(e);
-      input.placeholder = 'Failed to fetch status';
-    }
-    overlay.style.display = 'flex';
-  };
-
-  const close = () => {
-    overlay.style.display = 'none';
-  };
-
-  cancelBtn.addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
-
-  saveBtn.addEventListener('click', async () => {
-    const val = input.value.trim();
-    if (val) {
+  const save = async () => {
+    const value = input.value.trim();
+    if (value) {
       try {
-        await fetch('http://127.0.0.1:48000/api/settings/gemini', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ api_key: val })
-        });
+        await saveGeminiKey(value);
         showToast('Settings saved to .env', 'success');
-      } catch (e) {
+      } catch (err) {
+        console.error(err);
         showToast('Failed to save settings', 'error');
-        console.error(e);
       }
     }
-    window.dispatchEvent(new Event('settings:updated'));
-    close();
-  });
+    emit('settings:updated');
+    modal.close();
+  };
 
-  return { overlay, open, close };
+  modal.panel.append(
+    field('Gemini API Key', input),
+    h(
+      'div',
+      { class: 'cs-modal__actions' },
+      button('Cancel', () => modal.close(), { variant: 'outline', size: 'dialog' }),
+      button('Save', () => void save(), { variant: 'primary', size: 'dialog' }),
+    ),
+  );
+
+  return {
+    async open() {
+      input.value = '';
+      try {
+        const { has_key } = await getGeminiKeyStatus();
+        input.placeholder = has_key ? '******** (Saved in .env)' : 'Enter Gemini API Key';
+      } catch (err) {
+        console.error(err);
+        input.placeholder = 'Failed to fetch status';
+      }
+      modal.open();
+    },
+  };
 }

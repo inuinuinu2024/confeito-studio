@@ -1,94 +1,99 @@
-# フロントエンド設計方針
+# フロントエンド設計
 
-## UI構成とコンポーネント設計
-- React/Vue等のフレームワークは不使用。各コンポーネントは `create*()` 関数が `HTMLElement` を返すDOM APIベースのパターン。
-- **レイアウト**: CSS Grid (`manga-grid`) で画面全体を3列3行構成に分割。
-- **サイドバー構成**:
-  - **左サイドバー**: レイヤーツリー（LAYER TREE）は廃止され、「ARCHIVES」専用パネルに一本化。ヘッダーには「ARCHIVESを更新（リフレッシュ）」ボタンと「アーカイブ削除」ボタンを配置。
-  - **右サイドバー（AI Panel）**: タブヘッダーを新設し、「All Tools（全ツール一覧）」と「Custom（ユーザー設定組み合わせ）」の2画面をタブ切り替え可能。
-- **表示・選択仕様**: キャンバスに表示されるのは「ARCHIVES」欄で選択中の画像のみ。アーカイブ非選択時（未選択またはトグル解除時）はキャンバス上に画像は表示されない。
-- **スタイリング**: `variables.css` の Vanilla CSS Custom Properties（デザイントークン）で一元管理。
-- **メニューバー（TopBar）**:
-  - Fileメニュー項目は「Save Image」「Save Image As...」「Close Image」に整理（「New Image」「Open Image」「Open Recent」は廃止され、画像の読み込みは「画像読み込み」ツールまたは起動時の自動復元で行う）。
-- **Feature-based アーキテクチャ**: 機能単位（Vertical Slice）でトップレベルフォルダを分割。共通処理は `shared/` に隔離し循環依存を回避。
+Vite + TypeScript (strict)。UI フレームワークは使わず、各コンポーネントは `create*()` 関数が
+`HTMLElement` を返す。機能（feature）単位でフォルダを分け、共通部品は `shared/` に置く。
 
-## 状態管理・キャッシュ仕様
-- グローバルな状態はバックエンドのAPIまたはIndexedDBを通じて管理。
-- **画像読み込み・保存**: PSDの読み込みは廃止され、画像ファイル（PNG, JPEG, WebP, BMP, GIF等）のみに限定。ブラウザ標準の Image / Canvas API を用いた高速描画。
-- **画像ドキュメントキャッシュ**: 前回開いた画像ファイルは、File System Access API の `fileHandle` を IndexedDB の `lastImage` として保持。起動時に自動復元を試行。
-- **起動フローとスプラッシュスクリーン仕様**:
-  - `start-app.ps1` によるフロントエンド・バックエンドの同時起動時、バックエンド（ポート48000）の準備完了前にフロントエンドが読み込まれてしまうことによるエラーを防ぐため、フロントエンド（`app.ts`）は起動直後にバックエンドのヘルスチェックAPI（`GET /api/health`）をポーリング待機する。
-  - 待機中はフルスクリーンのスプラッシュスクリーンを表示し、ヘルスチェック成功（200 OK）の応答を受けた後にUIの構築と設定（`GET /api/settings/prompts`）やアーカイブ一覧の取得を一斉に行う。これにより各種APIのリトライ処理は不要となっている。
-- **アーカイブキャッシュと階層ツリー仕様**:
-  - （過去のIndexedDBへのキャッシュ保存およびそのアーカイブへの移行処理は完全に撤廃された）
-  - 起動時は非展開で一覧表示し、展開時に画像をフェッチする遅延読み込み。バックエンドの通常フォルダ形式アーカイブと同期。`appendArchiveLog` による作業ログ追記に対応。
-  - **階層フォルダ（サブフォルダ）の開閉（展開・折りたたみ）**: ルートフォルダだけでなく、コマ分割ツール等で作成されたサブフォルダも階層ツリーとして独立して展開・折りたたみ（Expand / Collapse）可能。chevron（矢印）アイコンのクリック、またはフォルダ項目のダブルクリックで開閉をトグル。折りたたまれている（`collapsed: true`）フォルダ配下のアイテム（ファイル・子フォルダ）はツリーから正しく除外・非表示化される。
-  - **更新ボタン仕様**: ヘッダーの「ARCHIVESを更新」ボタン押下時、展開中フォルダの内部ファイルキャッシュをクリアしてバックエンド（`GET /api/archives` および各フォルダの `GET /api/archives/{name}/contents`）から最新のフォルダ構造とファイル一覧を即時再取得・再描画する。
-  - **選択状態の維持と整合性**: 更新前に選択されていたアイテムが存在する場合はアクティブ選択を維持。外部操作等で削除されていた場合は選択を自動解除してキャンバス表示をクリアする。ボタン押下時はスピンアニメーションおよびトースト通知を表示。
+## ディレクトリ
 
-## その他仕様
-- **起動仕様とブラウザオープン**:
-  - `package.json` の `dev` スクリプトは `vite` のみ（`--open` は付与しない）。ブラウザのオープンは `setup/start-app.ps1` がポート45173のListenを待機・検知した後に1度だけ実行する責務とし、起動時にタブが2重に開く不具合を防止。
-- **ブラウザ切断時自動終了（`closeOnDisconnectPlugin`）**:
-  - ブラウザの全タブを閉じるとWebSocket切断を検知し、バックエンド（`/api/shutdown`）とVite開発サーバーを自動終了する。
-  - F5リロードや起動時の初期化、一時的な切断による誤終了を防ぐため、初回WebSocket接続完了ガード（`hasConnectedOnce`）と4000ms（4秒）の切断猶予タイマーを設け、即時終了を回避して安定化。
-- ズーム倍率は最大1000%。拡縮は物理サイズ変更と `overflow: auto` によりネイティブスクロールを利用。
-- **画像ドラッグ＆ドロップ**: キャンバス領域への画像ファイルドラッグ＆ドロップにより、「画像読み込み」ツールと同一の処理（ARCHIVESフォルダ作成、画像コピー、log.txt作成、自動選択、キャンバス表示）を実行。
-- **キャンバス描画と動的リサイズ・Zoom 100%デフォルト表示仕様**:
-  - **動的サイズ追従**: 通常表示モード（Normal Mode）では、アーカイブ画像選択時にキャンバス解像度（`canvas.width` / `canvas.height`）をアーカイブ画像の実寸に自動更新する。これにより、縦長・横長など任意の比率・解像度の画像でもクリッピング（見切れ）することなく全体を描画できる。
-  - **画像選択時のZoom: 100%デフォルト適用**: 画像ファイル読み込み時（`document:loaded`）およびアーカイブ画像選択時（`tool:result-ready`）において、従来の全体縮小表示（`fitToScreen()`）ではなく、**Zoom: 100%（等倍・実寸表示）をデフォルト**として適用（`resetTo100Percent()`）。横方向は中央揃え、縦方向は上端スクロール（`scrollTop = 0`）で配置される。これにより、縦長マンガやWebtoon画像が極小（10%等）に自動縮小されてしまうのを防ぎ、選択直後から等倍の鮮明なプレビューと自然な縦スクロール閲覧が可能となる。
-  - **画面フィット表示の手動切り替え**: 画面全体を見渡したい場合は、ズームバーの「Fit Width（幅に合わせる）」「Fit Height（高さに合わせる）」やズームスライダー操作で手動縮小・拡大可能。ズームリセットボタン（Homeボタン）も Zoom: 100% へのリセットとして統一。
-  - **アスペクト比歪み防止**: `splitViewInner` の表示サイズ計算を親要素パディングに依存するパーセント指定からピクセル指定（`renderW` px, `renderH` px）に変更し、画像の縦横比が正確に維持されるようにする。
-  - **Compare / Overlay モード**: 複数画像のバウンディングボックス（外接最大サイズ）をキャンバス論理サイズとし、中央揃えでオフセット配置する。
-  - **テキスト・JSONファイルプレビュー時のキャンバス全面表示仕様**:
-    - ARCHIVESまたはレイヤーリストで非画像ファイル（`*.json`, `*.txt`, `*.md` 等）を選択した際、直前に開いていた画像の解像度やアスペクト比に縛られず、キャンバスの利用可能領域全体（`splitViewInner` の幅100%・高さ100%）にテキストプレビューを自動展開する。
-    - テキストプレビュー中は画像用のズームバー（拡大縮小・Fitボタン等）を自動非表示とし、画像ファイル選択復帰時に再表示・画像サイズへのFit to Screen復元を行う。
-    - スライダー比較モードはテキスト表示中は自動的に無効化（利用不可トースト通知）され、通常表示または2ペイン比較表示となる。
-    - テキストオーバーレイ上でのマウスドラッグ操作はテキストの範囲選択・コピーとして動作し、キャンバスのパニング（画面移動）と競合しないよう制御。
-    - フォントは等幅（Monospace / JetBrains Mono / Consolas）、行間1.6、スクロールバーカスタマイズ、ダークテーマ対応の余白と枠線・影付きコンテナでスタイリング。
-- **AI生成エラーアーカイブ**:
-  - 生成時にAPIエラー（セーフティブロックなど）が発生した場合、バックエンドから渡された生のAPIレスポンス（`raw_response`）をそのまま `error.json` としてアーカイブに保存する。
-  - ただし、事前の門前払い（400 Bad Request）の場合はGoogle APIの仕様上 `safetyRatings` などの詳細が含まれないことがある。生成後のブロック（200 OK で `finishReason: SAFETY`）の場合は詳細が含まれる。
-- **AIパネルのタブ・Customツールセット仕様**:
-  - **タブUI**: タブ名にはアイコンを配置せず、すっきりとしたテキスト＋バッジ表示（左:「Custom」、右:「All Tools」）を採用。
-  - **All Tools タブ**: 登録されているすべてのツールを表示。D&Dによる並び替え可能（`localStorage: toolOrder`）。ツール右側のピン留めアイコンでCustomセットへの追加・解除をトグル。
-  - **Custom タブ**: ユーザーがピン留め設定した組み合わせのツールのみを表示。独立してD&D並び替え可能（`localStorage: customToolOrder`）。各ツールの除外ボタン（×）から削除が可能。0件時は案内メッセージを表示。
-  - **状態永続化**: 選択中のアクティブタブ（`aiPanelActiveTab`）、All Toolsの並び順、Customセットの組み合わせおよび並び順は `localStorage` に保持され、再起動後も復元される。
-- **画像読み込みツール（ImageLoaderTool）**:
-  - 右サイドバー（AI Panel）のツール群に配置。設定サイドバーは開かず、押下すると即座にエクスプローラー（ファイルピッカー）が開く。
-  - 単一の画像ファイルを選択可能。読み込み直後はその画像が自動的にARCHIVES欄で選択状態（Active）となり、キャンバスにも表示される。
-  - **ARCHIVESフォルダ作成**: `YYYYMMDD_HHMMSS_画像名`（拡張子を除いたベース名を安全文字にサニタイズ）の命名規則でフォルダを作成し、元画像を同名でコピー保存。
-  - **log.txt作成**: `[YYYY-MM-DD HH:mm:ss] 画像読み込みツールにより読み込まれました (ファイル名: ...)` の初期ログを生成・保存。後続のツールや作業による追記に対応。
-  - **アクティブアーカイブ管理**: `DocumentManager` に現在作成されたアーカイブフォルダ名が保持され、後続処理から参照・追記可能。
-- **コマ分割ツール（PanelSplitterTool）**:
-  - 右サイドバー（AI Panel）のツール群に配置（アイコン: `auto_awesome`、実行ボタン: `auto_awesome` コマ分割を実行）。
-  - **設定サイドバー**:
-    - 対象画像・保存先ステータスカード（現在ARCHIVESで選択中の画像ファイル名、解像度、および**保存先フォルダ名**を表示。未選択時は新規コマ分割フォルダ作成となる旨を案内）。
-    - **モデル選択**: `Gemini 3.8 Flash`（`gemini-3.8-flash`、標準・高速）および `Gemini 3.1 Pro`（APIモデルID: `gemini-3.1-pro-preview`、高度推論）から選択可能。設定は永続化（`panelSplitter_model`）。
-    - **推論レベル（thinkingConfig）**: `thinkingLevel`（`LOW` / `MEDIUM` / `HIGH`）を選択可能。設定は永続化（`panelSplitter_thinking_level`）。
-    - **コマの読み順（連番付与順序）選択**: 「左上から右下（ウェブトゥーン・左開き、標準デフォルト）」または「右上から左下（日本の漫画・右開き標準）」。設定は永続化（`panelSplitter_reading_order`）。
-    - **コマ余白（パディング）**: 調整スライダー（0〜30px、初期値0px、設定永続化）。
-    - **JSONプレビューボタン**: Gemini API送信リクエストパラメータ、保存先フォルダ、および生成される `panels.json` のデータ構造をモーダルダイアログで即座に確認可能。
-  - **保存先仕様と実行連動**:
-    - **選択フォルダ内サブフォルダへの保存**: ARCHIVESでフォルダが選択されている場合、そのフォルダ内に `YYYYMMDD_HHMMSS_コマ分割/` サブフォルダ（例: `archives/選択中フォルダ/YYYYMMDD_HHMMSS_コマ分割/`）を自動作成し、その中に各コマ画像（`01.png`, `02.png`...）および `panels.json` を格納・保存する（※`origin.png` は出力不要のため保存しない。`log.txt` はサブフォルダ内には作成せず、元フォルダ直下の `log.txt` に `[YYYY-MM-DD HH:mm:ss] コマ分割ツールを実行し、*コマに分割しました（元ファイル名 *、サブフォルダ名: *）` の一文のみを追記）。フォルダ未選択時のみ ARCHIVES 直下に `YYYYMMDD_HHMMSS_コマ分割` を新規作成する。
-    - ARCHIVESで選択中の画像（`getSelectedImage()`）をBlobに変換し、現在アクティブなアーカイブフォルダ名（`target_folder`）と共にバックエンドの `POST /api/image/split-panels` に非同期送信。
-    - 処理完了時、トースト通知（`「フォルダ名/サブフォルダ名」に N コマを分割保存しました`）を表示し、`tool:cache-updated` イベント（`autoSelectKey: ${archiveName}/${subFolder}/01.png`）を発火。
-    - ARCHIVES一覧が自動更新され、親フォルダおよびサブフォルダが自動展開されて1コマ目の画像 `01.png` がアクティブ選択・キャンバス表示される。
-- **着彩（シングル）ツール (ColoringTool)**:
-  - 右サイドバー（AI Panel）のツール群に配置。
-  - **対象画像（原画）仕様**: 原画指定ボックスは廃止。キャンバスに現在表示されている画像（アクティブなアーカイブ画像）が直接原画として使用される。
-  - **参照画像指定ボックス（DropZone）**: 以下の順序で配置される。
-    1. キャラクター一貫性 (Character) [最大5枚]
-    2. 高精度反映オブジェクト (Object) [最大5枚]
-    3. スタイル参照 (Style) [最大3枚]
-  - **保存先仕様**: 新規フォルダを作成せず、**現在アクティブなアーカイブ画像と同じフォルダ**に対して出力する。
-    - **成功時**: 生成画像を `YYYYMMDD_HHMMSS_着彩.png` (またはjpg) として保存し、同フォルダの `log.txt` に実行結果を追記する。
-    - **エラー時**: エラーメッセージおよび生のAPIレスポンスを同フォルダの `error.txt` に追記する。
-- **Overlay Mode（重ね合わせモード）**:
-  - **概要**: 2枚の画像を重ね合わせて表示する機能。下絵（Underdrawing / U）に単色ティントを適用し、上絵（Top / T）を半透明で重畳表示する。左ツールバーの3番目のボタン（`photo_library`アイコン）でトグル。
-  - **U/T選択方式**: ARCHIVESリストの各画像ファイル右端に **チェックボックス** を表示し、下絵（U）を選択する。上絵（Top / T）には、ARCHIVES欄で現在アクティブ選択されている画像（ハイライト表示されている画像）が自動的に重なる仕様。
-  - **カラムヘッダー**: Overlay Mode有効時、ARCHIVESリスト上部に「U」のカラムヘッダーバーを表示し、チェックボックス列の意味を明示。
-  - **自動割り当て**: Overlay Modeに切り替え時、U/Tが未選択の場合、現在ARCHIVES上でアクティブ選択中の画像を自動的にU（下絵）として割り当て。
-  - **白画面防止**: U/Tいずれも未設定時、`leftCacheCanvas` または `currentImage` をフォールバックUとして使用。それでも描画対象がない場合のみガイダンステキストを中央表示。
-  - **下絵ティントカラー**: キャンバス上部のフローティングツールバーで4色（青 `#448aff`、緑 `#4caf50`、赤 `#ff5252`、灰 `#9e9e9e`）から選択。再クリックでティント解除（原画表示）。
+```text
+frontend/src/
+├── app.ts                    # エントリ: backend 待機 → 設定読込 → 画面グリッド組み立て
+├── shared/                   # 機能をまたぐ部品（features を import しない）
+│   ├── config.ts             # API_BASE（VITE_API_BASE）, 拡張子パターン
+│   ├── events.ts             # 型付きイベントバス emit()/on() と AppEventMap（イベント一覧）
+│   ├── api/                  # バックエンド呼び出しはすべてここ経由（http.ts が ApiError を作る）
+│   ├── state/                # view-mode.ts（表示モード）, tool-settings.ts（ツール設定の永続化）
+│   ├── types/                # ArchiveEntry, Tool / ToolContext / ToolError
+│   ├── ui/                   # h() / icon(), form 部品, dialogs, toast, resizer
+│   ├── utils/                # datetime, image(Blob/Canvas 変換), history(Undo), idb
+│   └── styles/               # variables(トークン), base, components(cs-*), layout(グリッド)
+└── features/
+    ├── top-bar/              # メニュー, 設定ダイアログ, 背景色ダイアログ, ショートカット
+    ├── tool-bar/             # 左端の表示モード切替ボタン
+    ├── archive-panel/        # ARCHIVES ツリー（archive-tree.ts = 純粋関数）
+    ├── canvas/               # 表示領域（canvas-state / render / zoom / toolbars）
+    ├── ai-panel/             # ツール一覧・タブ・並び替え・実行（tool-runner）・設定サイドバー
+    ├── document/             # DocumentManager（現在の画像と保存先フォルダ）
+    ├── status-bar/
+    └── tools/                # AI ツール（1 ツール 1 ファイル、大きいものは <id>/ フォルダ）。index.ts が一覧
+        ├── gemini-image/     # Gemini 画像ツールの共通部品（参照画像ゾーン・プロンプト欄・送信テキスト）
+        └── nano-banana-pro/  # models.ts（モデルごとの対応値）, options.ts（設定項目と解決）,
+                              # request.ts（API 別のリクエスト組み立て）, nano-banana-pro.ts（画面）
+```
 
+## 主要な仕組み
+
+### イベントバス（`shared/events.ts`）
+機能間の通知はすべて `emit(name, detail)` / `on(name, handler)` で行う。`window.dispatchEvent` を直接使わない。
+イベント名と detail の型は `AppEventMap` が唯一の定義。送信元/受信先は `grep "emit('名前'"` / `grep "on('名前'"` で追える。
+
+| イベント | 送信元 → 受信先 | 意味 |
+|---|---|---|
+| `archive:item-selected(:right)` | ArchivePanel → Canvas | ファイルを選択（テキストは文字表示） |
+| `archive:selection-cleared(:right)` | ArchivePanel → Canvas | 選択解除（キャンバスを空に） |
+| `archive:batch-selected` | ArchivePanel → Canvas | Batch モードでの選択（グリッド表示する画像の一覧） |
+| `archives:changed` | ツール/削除処理 → ArchivePanel | 一覧を再取得。`autoSelectKey` があれば展開して選択 |
+| `<mode>-mode:toggle` | view-mode.ts → 各機能 | 表示モードの ON/OFF（normal/compare/overlay/batch） |
+| `overlay:underdrawing-selected(:right)` | ArchivePanel → ArchivePanel, Canvas | Overlay の下絵(U) 選択 |
+| `overlay-mode:changed` | ArchivePanel → ArchivePanel | U チェックボックスの再同期 |
+| `document:loaded` / `document:closed` / `document:redraw` | DocumentManager → Canvas | 現在画像の変更 / 再描画要求 |
+| `file:save` / `file:save-as` / `file:close` | メニュー, ショートカット → DocumentManager | ファイル操作 |
+| `tool:start` / `tool:progress` / `tool:end` | tool-runner, ツール → StatusBar | 実行状況 |
+| `canvas:bg-color`, `settings:updated`, `history:changed` | 各ダイアログ, history | 背景色 / API キー保存 / Undo スタック変化 |
+
+`:right` 付きは Compare モードで AI パネルの代わりに表示される 2 つ目の ARCHIVES パネル由来。
+
+### 状態の持ち場所
+- **表示モード**: `shared/state/view-mode.ts` が唯一の正。変更は `setViewMode()` / `toggleViewMode()` のみ。
+  参照は `isViewMode('batch')` 等。Canvas は描画順序を保つため toggle イベントで自前のフラグも更新する。
+- **現在の画像・保存先**: `DocumentManager`。`getCurrentCanvas()` はツールが処理する画像、
+  `getCurrentArchiveFolder()` はツールの保存先（アーカイブキー。詳細は [specs/archives.md](../specs/archives.md)）。
+- **ツール設定**: `toolSettings('<prefix>')` で `settings/default_prompts.json` に保存（キーは `<prefix>_<key>`）。
+- **UI の好み**（タブ・並び順）: localStorage（[specs/ai-panel.md](../specs/ai-panel.md)）。
+
+### API 層（`shared/api/`）
+- エンドポイントごとに型付き関数を用意する（`archives.ts`, `image.ts`, `generation.ts`, `settings.ts`, `system.ts`）。
+- 失敗時は `ApiError`（`message`, `status`, `detail`, `body`, `rawResponse`）を投げる。
+  バックエンドのエラー形式は常に `{"detail": string | {message, raw_response}}`。
+- サブフォルダを含むフォルダキー（`root/sub`）への保存・ログ追記は `saveToFolder()` / `appendFolderLog()` を使う。
+
+### UI 部品（`shared/ui/`）
+- `h(tag, props, ...children)`: 要素生成。`class`/`style`/`text`/`dataset` 以外の props はプロパティとして代入。
+- `form.ts`: `field`, `select`, `slider`, `switchRow`, `button`, `iconButton`, `note`, `helpIcon`。
+- `dialogs.ts`: `createModal`, `openJsonPreview`, `openTextEditDialog`。`toast.ts`: `showToast`。
+- インラインスタイルは原則使わず CSS クラスで書く。
+
+### CSS
+- `shared/styles/variables.css` がデザイントークン。色・寸法はトークンを使う。
+- 共通部品は `components.css`（`cs-` 接頭辞）。機能固有は `features/<name>/<name>.css` に置き、その機能の TS から import する。
+- クラス名は BEM。ARCHIVES パネルは歴史的経緯で `layer-*` 接頭辞のまま。
+
+## 実装手順
+
+### ツールを追加する
+1. `features/tools/<id>.ts`（大きいツールは `features/tools/<id>/<id>.ts` + 部品）に `Tool`（`shared/types/tool.ts`）を実装する。
+   - 設定が必要なら `renderSettings(container)` を実装し `shared/ui/form.ts` の部品で組む。設定値は `toolSettings('<prefix>')`。
+   - 実行条件は `canOpen()`（false を返すならトーストで理由を出す）。キャンセルは `throw new ToolCancelled()`。
+   - バックエンド呼び出しは `shared/api/` に関数を追加して使う。保存後は `emit('archives:changed', { autoSelectKey })`。
+2. `features/tools/index.ts` の `TOOLS` に追加する（並び順 = All Tools の初期順）。
+3. `docs/specs/tools/<id>.md` に仕様を書く。
+
+### イベントを追加する
+`AppEventMap` に名前と detail 型を追加し、`emit` / `on` で使う。上の表も更新する。
+
+### バックエンド API を呼ぶ
+`shared/api/<領域>.ts` に型付き関数を追加する（直接 `fetch` しない）。レスポンス型はバックエンドの戻り値と合わせる。
+
+## テスト
+- 純粋関数は隣に `*.test.ts`（vitest）。DOM に依存しないロジック（ツリー構築・並び順・幾何計算）を切り出してテストする。
+- 画面の振る舞いは E2E（[testing.md](./testing.md)）。

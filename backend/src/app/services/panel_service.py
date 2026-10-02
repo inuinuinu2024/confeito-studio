@@ -1,361 +1,160 @@
-import os
-import io
-import re
-import json
+"""Manga panel splitting (コマ分割): detect panels with Gemini, crop them, save to an archive.
+
+Output (see docs/specs/tools/panel-split-merge.md):
+  * ``target_folder`` given  -> ``<root archive>/<YYYYMMDD_HHMMSS>_コマ分割/{01.png,...,panels.json}``
+  * no ``target_folder``     -> new archive ``<YYYYMMDD_HHMMSS>_コマ分割/{01.png,...,panels.json}``
+  * one line is appended to ``<root archive>/log.txt``
+"""
+
 import base64
-import requests
+import io
+import json
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Any
+
+import requests
 from PIL import Image
-from dotenv import load_dotenv
 
-from .archive_service import save_archive, ArchiveServiceError, _safe_resolve
+from ..errors import BadRequestError
+from ..providers import gemini
+from . import panel_geometry as geo
+from .archive_service import ArchiveServiceError, append_archive_log, save_archive, split_archive_path
 
-load_dotenv()
 
-class PanelServiceError(Exception):
+class PanelServiceError(BadRequestError):
     pass
 
-def _get_api_key(api_key: Optional[str] = None) -> str:
-    key = api_key or os.environ.get("GEMINI_API_KEY")
-    if not key:
-        # Retry loading from .env if not found
-        from pathlib import Path
-        env_path = Path(__file__).parent.parent.parent.parent.parent / ".env"
-        if env_path.exists():
-            load_dotenv(dotenv_path=env_path)
-            key = os.environ.get("GEMINI_API_KEY")
-    if not key:
-        raise PanelServiceError("GEMINI_API_KEY が設定されていません。.env または設定画面をご確認ください。")
-    return key.strip()
+
+def build_preview(reading_order: str, model_name: str, thinking_level: str) -> dict[str, Any]:
+    """The Gemini request ``split_panels`` would send (image data replaced by a placeholder)."""
+    model = geo.normalize_model_name(model_name)
+    request_body = geo.build_detection_request(
+        "<BASE64_IMAGE_DATA>", reading_order, geo.normalize_thinking_level(thinking_level)
+    )
+    return {
+        "api_endpoint": f"{gemini.API_BASE_URL}/models/{model}:generateContent",
+        "request_body": request_body,
+    }
+
+
+def detect_panels(
+    image: Image.Image, reading_order: str, model: str, thinking_level: str, api_key: str
+) -> list[dict[str, Any]]:
+    """Calls Gemini and returns the raw ``[{"panel_number", "box_2d"}, ...]`` list."""
+    image_b64 = base64.b64encode(geo.prepare_inference_image(image)).decode("utf-8")
+    payload = geo.build_detection_request(image_b64, reading_order, thinking_level)
+    raw_text = ""
+    try:
+        resp = gemini.generate_content(model, payload, api_key)
+        lowered = resp.text.lower()
+        if resp.status_code == 400 and ("thinking" in lowered or "schema" in lowered):
+            # Older models reject thinkingConfig / response_schema: retry with a plain config.
+            payload = {**payload, "generationConfig": geo.FALLBACK_GENERATION_CONFIG}
+            resp = gemini.generate_content(model, payload, api_key)
+        try:
+            gemini.raise_for_status(resp, label="Gemini API エラー")
+        except gemini.GeminiAPIError as e:
+            raise PanelServiceError(e.message) from e
+
+        response_json = resp.json()
+        if not response_json.get("candidates"):
+            raise PanelServiceError("Gemini API から応答が返されませんでした。")
+        raw_text = geo.extract_response_text(response_json)
+        return geo.parse_panel_boxes(raw_text)
+    except json.JSONDecodeError as e:
+        raise PanelServiceError(f"GeminiからのJSON応答の解析に失敗しました: {e}\nレスポンス: {raw_text}") from e
+    except requests.exceptions.RequestException as e:
+        raise PanelServiceError(f"Gemini API への通信に失敗しました: {e}") from e
+
 
 def split_panels(
     image_bytes: bytes,
     original_filename: str = "image.png",
     reading_order: str = "left_to_right",
     padding: int = 0,
-    api_key: Optional[str] = None,
-    model_name: str = "gemini-3.8-flash",
+    api_key: str | None = None,
+    model_name: str = geo.DEFAULT_MODEL,
     thinking_level: str = "LOW",
-    target_folder: Optional[str] = None
-) -> Dict[str, Any]:
-    """
-    Gemini APIを用いて画像から漫画のコマを検出し、各コマを個別PNG画像として切り分けて
-    選択されたアーカイブフォルダ（未指定時は YYYYMMDD_HHMMSS_コマ分割）内に保存します。
-    後続のPythonツールでも容易にコマ割りを再利用・加工できるよう、
-    画像ファイル群に加えて構造化された panels.json を出力します。
-    """
-    key = _get_api_key(api_key)
+    target_folder: str | None = None,
+) -> dict[str, Any]:
+    key = gemini.resolve_api_key(api_key)
+    if not key:
+        raise PanelServiceError("GEMINI_API_KEY が設定されていません。.env または設定画面をご確認ください。")
+    model = geo.normalize_model_name(model_name)
+    level = geo.normalize_thinking_level(thinking_level)
 
-    # Normalize model name aliases
-    MODEL_ALIASES = {
-        "gemini-3.1-pro": "gemini-3.1-pro-preview",
-        "gemini-3-pro": "gemini-3.1-pro-preview",
-        "gemini-3.8-flash": "gemini-3.8-flash",
-    }
-    actual_model_name = MODEL_ALIASES.get((model_name or "").lower().strip(), (model_name or "gemini-3.8-flash").strip())
-
-    # 1. Load image via Pillow
     try:
-        pil_img = Image.open(io.BytesIO(image_bytes))
-        width, height = pil_img.size
+        image = Image.open(io.BytesIO(image_bytes))
+        width, height = image.size
     except Exception as e:
-        raise PanelServiceError(f"画像ファイルの読み込みに失敗しました: {e}")
+        raise PanelServiceError(f"画像ファイルの読み込みに失敗しました: {e}") from e
 
-    # 2. Prepare image for Gemini API (Downscale if too large to avoid 20MB payload limit)
-    MAX_EDGE = 4096
-    inference_img = pil_img
-    
-    if width > MAX_EDGE or height > MAX_EDGE:
-        ratio = MAX_EDGE / float(max(width, height))
-        new_size = (int(width * ratio), int(height * ratio))
-        inference_img = pil_img.resize(new_size, Image.Resampling.LANCZOS)
-    
-    # Convert to JPEG to reduce base64 payload size for the API request
-    if inference_img.mode in ("RGBA", "P"):
-        inference_img = inference_img.convert("RGB")
-        
-    inference_io = io.BytesIO()
-    inference_img.save(inference_io, format="JPEG", quality=85)
-    inference_bytes = inference_io.getvalue()
-    
-    mime_type = "image/jpeg"
-    img_b64 = base64.b64encode(inference_bytes).decode("utf-8")
+    boxes = detect_panels(image, reading_order, model, level, key)
+    if not boxes:
+        boxes = [{"panel_number": 1, "box_2d": [0, 0, 1000, 1000]}]  # treat the page as one panel
 
-    # 3. Call Gemini API for panel detection
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{actual_model_name}:generateContent?key={key}"
-
-    reading_order_desc = (
-        "Japanese manga reading order (top-to-bottom, right-to-left)"
-        if reading_order == "right_to_left"
-        else "Western comic reading order (top-to-bottom, left-to-right)"
-    )
-
-    prompt = f"""You are an expert manga / comic panel detector.
-Analyze this image and accurately detect all individual comic panels (frames / コマ).
-Return the bounding box coordinates for each panel.
-Order the panels strictly in {reading_order_desc}.
-
-Output a JSON array of objects with the following schema:
-[
-  {{
-    "panel_number": 1,
-    "box_2d": [ymin, xmin, ymax, xmax]
-  }}
-]
-
-Important constraints:
-- Coordinates [ymin, xmin, ymax, xmax] MUST be normalized integers from 0 to 1000 relative to the image height and width.
-  ymin=0 is top, ymax=1000 is bottom. xmin=0 is left, xmax=1000 is right.
-- Ensure the bounding boxes tightly encompass each panel's outer borders/content without cutting off dialogue bubbles or artwork.
-- Return ONLY valid JSON, with no markdown fences, no conversational text.
-"""
-
-    # Configure generation parameters including thinkingConfig & response_schema
-    generation_config: Dict[str, Any] = {
-        "response_mime_type": "application/json",
-        "temperature": 0.1,
-        "response_schema": {
-            "type": "ARRAY",
-            "items": {
-                "type": "OBJECT",
-                "properties": {
-                    "panel_number": {"type": "INTEGER"},
-                    "box_2d": {
-                        "type": "ARRAY",
-                        "items": {"type": "INTEGER"}
-                    }
-                },
-                "required": ["panel_number", "box_2d"]
-            }
-        }
-    }
-
-    # Apply thinkingConfig if model supports it (Gemini 3.x series)
-    valid_thinking_levels = ("LOW", "MEDIUM", "HIGH")
-    normalized_thinking_level = thinking_level.upper() if thinking_level else "LOW"
-    if normalized_thinking_level in valid_thinking_levels:
-        generation_config["thinkingConfig"] = {
-            "thinkingLevel": normalized_thinking_level
-        }
-
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt},
-                    {
-                        "inline_data": {
-                            "mime_type": mime_type,
-                            "data": img_b64
-                        }
-                    }
-                ]
-            }
-        ],
-        "generationConfig": generation_config
-    }
-
-    try:
-        resp = requests.post(url, json=payload, timeout=90)
-        # Fallback without thinkingConfig / response_schema if unsupported by model version
-        if resp.status_code == 400 and ("thinking" in resp.text.lower() or "schema" in resp.text.lower()):
-            simple_gen_config = {
-                "response_mime_type": "application/json",
-                "temperature": 0.1
-            }
-            fallback_payload = dict(payload)
-            fallback_payload["generationConfig"] = simple_gen_config
-            resp = requests.post(url, json=fallback_payload, timeout=90)
-
-        if resp.status_code != 200:
-            err_msg = resp.text
-            try:
-                err_json = resp.json()
-                if "error" in err_json and "message" in err_json["error"]:
-                    err_msg = err_json["error"]["message"]
-            except Exception:
-                pass
-            raise PanelServiceError(f"Gemini API エラー ({resp.status_code}): {err_msg}")
-
-        res_data = resp.json()
-        candidates = res_data.get("candidates", [])
-        if not candidates:
-            raise PanelServiceError("Gemini API から応答が返されませんでした。")
-
-        # When Thinking process is enabled, parts can include thought text.
-        # Find the final non-thought text part for the actual JSON response.
-        parts = candidates[0].get("content", {}).get("parts", [])
-        target_part = None
-        for p in reversed(parts):
-            if not p.get("thought", False) and "text" in p:
-                target_part = p
-                break
-        if not target_part and parts:
-            target_part = parts[-1]
-
-        raw_text = (target_part.get("text", "") if target_part else "").strip()
-        # Clean any potential markdown wrapping
-        raw_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
-        raw_text = re.sub(r"\s*```$", "", raw_text)
-
-        parsed_boxes = json.loads(raw_text)
-        if not isinstance(parsed_boxes, list):
-            if isinstance(parsed_boxes, dict) and "panels" in parsed_boxes:
-                parsed_boxes = parsed_boxes["panels"]
-            else:
-                parsed_boxes = []
-
-    except json.JSONDecodeError as e:
-        raise PanelServiceError(f"GeminiからのJSON応答の解析に失敗しました: {e}\nレスポンス: {raw_text}")
-    except requests.exceptions.RequestException as e:
-        raise PanelServiceError(f"Gemini API への通信に失敗しました: {e}")
-
-    # Fallback: if no panels detected, treat entire image as single panel
-    if not parsed_boxes:
-        parsed_boxes = [
-            {
-                "panel_number": 1,
-                "box_2d": [0, 0, 1000, 1000]
-            }
-        ]
-
-    # 3. Crop panels using Pillow
     now = datetime.now()
-    timestamp_folder = now.strftime("%Y%m%d_%H%M%S")
-    sub_folder_name = f"{timestamp_folder}_コマ分割"
-    clean_target = (target_folder or "").strip().replace("\\", "/").strip("/")
-
-    if clean_target:
-        # Save into a subfolder inside the selected archive
-        root_archive = clean_target.split("/")[0]
-        prefix = f"{sub_folder_name}/"
-        is_subfolder = True
+    sub_folder = f"{now:%Y%m%d_%H%M%S}_コマ分割"
+    target_root, _ = split_archive_path((target_folder or "").strip())
+    if target_root:
+        root_archive, prefix = target_root, f"{sub_folder}/"
     else:
-        # Fallback: create standalone archive folder in root archives directory
-        root_archive = sub_folder_name
-        prefix = ""
-        is_subfolder = False
+        root_archive, prefix = sub_folder, ""
 
-    archive_files: List[tuple[str, bytes]] = []
-
-    panel_details = []
-    panel_index = 1
-
-    for item in parsed_boxes:
-        box = item.get("box_2d")
-        if not box or len(box) != 4:
+    files: list[tuple[str, bytes]] = []
+    panels: list[dict[str, Any]] = []
+    for item in boxes:
+        box_2d = item.get("box_2d")
+        if not box_2d or len(box_2d) != 4:
             continue
-
-        ymin, xmin, ymax, xmax = [float(c) for c in box]
-
-        # Convert normalized coordinates (0-1000) to pixel coordinates
-        px_ymin = int(round((ymin / 1000.0) * height))
-        px_xmin = int(round((xmin / 1000.0) * width))
-        px_ymax = int(round((ymax / 1000.0) * height))
-        px_xmax = int(round((xmax / 1000.0) * width))
-
-        # Apply padding if requested
-        if padding > 0:
-            px_ymin = max(0, px_ymin - padding)
-            px_xmin = max(0, px_xmin - padding)
-            px_ymax = min(height, px_ymax + padding)
-            px_xmax = min(width, px_xmax + padding)
-
-        # Ensure valid bbox dimensions
-        if px_xmax <= px_xmin or px_ymax <= px_ymin:
+        pixel_box = geo.to_pixel_box(box_2d, width, height, padding)
+        if pixel_box is None:
             continue
+        index = len(panels) + 1
+        files.append((f"{prefix}{geo.panel_filename(index)}", geo.to_png_bytes(image.crop(pixel_box))))
+        panels.append(geo.panel_record(index, box_2d, pixel_box))
 
-        # Clamp to image boundaries
-        px_xmin = max(0, min(width - 1, px_xmin))
-        px_ymin = max(0, min(height - 1, px_ymin))
-        px_xmax = max(px_xmin + 1, min(width, px_xmax))
-        px_ymax = max(px_ymin + 1, min(height, px_ymax))
-
-        cropped_img = pil_img.crop((px_xmin, px_ymin, px_xmax, px_ymax))
-        crop_bytes = _to_png_bytes(cropped_img)
-
-        filename = f"{panel_index:02d}.png"
-        archive_files.append((f"{prefix}{filename}", crop_bytes))
-
-        panel_info = {
-            "panel_number": panel_index,
-            "filename": filename,
-            "box_2d": [int(ymin), int(xmin), int(ymax), int(xmax)],
-            "pixel_box": [px_xmin, px_ymin, px_xmax, px_ymax],
-            "xywh": [px_xmin, px_ymin, px_xmax - px_xmin, px_ymax - px_ymin],
-            "width": px_xmax - px_xmin,
-            "height": px_ymax - px_ymin
-        }
-        panel_details.append(panel_info)
-        panel_index += 1
-
-    if not panel_details:
+    if not panels:
         raise PanelServiceError("有効なコマを検出・切り分けることができませんでした。")
 
-    # 4. Generate panels.json (Structured data for downstream Python scripts/tools)
-    formatted_date = now.strftime("%Y-%m-%d %H:%M:%S")
+    created_at = now.strftime("%Y-%m-%d %H:%M:%S")
     panels_meta = {
         "version": "1.0",
         "timestamp": now.isoformat(),
-        "created_at": formatted_date,
+        "created_at": created_at,
         "original_filename": original_filename,
-        "image_size": {
-            "width": width,
-            "height": height
-        },
+        "image_size": {"width": width, "height": height},
         "reading_order": reading_order,
-        "model": actual_model_name,
-        "thinking_level": normalized_thinking_level,
+        "model": model,
+        "thinking_level": level,
         "padding": padding,
-        "panels_count": len(panel_details),
-        "panels": panel_details
+        "panels_count": len(panels),
+        "panels": panels,
     }
-    panels_json_bytes = json.dumps(panels_meta, ensure_ascii=False, indent=2).encode("utf-8")
-    archive_files.append((f"{prefix}panels.json", panels_json_bytes))
-
-    # 5. Append single-line log to root archive log.txt (not inside subfolder)
-    sub_folder_label = sub_folder_name if is_subfolder else "なし"
-    log_line = f"[{formatted_date}] コマ分割ツールを実行し、{len(panel_details)}コマに分割しました（元ファイル名 {original_filename}、サブフォルダ名: {sub_folder_label}）"
+    files.append((f"{prefix}panels.json", json.dumps(panels_meta, ensure_ascii=False, indent=2).encode("utf-8")))
 
     try:
-        root_log_file = _safe_resolve(root_archive, "log.txt")
-        if root_log_file.exists() and root_log_file.is_file():
-            prev_content = root_log_file.read_text(encoding="utf-8")
-            updated_log = prev_content.rstrip() + "\n" + log_line + "\n"
-        else:
-            updated_log = log_line + "\n"
-        archive_files.append(("log.txt", updated_log.encode("utf-8")))
-    except Exception:
-        archive_files.append(("log.txt", (log_line + "\n").encode("utf-8")))
-
-    # 6. Save archive using archive_service
-    try:
-        save_archive(root_archive, archive_files)
+        save_archive(root_archive, files)
+        sub_folder_label = sub_folder if target_root else "なし"
+        append_archive_log(
+            root_archive,
+            f"[{created_at}] コマ分割ツールを実行し、{len(panels)}コマに分割しました"
+            f"（元ファイル名 {original_filename}、サブフォルダ名: {sub_folder_label}）",
+        )
     except ArchiveServiceError as e:
-        raise PanelServiceError(f"アーカイブの保存に失敗しました: {e}")
-
-    auto_select_key = f"{root_archive}/{prefix}01.png"
+        raise PanelServiceError(f"アーカイブの保存に失敗しました: {e}") from e
 
     return {
         "status": "success",
         "archive_name": root_archive,
-        "sub_folder": sub_folder_name if is_subfolder else None,
+        "sub_folder": sub_folder if target_root else None,
         "folder_name": root_archive,
-        "auto_select_key": auto_select_key,
-        "panels_count": len(panel_details),
-        "panels": panel_details,
+        "auto_select_key": f"{root_archive}/{prefix}{geo.panel_filename(1)}",
+        "panels_count": len(panels),
+        "panels": panels,
         "original_filename": original_filename,
         "image_width": width,
         "image_height": height,
-        "model": actual_model_name,
-        "thinking_level": normalized_thinking_level
+        "model": model,
+        "thinking_level": level,
     }
-
-def _to_png_bytes(img: Image.Image) -> bytes:
-    bio = io.BytesIO()
-    # Convert RGBA or RGB if necessary
-    if img.mode not in ("RGB", "RGBA"):
-        img = img.convert("RGBA")
-    img.save(bio, format="PNG")
-    return bio.getvalue()
