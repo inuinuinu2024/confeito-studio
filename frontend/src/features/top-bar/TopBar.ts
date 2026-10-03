@@ -1,92 +1,20 @@
 /**
- * TopBar — logo, menus (File / Edit / View / Help) and action icons.
- * Menu items without an action show a "開発中" toast.
+ * TopBar — logo and action icons (settings / cloud sync / account; the last two show a "開発中" toast).
+ * There are no menus: undo is the button next to delete in ARCHIVES, the background colour is in the
+ * settings window.
  */
 import './top-bar.css';
 import { h, icon } from '../../shared/ui/dom';
 import { showToast } from '../../shared/ui/toast';
-import { historyManager } from '../../shared/utils/history';
-import { createBgColorDialog } from './components/BgColorDialog';
-import { createSettingsDialog } from './components/SettingsDialog';
+import { createSettingsWindow } from './components/SettingsWindow';
 import { installShortcuts } from './shortcuts';
 
-type MenuItem = { type: 'item'; label: string; shortcut?: string; action?: () => void } | { type: 'separator' };
-
-interface MenuDef {
-  label: string;
-  items?: MenuItem[];
-}
-
-function buildMenu(items: MenuItem[]): HTMLDivElement {
-  const dropdown = h('div', { class: 'topbar__dropdown' });
-  for (const item of items) {
-    if (item.type === 'separator') {
-      dropdown.append(h('div', { class: 'topbar__dropdown-separator' }));
-      continue;
-    }
-    dropdown.append(
-      h(
-        'a',
-        {
-          class: 'topbar__dropdown-item',
-          onclick: (e: MouseEvent) => {
-            e.preventDefault();
-            if (item.action) item.action();
-            else showToast(item.label, 'mock');
-          },
-        },
-        h('div', { class: 'topbar__dropdown-item-check' }),
-        h('div', { class: 'topbar__dropdown-item-label', text: item.label }),
-        item.shortcut ? h('div', { class: 'topbar__dropdown-item-shortcut', text: item.shortcut }) : null,
-      ),
-    );
-  }
-  return dropdown;
-}
-
 export function createTopBar(): HTMLElement {
-  const settingsDialog = createSettingsDialog();
-  const bgColorDialog = createBgColorDialog();
-  installShortcuts({ openBgColorDialog: bgColorDialog.open });
-
-  const menus: MenuDef[] = [
-    { label: 'File' }, // no items yet: clicking shows the "開発中" toast
-    {
-      label: 'Edit',
-      items: [
-        { type: 'item', label: 'Undo', shortcut: 'Ctrl+Z', action: () => void historyManager.undo() },
-        { type: 'item', label: 'Redo', shortcut: 'Ctrl+Y', action: () => void historyManager.redo() },
-      ],
-    },
-    {
-      label: 'View',
-      items: [{ type: 'item', label: 'Background Color...', shortcut: 'Ctrl+B', action: bgColorDialog.open }],
-    },
-    { label: 'Help' },
-  ];
-
-  const nav = h(
-    'nav',
-    { class: 'topbar__nav' },
-    ...menus.map(menu =>
-      h(
-        'div',
-        { class: 'topbar__nav-item-wrapper' },
-        h('a', {
-          class: 'topbar__nav-item',
-          text: menu.label,
-          onclick: (e: MouseEvent) => {
-            e.preventDefault();
-            if (!menu.items) showToast(`${menu.label} メニュー`, 'mock');
-          },
-        }),
-        menu.items ? buildMenu(menu.items) : null,
-      ),
-    ),
-  );
+  const settingsWindow = createSettingsWindow();
+  installShortcuts({ openDisplaySettings: () => settingsWindow.open('display') });
 
   const actions: { iconName: string; label: string; action?: () => void }[] = [
-    { iconName: 'settings', label: '設定', action: () => void settingsDialog.open() },
+    { iconName: 'settings', label: '設定', action: () => settingsWindow.open() },
     { iconName: 'cloud_done', label: 'クラウド同期' },
     { iconName: 'account_circle', label: 'アカウント' },
   ];
@@ -94,7 +22,7 @@ export function createTopBar(): HTMLElement {
   return h(
     'header',
     { class: 'topbar' },
-    h('div', { class: 'topbar__left' }, h('div', { class: 'topbar__logo', text: 'ConfeitO Studio' }), nav),
+    h('div', { class: 'topbar__logo', text: 'ConfeitO Studio' }),
     h(
       'div',
       { class: 'topbar__right' },

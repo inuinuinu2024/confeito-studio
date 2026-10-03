@@ -12,13 +12,13 @@ frontend/src/
 │   ├── config.ts             # API_BASE（VITE_API_BASE）, 拡張子パターン
 │   ├── events.ts             # 型付きイベントバス emit()/on() と AppEventMap（イベント一覧）
 │   ├── api/                  # バックエンド呼び出しはすべてここ経由（http.ts が ApiError を作る）
-│   ├── state/                # view-mode.ts（表示モード）, tool-settings.ts（ツール設定の永続化）
+│   ├── state/                # view-mode.ts（表示モード）, tool-settings.ts（ツール設定の永続化）, canvas-background.ts（キャンバスの背景色）
 │   ├── types/                # ArchiveEntry, Tool / ToolContext / ToolNotReady / ToolCancelled
 │   ├── ui/                   # h() / icon(), form 部品, dialogs, toast（showToast / showError）, resizer, drag-sort（ドラッグで並べ替え）
-│   ├── utils/                # datetime, error-message(describeError), image(Blob/Canvas 変換), history(Undo)
+│   ├── utils/                # datetime, error-message(describeError), image(Blob/Canvas 変換), history(削除の Undo。削除と Undo を 1 つずつ順に実行)
 │   └── styles/               # variables(トークン), base, components(cs-*), layout(グリッド)
 └── features/
-    ├── top-bar/              # メニュー, 設定ダイアログ, 背景色ダイアログ, ショートカット
+    ├── top-bar/              # アプリ名・アイコン, 設定ウィンドウ（API・表示）, ショートカット
     ├── tool-bar/             # 左端の表示モード切替ボタン
     ├── archive-panel/        # ARCHIVES ツリー（archive-tree.ts = 純粋関数）
     ├── canvas/               # 表示領域（canvas-state / render / zoom / toolbars）
@@ -49,7 +49,7 @@ frontend/src/
 | `view:layer-selected` | ArchivePanel → Canvas, ArchivePanel / Canvas → ArchivePanel | チェック列での Parallel の L / R、Overlay の U（下絵）/ T（上絵）の選択・解除。読めない・削除された時は Canvas が `key: null` を送りチェックを外させる |
 | `document:loaded` / `document:redraw` | DocumentManager → Canvas | 現在画像の変更 / 再描画要求 |
 | `tool:start` / `tool:progress` / `tool:end` | tool-runner, ツール → StatusBar | 実行状況 |
-| `canvas:bg-color`, `settings:updated`, `history:changed` | 各ダイアログ, history | 背景色 / API キー保存 / Undo スタック変化 |
+| `canvas:bg-color`, `settings:updated`, `history:changed` | 設定ウィンドウ, history | 背景色 / API キー保存 / Undo できるかが変わった（ARCHIVES の元に戻すボタン） |
 
 ### 状態の持ち場所
 - **表示モード**: `shared/state/view-mode.ts` が唯一の正。変更は `setViewMode()` / `toggleViewMode()` のみ。

@@ -126,6 +126,16 @@ def test_delete_moves_to_trash_and_restore(archives_dir: Path) -> None:
         svc.restore_archive("a")
 
 
+def test_restore_keeps_newer_archive_with_the_same_name(archives_dir: Path) -> None:
+    svc.save_archive("a", [("x.png", b"old")])
+    svc.delete_archive("a")
+    svc.save_archive("a", [("y.png", b"new")])
+    with pytest.raises(svc.ArchiveConflictError):
+        svc.restore_archive("a")
+    assert sorted(p.name for p in (archives_dir / "a").iterdir()) == ["y.png"]
+    assert (archives_dir / ".trash" / "a" / "x.png").read_bytes() == b"old"
+
+
 def test_delete_contents_moves_items_to_trash_and_prunes(archives_dir: Path) -> None:
     svc.save_archive("a", [("keep.png", b"k"), ("sub/x.png", b"x")])
     svc.delete_archive_contents("a", ["sub/x.png"])
@@ -154,10 +164,17 @@ def test_delete_contents_handles_nested_selection(archives_dir: Path) -> None:
     assert sorted(p.name for p in (archives_dir / "a" / "sub").iterdir()) == ["01.png", "02.png"]
 
 
-def test_restore_contents_replaces_newer_file_and_reports_missing(archives_dir: Path) -> None:
+def test_restore_contents_keeps_newer_file_and_reports_missing(archives_dir: Path) -> None:
     svc.save_archive("a", [("x.png", b"old"), ("y.png", b"")])
     svc.delete_archive_contents("a", ["x.png"])
     svc.save_archive("a", [("x.png", b"new")])
+    # Something with the same name is there: nothing is replaced and the deleted file stays in the trash.
+    with pytest.raises(svc.ArchiveConflictError):
+        svc.restore_archive_contents("a", ["x.png"])
+    assert (archives_dir / "a" / "x.png").read_bytes() == b"new"
+    assert (archives_dir / ".trash" / ".items" / "a" / "x.png").read_bytes() == b"old"
+
+    (archives_dir / "a" / "x.png").unlink()
     svc.restore_archive_contents("a", ["x.png"])
     assert (archives_dir / "a" / "x.png").read_bytes() == b"old"
 

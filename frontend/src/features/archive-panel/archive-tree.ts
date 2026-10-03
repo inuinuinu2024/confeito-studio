@@ -83,25 +83,44 @@ export function displayName(row: TreeRow): string {
   return !row.isGroup && !row.item.name.includes('.') ? `${row.item.name}.png` : row.item.name;
 }
 
-export interface DeletionPlan {
-  /** Whole top-level archives (moved to .trash, restorable by undo). */
-  archives: string[];
-  /** archive -> relative paths of files / sub folders to delete permanently. */
-  contents: Map<string, string[]>;
+/** One thing the delete button moves to the trash: a whole archive (`path` = '') or an entry inside one. */
+export interface DeletionTarget {
+  archive: string;
+  /** Path inside the archive ('' for the whole archive). */
+  path: string;
+  /** Shown in the toasts. */
+  name: string;
 }
 
-export function planDeletion(items: ArchiveEntry[]): DeletionPlan {
+/**
+ * What deleting `items` moves to the trash, one target per archive / entry: entries inside a selected
+ * archive or folder go with it and are not listed again.
+ */
+export function planDeletion(items: ArchiveEntry[]): DeletionTarget[] {
   const archives = new Set(items.filter(i => i.type === 'folder' && !i.folderId).map(i => i.key));
-  const contents = new Map<string, string[]>();
+  const selectedKeys = new Set(items.map(i => i.key));
+  const isInsideSelected = (key: string) => {
+    for (let i = key.indexOf('/'); i !== -1; i = key.indexOf('/', i + 1)) {
+      if (selectedKeys.has(key.slice(0, i))) return true;
+    }
+    return false;
+  };
+  const targets: DeletionTarget[] = [];
   for (const item of items) {
-    if (item.type === 'folder' && !item.folderId) continue;
+    if (archives.has(item.key)) {
+      targets.push({ archive: item.key, path: '', name: item.name });
+      continue;
+    }
     const slash = item.key.indexOf('/');
-    if (slash === -1) continue;
-    const archive = item.key.slice(0, slash);
-    if (archives.has(archive)) continue;
-    contents.set(archive, [...(contents.get(archive) ?? []), item.key.slice(slash + 1)]);
+    if (slash === -1 || isInsideSelected(item.key)) continue;
+    targets.push({ archive: item.key.slice(0, slash), path: item.key.slice(slash + 1), name: item.name });
   }
-  return { archives: [...archives], contents };
+  return targets;
+}
+
+/** Start of a toast about `targets`: "「<name>」を" for one, "<N> 件を" for more. */
+export function targetsLabel(targets: readonly DeletionTarget[]): string {
+  return targets.length === 1 ? `「${targets[0].name}」を` : `${targets.length} 件を`;
 }
 
 /** Files of the selection in tree (display) order; selected folders are ignored. */

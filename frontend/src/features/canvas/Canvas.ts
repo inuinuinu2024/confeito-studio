@@ -23,6 +23,7 @@ import './canvas.css';
 import { fetchArchiveKey } from '../../shared/api/archives';
 import { IMAGE_FILE_PATTERN, TEXT_FILE_PATTERN } from '../../shared/config';
 import { emit, on, type SelectionSummary, type ViewLayer } from '../../shared/events';
+import { loadBgColor } from '../../shared/state/canvas-background';
 import { h, icon, setShown } from '../../shared/ui/dom';
 import { showError, showToast } from '../../shared/ui/toast';
 import { blobToCanvas } from '../../shared/utils/image';
@@ -52,6 +53,7 @@ const isTextBlob = (name: string, blob: Blob) =>
 
 export function createCanvas(): HTMLElement {
   const state = createCanvasState();
+  state.bgColor = loadBgColor();
   const canvases: Record<Side, HTMLCanvasElement | null> = { left: null, right: null };
 
   // ── DOM ──

@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from ..services import secret_store
 from ..services import settings_service as svc
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -16,13 +17,13 @@ class GeminiKeyRequest(BaseModel):
 
 @router.get("/gemini")
 async def get_gemini_key_status() -> dict:
-    return {"has_key": svc.get_gemini_key_status()}
+    return {"has_key": secret_store.has_gemini_key()}
 
 
 @router.post("/gemini")
 async def set_gemini_key(request: GeminiKeyRequest) -> dict:
-    """Stores the key in .env and in the running process environment."""
-    svc.save_gemini_key(request.api_key)
+    """Stores the key (services/secret_store.py; the .env file for now)."""
+    secret_store.save_gemini_key(request.api_key)
     return {"status": "success", "message": "API Key saved to .env"}
 
 

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Literal, NotRequired, TypedDict
 
 from ..config import settings
-from ..errors import AppError, BadRequestError, NotFoundError, exception_text
+from ..errors import AppError, BadRequestError, ConflictError, NotFoundError, exception_text
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,10 @@ class ArchiveNotFoundError(ArchiveServiceError, NotFoundError):
 
 class ArchiveValidationError(ArchiveServiceError, BadRequestError):
     pass
+
+
+class ArchiveConflictError(ArchiveServiceError, ConflictError):
+    """Something with the same name is where a deleted item would be restored."""
 
 
 class ResultInfo(TypedDict):
@@ -344,16 +348,21 @@ def delete_archive_contents(archive_name: str, paths: list[str]) -> None:
 def restore_archive_contents(archive_name: str, paths: list[str]) -> None:
     """Moves files/sub-folders back from ``.trash/.items/<archive>/`` to their original paths.
 
-    Recreates the archive folder if it was removed; anything now at those paths is replaced.
+    Recreates the archive folder if it was removed. Nothing is moved when an entry is missing from
+    the trash or something with the same name is at its path (that is never replaced).
     """
     trash_dir = _item_trash_dir(archive_name)
     moves = [(_resolve_inside(trash_dir, p), resolve_path(archive_name, p)) for p in _outermost(paths)]
     missing = [source.relative_to(trash_dir).as_posix() for source, _ in moves if not source.exists()]
     if missing:
         raise ArchiveNotFoundError(f"ゴミ箱に見つかりません（{archive_name}）: {', '.join(missing)}")
+    taken = [source.relative_to(trash_dir).as_posix() for source, dest in moves if dest.exists()]
+    if taken:
+        raise ArchiveConflictError(
+            f"同じ名前のファイル・フォルダがあるため元に戻せません（{archive_name}）: {', '.join(taken)}"
+        )
     try:
         for source, dest in moves:
-            _remove(dest)
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(source), str(dest))
         _prune_empty_dirs(trash_dir)
@@ -364,14 +373,15 @@ def restore_archive_contents(archive_name: str, paths: list[str]) -> None:
 
 
 def restore_archive(archive_name: str) -> None:
-    """Moves an archive back from ``.trash`` (replacing any folder with the same name)."""
+    """Moves an archive back from ``.trash``; a folder with the same name is never replaced."""
     validate_archive_name(archive_name)
     trash_path = settings.trash_dir / archive_name
     if not trash_path.exists():
         raise ArchiveNotFoundError(f"ゴミ箱にアーカイブ「{archive_name}」が見つかりません。")
     dest_path = settings.archives_dir / archive_name
+    if dest_path.exists():
+        raise ArchiveConflictError(f"同じ名前のアーカイブ「{archive_name}」があるため元に戻せません。")
     try:
-        _remove(dest_path)
         shutil.move(str(trash_path), str(dest_path))
     except OSError as e:
         raise ArchiveServiceError("アーカイブを元に戻せませんでした。", raw_response=exception_text(e)) from e

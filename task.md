@@ -6,6 +6,9 @@
   どちらかを外すか、別の役割（例: 実寸 = 画像 1px を画面 1px で表示）に変えるかを決める（docs/specs/canvas.md「ズームとスクロール」）。
 
 ## 完了タスク
+- [x] **Gemini API キーの保存を 1 つの部品にまとめた**: 将来の Web 版は利用者がキーを持ち込む方式（BYOK）に決定。
+  ローカル版は保存先を `.env` のまま、読み書きを `services/secret_store.py` に集め、プロセスの環境変数を書き換えないように
+  （docs/specs/app-shell.md「Gemini API キーの扱い」）。Windows の資格情報マネージャーへの移行は見送り。
 - [x] **表示モードボタンの並びを見直し**: 上から Normal、Batch、仕切り線、Parallel、Overlay。Batch は開くたびに「Batch モードは現在修正中です」の案内トーストを出す（docs/specs/canvas.md「表示モード」）。
 - [x] **Parallel Mode も右サイドバーをなくし、L / R のチェック列で選ぶように**: 2 つ目の ARCHIVES パネル（`:right` のイベント）を廃止。
   開始時は L も R も空、同じ画像を両方にできる、テキストは表示しない、削除ボタンを使えるように（消えた L/R は外す）。

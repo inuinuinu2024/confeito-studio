@@ -10,14 +10,7 @@
  * (docs/specs/archives.md 「選択」).
  */
 import './archive-panel.css';
-import {
-  deleteArchive,
-  deleteArchiveContents,
-  getArchiveContents,
-  getArchives,
-  restoreArchive,
-  restoreArchiveContents,
-} from '../../shared/api/archives';
+import { getArchiveContents, getArchives } from '../../shared/api/archives';
 import { TEXT_FILE_PATTERN } from '../../shared/config';
 import { emit, on, type ViewLayer } from '../../shared/events';
 import { getViewMode, isViewMode, type ViewMode } from '../../shared/state/view-mode';
@@ -42,6 +35,7 @@ import {
   withoutTextFiles,
   type TreeRow,
 } from './archive-tree';
+import { deleteTargets } from './deletion';
 
 /** A checkbox column of the comparison modes. */
 interface LayerColumn {
@@ -89,7 +83,16 @@ export function createArchivePanel(): HTMLElement {
   const aside = h('aside', { class: 'layer-panel' });
   const refreshIcon = icon('refresh', 16);
   const refreshBtn = h('button', { class: 'layer-panel__action-btn', title: 'ARCHIVESを更新' }, refreshIcon);
-  const deleteBtn = h('button', { class: 'layer-panel__action-btn', title: 'アーカイブ削除' }, icon('delete', 16));
+  const deleteBtn = h(
+    'button',
+    { class: 'layer-panel__action-btn', title: 'アーカイブ削除', disabled: true },
+    icon('delete', 16),
+  );
+  const undoBtn = h(
+    'button',
+    { class: 'layer-panel__action-btn', title: '削除を元に戻す (Ctrl+Z)', disabled: true },
+    icon('undo', 16),
+  );
   const columnLabels = [0, 1].map(() => h('div', { class: 'layer-column-header__label' }));
   const columnHeader = h(
     'div',
@@ -105,7 +108,7 @@ export function createArchivePanel(): HTMLElement {
       'div',
       { class: 'layer-cache__header' },
       h('span', { class: 'layer-cache__title', text: 'ARCHIVES' }),
-      h('div', { class: 'layer-cache__actions' }, refreshBtn, deleteBtn),
+      h('div', { class: 'layer-cache__actions' }, refreshBtn, deleteBtn, undoBtn),
     ),
     columnHeader,
     list,
@@ -181,7 +184,17 @@ export function createArchivePanel(): HTMLElement {
   });
 
   // ── Selection ──
+  /**
+   * Delete: greyed out with nothing selected or while a deletion / undo runs. Undo: greyed out with
+   * nothing to undo or while a deletion / undo runs.
+   */
+  const syncActionButtons = () => {
+    deleteBtn.disabled = selected.size === 0 || historyManager.isBusy();
+    undoBtn.disabled = !historyManager.canUndo();
+  };
+
   const applySelectionStyles = () => {
+    syncActionButtons();
     const effective = effectiveSelection(rows, selected);
     rowElements.forEach((el, i) => {
       el.classList.toggle('layer-item--selected', effective[i]);
@@ -371,59 +384,12 @@ export function createArchivePanel(): HTMLElement {
 
   // ── Header actions ──
   deleteBtn.addEventListener('click', async () => {
-    if (selected.size === 0) {
-      showToast('削除するアーカイブを選択してください', 'warning');
-      return;
-    }
-    try {
-      const items = [...selected].sort((a, b) => b - a).map(i => rows[i].item);
-      const plan = planDeletion(items);
-      const run = async () => {
-        await Promise.all([
-          ...plan.archives.map(name => deleteArchive(name)),
-          ...[...plan.contents].map(([name, paths]) => deleteArchiveContents(name, paths)),
-        ]);
-      };
-      await run();
-      historyManager.push({
-        label: `アーカイブ削除 (${items.length}件)`,
-        execute: async () => {
-          await run();
-          emit('archives:changed');
-        },
-        // Everything deleted went to .trash (archives and files / sub folders alike).
-        undo: async () => {
-          try {
-            await Promise.all([
-              ...plan.archives.map(name => restoreArchive(name)),
-              ...[...plan.contents].map(([name, paths]) => restoreArchiveContents(name, paths)),
-            ]);
-          } catch (err) {
-            console.error('Failed to restore deleted items', err);
-            showError('削除を元に戻せませんでした', err);
-          }
-          emit('archives:changed');
-        },
-      });
-
-      const fileCount = [...plan.contents.values()].reduce((n, paths) => n + paths.length, 0);
-      const archiveCount = plan.archives.length;
-      showToast(
-        archiveCount && fileCount
-          ? `${archiveCount}件のアーカイブと${fileCount}件のファイルを削除しました。`
-          : archiveCount
-            ? `${archiveCount}件のアーカイブを削除しました。`
-            : `${fileCount}件のファイルを削除しました。`,
-        'success',
-      );
-      emit('archive:selection-cleared');
-      // Same as the refresh button: drop cached folder contents so deleted files disappear.
-      emit('archives:changed');
-    } catch (err) {
-      console.error('Failed to delete cache', err);
-      showError('削除に失敗しました', err);
-    }
+    if (selected.size === 0 || historyManager.isBusy()) return;
+    await deleteTargets(planDeletion([...selected].sort((a, b) => a - b).map(i => rows[i].item)));
   });
+
+  undoBtn.addEventListener('click', () => void historyManager.undo());
+  on('history:changed', syncActionButtons);
 
   refreshBtn.addEventListener('click', async () => {
     if (refreshBtn.disabled) return;

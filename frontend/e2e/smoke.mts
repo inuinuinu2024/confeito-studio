@@ -609,7 +609,7 @@ async function runScenarios(
     await page.waitForTimeout(500);
     await screenshot('boot');
     return {
-      menus: await page.$$eval('.topbar__nav-item', els => els.map(e => e.textContent)),
+      topbarActions: await page.$$eval('.topbar__action-btn', els => els.map(e => e.getAttribute('title'))),
       // Mode buttons top to bottom, with the divider between Batch and Parallel.
       toolbarItems: await page.$$eval('.left-toolbar > *', els =>
         els.map(e => e.getAttribute('title') ?? (e.classList.contains('left-toolbar__divider') ? '---' : '?')),
@@ -1511,11 +1511,47 @@ async function runScenarios(
   });
 
   await step('15-dialogs', async () => {
+    // The settings window (gear icon; Ctrl+B opens the 表示 page) lists its pages on the left
+    // (docs/specs/app-shell.md 「設定ウィンドウ」). A background swatch applies and saves the colour at once.
+    const win = '.settings-window';
+    const pageState = async () => ({
+      active: await page.locator(`${win} .settings-window__nav-item--active`).textContent(),
+      title: await page.locator(`${win} .settings-window__page-title`).textContent(),
+      sections: await page.locator(`${win} .settings-window__section-title`).allTextContents(),
+    });
+    const selectedSwatch = () => page.locator(`${win} .bg-swatch--selected`).getAttribute('title');
+    const isOpen = async () => (await page.locator('.settings-window-overlay--open').count()) === 1;
+    const closeWindow = async () => {
+      await page.locator(`${win} .settings-window__close`).click();
+      await page.waitForSelector(win, { state: 'detached' });
+    };
+    const savedBgColor = async () => {
+      const userFile = path.join(settingsDir, 'user_settings.json');
+      for (let i = 0; i < 30; i++) {
+        if (fs.existsSync(userFile)) {
+          const value = (JSON.parse(fs.readFileSync(userFile, 'utf-8')) as Record<string, string>).canvas_bgColor;
+          if (value) return value;
+        }
+        await page.waitForTimeout(100);
+      }
+      return null;
+    };
+
+    // Gear: opens on the first page (API).
     await page.locator('.topbar__action-btn').first().click();
-    await page.waitForTimeout(500);
-    const settingsVisible = await page.locator('.settings-overlay:visible').count();
-    const settingsLabels = await page.locator('.settings-overlay:visible label').allTextContents();
-    await page.locator('.settings-overlay:visible button', { hasText: 'Cancel' }).click();
+    await page.waitForSelector(win);
+    await page.waitForFunction(() => !!document.querySelector('.settings-window__status')?.textContent);
+    const fromGear = {
+      nav: await page.locator(`${win} .settings-window__nav-item`).allTextContents(),
+      ...(await pageState()),
+      keyStatus: await page.locator(`${win} .settings-window__status`).textContent(),
+      saveDisabled: await page.locator(`${win} button`, { hasText: '保存' }).isDisabled(),
+    };
+    await screenshot('settings-api');
+    await page.locator(`${win} .settings-window__nav-item`, { hasText: '表示' }).click();
+    const displayPage = { ...(await pageState()), selected: await selectedSwatch() };
+    await page.keyboard.press('Escape');
+    await page.waitForSelector(win, { state: 'detached' });
 
     await archiveItem(page, /e2e-image$/).click();
     await expandFolder(page, /e2e-image$/);
@@ -1523,24 +1559,40 @@ async function runScenarios(
     await page.waitForFunction(() =>
       Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === 640),
     );
+    // Ctrl+B: opens on the 表示 page.
     await page.keyboard.press('Control+b');
-    await page.locator('.settings-overlay:visible button[title="Black"]').click();
+    await page.waitForSelector(win);
+    const fromShortcut = await pageState();
+    await page.locator(`${win} button[title="Black"]`).click();
+    const toast = await waitForToast(page, /背景色を/);
+    const afterPick = {
+      windowOpen: await isOpen(),
+      selected: await selectedSwatch(),
+      current: await page.locator(`${win} .settings-window__status`).textContent(),
+      saved: await savedBgColor(),
+    };
+    await screenshot('settings-bg-black');
+    await closeWindow();
     await page.waitForTimeout(300);
     const canvas = await canvasState(page);
     await screenshot('bg-black', '.canvas-area');
-    return { settingsVisible, settingsLabels, toast: await lastToast(page), canvas };
+
+    // Reopening shows the chosen colour.
+    await page.locator('.topbar__action-btn').first().click();
+    await page.waitForSelector(win);
+    await page.locator(`${win} .settings-window__nav-item`, { hasText: '表示' }).click();
+    const reopenedSwatch = await selectedSwatch();
+    await closeWindow();
+    return { fromGear, displayPage, fromShortcut, toast, afterPick, canvas, reopenedSwatch };
   });
 
-  await step('16-menus', async () => {
-    // File has no items: clicking it answers with the "開発中" toast (like Help).
-    const menus = await page.$$eval('.topbar__nav-item-wrapper', wrappers =>
-      wrappers.map(w => ({
-        menu: w.querySelector('.topbar__nav-item')?.textContent ?? null,
-        items: Array.from(w.querySelectorAll('.topbar__dropdown-item-label')).map(e => e.textContent),
-      })),
-    );
-    await page.locator('.topbar__nav-item', { hasText: 'File' }).click();
-    return { menus, fileToast: await waitForToast(page, /File メニュー/) };
+  await step('16-topbar', async () => {
+    // The top bar has no menus (File / Edit / View / Help were removed): logo and action icons only.
+    return {
+      logo: await page.locator('.topbar__logo').textContent(),
+      menus: await page.locator('.topbar nav, .topbar__nav-item').count(),
+      actions: await page.$$eval('.topbar__action-btn', els => els.map(e => e.getAttribute('title'))),
+    };
   });
 
   await step('17-delete-items-and-undo', async () => {
@@ -1549,7 +1601,7 @@ async function runScenarios(
     await (await childItem(page, 'e2e-panels', 'log.txt')).click();
     await (await childItem(page, 'e2e-panels', 'sub')).click({ modifiers: ['Control'] });
     await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="アーカイブ削除"]`).click();
-    const deleteToast = await waitForToast(page, /ファイルを削除/);
+    const deleteToast = await waitForToast(page, /件を削除しました/);
     // The tree refreshes by itself (no refresh button click): the deleted rows disappear.
     await page.waitForFunction(
       panel =>
@@ -1578,6 +1630,124 @@ async function runScenarios(
       { polling: 250, timeout: 10000 },
     );
     return { deleteToast, afterDelete, treeAfterDelete, afterUndo: await contents() };
+  });
+
+  await step('17b-undo-order', async () => {
+    // Each Ctrl+Z restores one deletion, newest first (docs/specs/archives.md 「削除と Undo」).
+    // There is no redo; an undo that cannot restore stays the latest entry.
+    const archive = path.join(path.dirname(settingsDir), 'archives', 'e2e-undo');
+    fs.mkdirSync(path.join(archive, 'a'), { recursive: true });
+    for (const name of ['file1.png', 'file2.png', 'a/x.png']) fs.writeFileSync(path.join(archive, name), 'old');
+    fs.writeFileSync(path.join(archive, 'keep.txt'), '');
+    const present = () => ['file1.png', 'file2.png', 'a'].filter(name => fs.existsSync(path.join(archive, name)));
+    const waitFor = async (expected: string[]) => {
+      for (let i = 0; i < 50 && present().join() !== expected.join(); i++) await page.waitForTimeout(100);
+      return present();
+    };
+    const deleteChild = async (name: string) => {
+      await (await childItem(page, 'e2e-undo', name)).click();
+      await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="アーカイブ削除"]`).click();
+      const toast = await waitForToast(page, new RegExp(`「${name}」を削除しました`));
+      await page.waitForFunction(
+        ([panel, name]) =>
+          !Array.from(document.querySelectorAll(`${panel} .layer-item__name`)).some(e => e.textContent === name),
+        [LEFT_PANEL, name],
+      );
+      return toast;
+    };
+    const undo = async () => {
+      await page.locator('body').click({ position: { x: 5, y: 5 } });
+      await page.keyboard.press('Control+z');
+    };
+    // The undo button next to delete: greyed out while there is nothing to undo.
+    const undoButton = page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="削除を元に戻す (Ctrl+Z)"]`);
+    const headerButtons = await page.$$eval(`${LEFT_PANEL} .layer-cache__actions button`, els =>
+      els.map(e => (e as HTMLButtonElement).title),
+    );
+    const buttonBeforeDelete = await undoButton.isDisabled();
+
+    await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="ARCHIVESを更新"]`).click();
+    await page.waitForFunction(
+      panel =>
+        Array.from(document.querySelectorAll(`${panel} .layer-item__name`)).some(e => e.textContent === 'e2e-undo'),
+      LEFT_PANEL,
+    );
+    await expandFolder(page, 'e2e-undo');
+    // The delete button is greyed out while nothing is selected.
+    const deleteButton = page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="アーカイブ削除"]`);
+    const deleteWithoutSelection = await deleteButton.isDisabled();
+    await (await childItem(page, 'e2e-undo', 'keep.txt')).click();
+    const deleteWithSelection = await deleteButton.isDisabled();
+
+    // file1 -> folder a -> file2, then undo twice: file2 comes back, then a; file1 stays deleted.
+    const deleteToasts = [await deleteChild('file1.png'), await deleteChild('a'), await deleteChild('file2.png')];
+    const afterDeletes = present();
+    const buttonAfterDelete = await undoButton.isDisabled();
+    await undoButton.click();
+    const undoToast = await waitForToast(page, /「file2\.png」を元に戻しました/);
+    const afterUndo1 = await waitFor(['file2.png']);
+    await undo();
+    const afterUndo2 = await waitFor(['file2.png', 'a']);
+
+    // Something new with the same name: the undo is refused and stays on the stack until it is moved away.
+    fs.writeFileSync(path.join(archive, 'file1.png'), 'new');
+    await undo();
+    const conflictToast = await waitForToast(page, /元に戻せませんでした/);
+    await page.waitForTimeout(300);
+    const conflict = { newKept: fs.readFileSync(path.join(archive, 'file1.png'), 'utf-8') };
+    fs.unlinkSync(path.join(archive, 'file1.png'));
+    await undo();
+    await waitFor(['file1.png', 'file2.png', 'a']);
+    const retried = fs.readFileSync(path.join(archive, 'file1.png'), 'utf-8');
+    await undo();
+    const emptyToast = await waitForToast(page, /元に戻す削除はありません/);
+    const buttonWhenEmpty = await undoButton.isDisabled();
+
+    // Pressed twice in a row: both deletions come back.
+    await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="ARCHIVESを更新"]`).click();
+    await page.waitForTimeout(300);
+    await deleteChild('file1.png');
+    await deleteChild('file2.png');
+    await page.locator('body').click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press('Control+z');
+    await page.keyboard.press('Control+z');
+    const afterDoubleUndo = await waitFor(['file1.png', 'file2.png', 'a']);
+
+    // Ignored while the settings window is open.
+    await page.waitForTimeout(300);
+    await deleteChild('file1.png');
+    await page.locator('.topbar__action-btn').first().click();
+    await page.waitForSelector('.settings-window');
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(800);
+    const whileWindowOpen = present();
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.settings-window', { state: 'detached' });
+    await undo();
+    const afterClose = await waitFor(['file1.png', 'file2.png', 'a']);
+    await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="ARCHIVESを更新"]`).click();
+    await page.waitForTimeout(300);
+
+    return {
+      headerButtons,
+      buttonBeforeDelete,
+      deleteWithoutSelection,
+      deleteWithSelection,
+      buttonAfterDelete,
+      buttonWhenEmpty,
+      deleteToasts,
+      afterDeletes,
+      undoToast,
+      afterUndo1,
+      afterUndo2,
+      conflictToast,
+      conflict,
+      retried,
+      emptyToast,
+      afterDoubleUndo,
+      whileWindowOpen,
+      afterClose,
+    };
   });
 
   await step('18-batch-selection', async () => {

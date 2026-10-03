@@ -12,8 +12,8 @@ environment variable (the tests and the E2E harness point them at temp dirs):
     CONFEITO_MODELS_DIR    rembg model directory (default: <repo>/models)
     CONFEITO_PROJECT_DIR   where 画像読み込み's file dialog opens when no folder is set (default: <repo>)
 
-Values from the .env file (GEMINI_API_KEY, ...) are copied into ``os.environ`` without
-overriding variables that are already set. rembg reads its model directory from
+Values from the .env file are copied into ``os.environ`` without overriding variables that are
+already set, except ``GEMINI_API_KEY`` (read from the file by services/secret_store.py). rembg reads its model directory from
 ``U2NET_HOME``; when neither the environment nor .env sets it, ``models_dir`` is used.
 """
 
@@ -69,9 +69,15 @@ def read_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+# Read from the .env file by services/secret_store.py itself, never copied into os.environ.
+SECRET_ENV_NAMES = {"GEMINI_API_KEY"}
+
+
 def load_env_file(path: Path) -> None:
-    """Copies .env values into os.environ (existing variables win)."""
+    """Copies .env values into os.environ (existing variables win), except the secrets."""
     for key, value in read_env_file(path).items():
+        if key in SECRET_ENV_NAMES:
+            continue
         if key == "U2NET_HOME" and not os.path.isabs(value):
             # an explicit rembg model directory is given relative to the .env file
             value = str((path.parent / value).resolve())

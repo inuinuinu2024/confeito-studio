@@ -7,7 +7,7 @@ FastAPI（Python 3.11+、uv 管理）。起動: `cd backend && uv run python -m 
 ```text
 backend/src/app/
 ├── main.py          # create_app(): CORS, 例外ハンドラー, ルーター登録（全ルートは /api 配下）
-├── config.py        # パス・環境変数の唯一の定義。.env を os.environ に読み込む
+├── config.py        # パス・環境変数の唯一の定義。.env を os.environ に読み込む（GEMINI_API_KEY は除く）
 ├── errors.py        # AppError 階層と unexpected_errors_as()
 ├── routers/         # HTTP 層。入力を受けてサービスを呼ぶだけ（try/except を書かない）
 ├── services/        # 業務ロジック。FastAPI に依存しない
@@ -17,7 +17,8 @@ backend/src/app/
 │   ├── merge_service.py     # コマ結合
 │   ├── generation_service.py# 画像生成（プロバイダー選択）
 │   ├── image_service.py     # rembg 背景除去（初回呼び出し時に import）
-│   ├── settings_service.py  # API キー(.env) とツール設定(JSON)
+│   ├── secret_store.py      # Gemini API キーの保存・読み出し（今は .env。Web 版では利用者ごとの暗号化保存に差し替える）
+│   ├── settings_service.py  # ツール設定(JSON)
 │   ├── prompt_service.py    # 登録したプロンプト（ツールごと、settings/prompts.json）
 │   ├── file_dialog_service.py # バックエンドの PC のファイル選択ダイアログ（tkinter。画像読み込み）
 │   ├── json_file.py         # settings/ の JSON の読み書き（壊れたファイルの退避・一時ファイル経由の書き込み）
@@ -53,10 +54,10 @@ backend/src/app/
 
 | 環境変数 | 既定値 | 用途 |
 |---|---|---|
-| `CONFEITO_ENV_FILE` | `<repo>/.env` | 起動時に os.environ へ読み込む（既存の環境変数が優先） |
+| `CONFEITO_ENV_FILE` | `<repo>/.env` | 起動時に os.environ へ読み込む（既存の環境変数が優先。`GEMINI_API_KEY` は読み込まず secret_store が毎回ファイルから読む） |
 | `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブ保存先（ゴミ箱 `.trash/` を含む。`.trash/` は起動時に `main.py` の lifespan が `archive_service.empty_trash` で空にする） |
 | `CONFEITO_SETTINGS_DIR` | `<repo>/settings` | `default_settings.json`（初期設定）、`user_settings.json`（ユーザー設定）、`prompts.json`（登録したプロンプト） |
-| `GEMINI_API_KEY` | （.env） | Gemini API キー。リクエストの `X-API-Key` ヘッダーが優先 |
+| `GEMINI_API_KEY` | （.env） | Gemini API キー（`services/secret_store.py` だけが読み書きする）。優先順: リクエストの `X-API-Key` ヘッダー → .env → 環境変数。アプリは環境変数を書き換えない |
 | `CONFEITO_PROJECT_DIR` | `<repo>` | 画像読み込みのファイル選択ダイアログを、フォルダの指定がない時に開く場所 |
 | `CONFEITO_MODELS_DIR` | `<repo>/models` | rembg モデルの場所。起動時に `U2NET_HOME` の既定値にする（.env に書く必要はない） |
 | `U2NET_HOME` | （未設定） | 環境変数か .env で指定した場合はそちらが優先（.env の相対パスは .env の場所基準） |
@@ -73,9 +74,9 @@ backend/src/app/
 | GET | `/archives/{name}/contents` | 配下の全フォルダ・ファイル（`folderId` で親子） |
 | GET | `/archives/{name}/extract?path=` | ファイル本体 |
 | DELETE | `/archives/{name}` | `.trash/` へ移動 |
-| POST | `/archives/{name}/restore` | `.trash/` から復元 |
+| POST | `/archives/{name}/restore` | `.trash/` から復元（同じ名前のアーカイブがあれば 409、置き換えない） |
 | POST | `/archives/{name}/delete_contents` | `{paths}` を `.trash/.items/{name}/` へ移動。空になったフォルダ・アーカイブは消す |
-| POST | `/archives/{name}/restore_contents` | `{paths}` を `.trash/.items/{name}/` から元の場所へ戻す（Undo） |
+| POST | `/archives/{name}/restore_contents` | `{paths}` を `.trash/.items/{name}/` から元の場所へ戻す（Undo。同じ名前のものがあれば 409 で何も移さない） |
 | POST | `/image/remove-bg` | 背景除去（[specs/tools/remove-background.md](../specs/tools/remove-background.md)） |
 | POST | `/image/split-panels` | コマ分割（[specs/tools/panel-split-merge.md](../specs/tools/panel-split-merge.md)） |
 | POST | `/image/split-panels/preview` | コマ分割で Gemini に送るリクエストの確認用 |
@@ -84,7 +85,7 @@ backend/src/app/
 | POST | `/nano-banana-pro/generate-content` | 画像生成・generateContent API（応答は上と同じ） |
 | POST | `/local-files/check-folder` | `{path}` が絶対パスの既存フォルダか（空欄は可）。違えば 404（画像読み込み） |
 | POST | `/local-files/pick-image` | `{initial_dir}`（空欄ならプロジェクトのフォルダ）でファイル選択ダイアログを開く。選んだ画像そのもの（名前は `X-File-Name`、URL エンコード）、キャンセルは 204、ダイアログが開いていれば 400 |
-| GET/POST | `/settings/gemini` | API キーの有無 / 保存（.env） |
+| GET/POST | `/settings/gemini` | API キーの有無 / 保存（secret_store。今は .env。空のキーは 400） |
 | GET/POST | `/settings/tools` | ツール設定の取得（初期設定 + ユーザー設定、`{values, warnings}`）/ ユーザー設定への追加・更新（`{values}` を重ねる） |
 | GET/POST | `/prompts/{tool}` | 登録したプロンプトの一覧（`{prompts, warnings}`）/ 登録（`{name, text}` → `{prompt, warnings}`。同名は 400） |
 | PUT/DELETE | `/prompts/{tool}/{id}` | 登録したプロンプトの更新（`{name, text}` → `{prompt, warnings}`）/ 削除（`{warnings}`）。ない id は 404 |

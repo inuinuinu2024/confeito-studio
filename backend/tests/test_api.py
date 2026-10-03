@@ -78,6 +78,12 @@ def test_archive_roundtrip(client, archives_dir: Path) -> None:
     assert client.get("/api/archives").json() == []
     assert client.post("/api/archives/arc/restore").status_code == 200
     assert [a["key"] for a in client.get("/api/archives").json()] == ["arc"]
+    # Undo never replaces something with the same name (409 Conflict).
+    assert client.delete("/api/archives/arc").status_code == 200
+    (archives_dir / "arc").mkdir()
+    conflict = client.post("/api/archives/arc/restore")
+    assert conflict.status_code == 409
+    assert "同じ名前" in conflict.json()["detail"]
 
 
 def test_save_result_route(client, archives_dir: Path) -> None:
@@ -147,10 +153,12 @@ def test_prompts_roundtrip(client) -> None:
 
 
 def test_save_gemini_key_preserves_other_env_lines(client, data_dir: Path) -> None:
+    assert client.get("/api/settings/gemini").json() == {"has_key": False}
     env_file = data_dir / ".env"
     env_file.write_text("# comment\nGEMINI_API_KEY=old\nU2NET_HOME=models\n", encoding="utf-8")
+    assert client.get("/api/settings/gemini").json() == {"has_key": True}
+    assert client.post("/api/settings/gemini", json={"api_key": "  "}).status_code == 400
 
-    assert client.get("/api/settings/gemini").json() == {"has_key": False}
     assert client.post("/api/settings/gemini", json={"api_key": " new-key "}).status_code == 200
 
     assert env_file.read_text(encoding="utf-8") == "# comment\nGEMINI_API_KEY=new-key\nU2NET_HOME=models\n"

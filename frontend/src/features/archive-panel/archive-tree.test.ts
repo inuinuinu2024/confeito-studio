@@ -11,6 +11,7 @@ import {
   withoutTextFiles,
   planDeletion,
   remapSelection,
+  targetsLabel,
 } from './archive-tree';
 
 const folder = (key: string, folderId: string | null = null): ArchiveEntry => ({
@@ -79,10 +80,30 @@ describe('findRowIndex / ancestorKeys', () => {
 });
 
 describe('planDeletion', () => {
-  it('deletes whole archives and groups other entries by archive', () => {
+  it('deletes whole archives and the other entries one by one', () => {
     const plan = planDeletion([folder('b'), file('a/x.png', 'a'), folder('a/sub', 'a'), file('b/y.png', 'b')]);
-    expect(plan.archives).toEqual(['b']);
-    expect([...plan.contents]).toEqual([['a', ['x.png', 'sub']]]);
+    expect(plan).toEqual([
+      { archive: 'b', path: '', name: 'b' },
+      { archive: 'a', path: 'x.png', name: 'x.png' },
+      { archive: 'a', path: 'sub', name: 'sub' },
+    ]);
+  });
+
+  it('skips entries inside a selected folder', () => {
+    const plan = planDeletion([
+      file('a/sub/x.png', 'a/sub'),
+      folder('a/sub', 'a'),
+      file('a/sub/deep/y.png', 'a/sub/deep'),
+    ]);
+    expect(plan).toEqual([{ archive: 'a', path: 'sub', name: 'sub' }]);
+  });
+});
+
+describe('targetsLabel', () => {
+  it('names a single target and counts several', () => {
+    const one = { archive: 'a', path: 'x.png', name: 'x.png' };
+    expect(targetsLabel([one])).toBe('「x.png」を');
+    expect(targetsLabel([one, one, one])).toBe('3 件を');
   });
 });
 

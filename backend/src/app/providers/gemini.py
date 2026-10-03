@@ -7,18 +7,18 @@ Two endpoints are used:
     that API (``generate_multimodal(api="generate_content")``), and structured JSON
     output (manga panel detection) via ``generate_content``.
 
-The API key comes from the request (``X-API-Key`` header) or ``GEMINI_API_KEY``.
+The API key comes from the request (``X-API-Key`` header) or the saved one (services/secret_store.py).
 """
 
 import asyncio
 import base64
 import json
-import os
 from typing import Any
 
 import requests
 
 from ..errors import AppError, BadRequestError, exception_text
+from ..services import secret_store
 from .base import GenerationApi, GenerationResult, ImageGenerationProvider
 from .gemini_reasons import describe_no_image
 
@@ -48,8 +48,10 @@ class GeminiNoImageError(AppError):
 
 
 def resolve_api_key(api_key: str | None = None) -> str | None:
-    key = api_key or os.environ.get("GEMINI_API_KEY")
-    return key.strip() if key else None
+    """The key given with the request (``X-API-Key``), else the saved one (services/secret_store.py)."""
+    if api_key and api_key.strip():
+        return api_key.strip()
+    return secret_store.get_gemini_key()
 
 
 def _error_body(response: requests.Response) -> Any:

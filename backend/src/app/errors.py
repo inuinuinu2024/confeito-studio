@@ -42,6 +42,10 @@ class NotFoundError(AppError):
     status_code = 404
 
 
+class ConflictError(AppError):
+    status_code = 409
+
+
 def exception_text(e: BaseException) -> str:
     """``"<type>: <message>"`` — the original text of an exception for ``raw_response``."""
     return f"{type(e).__name__}: {e}"
