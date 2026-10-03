@@ -26,7 +26,7 @@ import { createToolBar } from './features/tool-bar/ToolBar';
 import { createTopBar } from './features/top-bar/TopBar';
 import { isBackendHealthy } from './shared/api/system';
 import { on } from './shared/events';
-import { initializeSettings } from './shared/state/tool-settings';
+import { loadSettings } from './shared/state/tool-settings';
 
 const HEALTH_POLL_MS = 1000;
 
@@ -49,7 +49,7 @@ async function initApp(): Promise<void> {
 
   await waitForBackend();
   hideSplash();
-  await initializeSettings();
+  await loadSettings();
 
   const workspace = document.createElement('div');
   workspace.className = 'manga-grid';

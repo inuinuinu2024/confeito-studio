@@ -1,6 +1,7 @@
 /**
- * Tool list order, kept in the settings file (settings/default_prompts.json, key
+ * Tool list order, kept in the user's settings (settings/user_settings.json, key
  * "aiPanel_toolOrder" = JSON array of tool names) — nothing is stored in the browser.
+ * Saved as soon as the list is reordered (not when a tool runs).
  */
 import { toolSettings } from '../../shared/state/tool-settings';
 
@@ -22,6 +23,7 @@ export function loadToolOrder(): string[] | null {
 
 export function saveToolOrder(names: string[]): void {
   settings.set(KEY, JSON.stringify(names));
+  void settings.save([KEY]);
 }
 
 /** Items sorted by their position in `order`; unknown items keep their relative order at the end. */

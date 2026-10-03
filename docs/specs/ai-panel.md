@@ -3,7 +3,7 @@
 ## ツール一覧
 - ヘッダーは見出し「TOOLS」のみ（ARCHIVES パネルのヘッダーと同じ見た目）。タブ・Custom（お気に入り）・ピン留めは持たない。
 - 登録された全ツールを 1 列に並べる（`features/tools/index.ts` の順が初期順）。ドラッグで並び替えできる。
-- 並び順は設定ファイル `settings/default_prompts.json` のキー `aiPanel_toolOrder`（ツール名の JSON 配列）に保存し、再起動後も復元する。
+- 並び順はユーザー設定（`settings/user_settings.json`）のキー `aiPanel_toolOrder`（ツール名の JSON 配列）に並べ替えた時点で保存し、再起動後も復元する。
   ブラウザには保存しない（[app-shell.md](./app-shell.md)「ブラウザに残すもの」）。以前のバージョンが localStorage に保存した
   `toolOrder`・`aiPanelActiveTab`・`customToolOrder` は読まない（引き継がないので、初回は初期順に戻る）。
 
@@ -29,7 +29,8 @@
 - ログ（log.txt / error.txt）は書かない。ファイル選択のキャンセルなどは何も出さない。
 
 ## ツール設定の保存
-- 各ツールの設定値は `settings/default_prompts.json`（フラットな文字列マップ）に即時保存し、起動時に読み込む。
-- キーはツールごとの接頭辞付き: `nanoBananaPro_*`、`panelSplitter_*`、`removeBg_*`。
-  削除したツールのキー（`coloring_*` など）はファイルに残っていても使われない（ファイルからは消さない）。
+- 各ツールの設定値は、ツールウィンドウを開く時に読み込み、ツールの実行を始めた時に保存する
+  （初期設定 `settings/default_prompts.json` とユーザー設定 `settings/user_settings.json`。詳細は [app-shell.md](./app-shell.md)「設定の保存」）。
+- キーはツールごとの接頭辞付き: `nanoBananaPro_*`、`panelSplitter_*`、`removeBg_*`（ツールの `settingsPrefix`）。
+  削除したツールのキーは初期設定から消す（以前の着彩ツールの `coloring_*` は削除済み）。
 - 共通の UI: JSON プレビュー（送信内容の確認とコピー）、ヘルプアイコン（ツールチップ）、プロンプト欄の鉛筆アイコン（デフォルトプロンプトの編集）。

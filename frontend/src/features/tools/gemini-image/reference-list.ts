@@ -43,23 +43,25 @@ export function totalLimit(zones: readonly ZoneDef[]): number {
 
 /**
  * The type a newly added image gets: the first type still under its recommended number, else the
- * first type. Null when the total limit is reached.
+ * first type. Null when the total limit (`limit`, by default the model's) is reached.
  */
 export function zoneForNewImage(
   images: readonly Pick<ReferenceImage, 'zoneTitle'>[],
   zones: readonly ZoneDef[],
+  limit = totalLimit(zones),
 ): ZoneDef | null {
-  if (zones.length === 0 || images.length >= totalLimit(zones)) return null;
+  if (zones.length === 0 || images.length >= limit) return null;
   return zones.find(zone => countInZone(images, zone.title) < zone.max) ?? zones[0];
 }
 
 /**
  * Fits the list (in place) to another model: images of a type the model does not have get its
- * first type, and images beyond the total limit are removed from the end.
+ * first type, and images beyond the total limit (`limit`, by default the model's) are removed from the end.
  */
 export function fitImagesToModel(
   images: Pick<ReferenceImage, 'zoneTitle'>[],
   zones: readonly ZoneDef[],
+  limit = totalLimit(zones),
 ): { retyped: number; removed: number } {
   let retyped = 0;
   if (zones.length) {
@@ -69,7 +71,7 @@ export function fitImagesToModel(
       retyped++;
     }
   }
-  const removed = Math.max(0, images.length - totalLimit(zones));
+  const removed = Math.max(0, images.length - limit);
   images.splice(images.length - removed, removed);
   return { retyped, removed };
 }

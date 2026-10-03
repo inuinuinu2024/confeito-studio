@@ -98,11 +98,14 @@ def test_archive_errors_use_detail_and_status(client) -> None:
     assert res.json() == {"detail": "ファイルとパスの数が一致しません。"}
 
 
-def test_settings_prompts_roundtrip(client, data_dir: Path) -> None:
-    assert client.get("/api/settings/prompts").json() == {}
-    assert client.post("/api/settings/prompts", json={"nanoBananaPro_prompt": "着彩して"}).status_code == 200
-    assert client.get("/api/settings/prompts").json() == {"nanoBananaPro_prompt": "着彩して"}
-    assert (data_dir / "settings" / "default_prompts.json").exists()
+def test_tool_settings_roundtrip(client, data_dir: Path) -> None:
+    assert client.get("/api/settings/tools").json() == {"values": {}, "warnings": []}
+    res = client.post("/api/settings/tools", json={"values": {"nanoBananaPro_prompt": "着彩して"}})
+    assert res.status_code == 200 and res.json() == {"warnings": []}
+    assert client.get("/api/settings/tools").json() == {"values": {"nanoBananaPro_prompt": "着彩して"}, "warnings": []}
+    # Saved as the user's settings; the initial values file is never written.
+    assert (data_dir / "settings" / "user_settings.json").exists()
+    assert not (data_dir / "settings" / "default_prompts.json").exists()
 
 
 def test_save_gemini_key_preserves_other_env_lines(client, data_dir: Path) -> None:
@@ -123,9 +126,9 @@ NBP_PAYLOAD = {
 }
 
 
-def test_nano_banana_pro_without_key(client) -> None:
+def test_nano_banana_pro_without_key_is_bad_request(client) -> None:
     res = client.post("/api/nano-banana-pro", json=NBP_PAYLOAD)
-    assert res.status_code == 500
+    assert res.status_code == 400
     assert res.json() == {"detail": gemini.MISSING_API_KEY_MESSAGE}
 
 
@@ -240,21 +243,28 @@ def test_generate_content_returns_the_final_image(client, monkeypatch: pytest.Mo
 
 
 @pytest.mark.parametrize(
-    ("response", "message"),
+    ("response", "message", "summary"),
     [
         (
             {"promptFeedback": {"blockReason": "PROHIBITED_CONTENT"}},
-            "プロンプトがブロックされました（blockReason: PROHIBITED_CONTENT）。",
+            "入力がブロックされたため、画像は生成されませんでした（blockReason: PROHIBITED_CONTENT）。"
+            "入力が Google の利用ポリシーで禁止されている内容と判定されました。"
+            "安全設定では解除できません。プロンプトや参照画像を変えてください。",
+            "blockReason: PROHIBITED_CONTENT",
         ),
         (
             {"candidates": [{"content": {"parts": [{"text": "no"}]}, "finishReason": "IMAGE_SAFETY"}]},
-            "Gemini の応答に画像が含まれていませんでした（finishReason: IMAGE_SAFETY）。",
+            "画像が生成されませんでした（finishReason: IMAGE_SAFETY）。生成された画像が安全フィルタによりブロックされました。"
+            "generateContent API の安全設定を緩めると通ることがあります。通らなければプロンプトや参照画像を変えてください。",
+            "finishReason: IMAGE_SAFETY\ntext: no",
         ),
     ],
 )
-def test_generate_content_without_image_carries_raw_response(
-    client, monkeypatch: pytest.MonkeyPatch, response: dict, message: str
+def test_generate_content_without_image_explains_why(
+    client, monkeypatch: pytest.MonkeyPatch, response: dict, message: str, summary: str
 ) -> None:
+    """Gemini answered without an image: 422 (not a server failure), a Japanese explanation, and the
+    reason fields above Gemini's response in raw_response."""
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     monkeypatch.setattr(gemini.requests, "post", lambda *a, **kw: FakeResponse(200, response))
 
@@ -263,8 +273,13 @@ def test_generate_content_without_image_carries_raw_response(
         json={"model": "gemini-3-pro-image", "contents": [{"parts": [{"text": "hi"}]}]},
     )
 
-    assert res.status_code == 500
-    assert res.json() == {"detail": {"message": message, "raw_response": response}}
+    assert res.status_code == 422
+    assert res.json() == {
+        "detail": {
+            "message": message,
+            "raw_response": f"{summary}\n\n{json.dumps(response, ensure_ascii=False, indent=2)}",
+        }
+    }
 
 
 def test_nano_banana_pro_api_error_carries_raw_response(client, monkeypatch: pytest.MonkeyPatch) -> None:

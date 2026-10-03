@@ -30,7 +30,7 @@
    構造を変えたら `docs/architecture/` の表（イベント一覧・API 一覧など）も更新する。
 2. **変更したら検証する。** 上の表の検証を実行し、UI に関わる変更は E2E を回してスクリーンショットを確認する。
    新しい UI 操作を作ったら `frontend/e2e/smoke.mts` にシナリオを足す。
-3. **ユーザーのデータを守る。** `archives/`・`.env`・`models/` を削除・上書きしない。テストと E2E は一時ディレクトリを使う。
+3. **ユーザーのデータを守る。** `archives/`・`.env`・`models/`・`settings/user_settings.json` を削除・上書きしない。テストと E2E は一時ディレクトリを使う。
    テストや確認で実際の Gemini API を呼ばない（課金と外部送信が発生する）。
 4. **フロントエンドの決まり**
    - バックエンド呼び出しは `shared/api/` の関数経由（`fetch` を直接書かない）。
@@ -38,6 +38,7 @@
    - 表示モードは `shared/state/view-mode.ts`、現在の画像と保存先フォルダは `DocumentManager`。
    - 通知は `showToast` / `showError`（`alert()` を使わない）。ログファイル（log.txt / error.txt）は書かない（docs/specs/notifications.md）。
    - ブラウザにデータを残さない: localStorage・IndexedDB を使わず、次回も残したい画面の状態は `toolSettings()` 経由で settings/ に保存する（docs/specs/app-shell.md）。
+     ツールの設定はウィンドウを開く時に読み、実行開始時に保存する（設定を持つツールは `settingsPrefix` を宣言する）。
    - DOM は `shared/ui/dom.ts` の `h()` と `shared/ui/form.ts` の部品で組み、見た目は CSS クラスで書く（インラインスタイルを増やさない）。
    - `shared/` から `features/` を import しない。純粋なロジックは関数に切り出して `*.test.ts` を書く。
 5. **バックエンドの決まり**
@@ -75,5 +76,5 @@
   （`ImportError: DLL load failed ... アプリケーション制御ポリシーによってこのファイルがブロックされました`）。
   `backend/.venv` は python.org 公式版（`%LOCALAPPDATA%\Programs\Python\Python313`）で作る（手順は setup/README.md）。
 - backend の import ルートは `src.app`（`uvicorn src.app.main:app`、テストも `from src.app...`）。
-- `settings/default_prompts.json` はアプリ実行中に書き換わる（git 管理対象）。
+- `settings/default_prompts.json` は初期設定（git 管理対象、アプリは書かない）。ユーザーが変えた値は `settings/user_settings.json`（git 管理外）。
 - 未対応の課題・判断待ちの項目はリポジトリ直下の `task.md` にある。

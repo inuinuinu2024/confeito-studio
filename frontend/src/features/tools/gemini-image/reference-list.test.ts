@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { imageHeading } from './payload';
+import { fitWithin, imageHeading } from './payload';
 import {
   fitImagesToModel,
   reorderImages,
@@ -41,6 +41,20 @@ describe('reference list', () => {
       { zoneTitle: OBJECT, n: 1 },
       { zoneTitle: STYLE, n: 2 },
     ]);
+  });
+
+  it('takes a smaller total limit (one slot used by the 原画)', () => {
+    expect(zoneForNewImage(images(OBJECT, OBJECT), zones, 2)).toBeNull();
+    const list = images(OBJECT, STYLE, OBJECT);
+    expect(fitImagesToModel(list, zones, 2)).toEqual({ retyped: 0, removed: 1 });
+    expect(list.map(i => i.n)).toEqual([0, 1]);
+  });
+
+  it('scales images down to the upload limit on the longest side, never up', () => {
+    expect(fitWithin(3000, 1000)).toEqual([2048, 683]);
+    expect(fitWithin(1000, 6000)).toEqual([341, 2048]);
+    expect(fitWithin(2048, 1536)).toEqual([2048, 1536]);
+    expect(fitWithin(500, 300)).toEqual([500, 300]);
   });
 
   it('reorders in place only with the same items', () => {

@@ -2,11 +2,13 @@
  * AIPanel — right sidebar listing the tools of features/tools/index.ts.
  * The list can be reordered by drag & drop.
  * Clicking a tool opens its settings in the tool window (a modal in the middle of the screen),
- * or runs it directly when it has no settings.
+ * or runs it directly when it has no settings. The settings are read again before the window
+ * opens, so it shows the saved values (docs/specs/app-shell.md 「設定の保存」).
  */
 import './ai-panel.css';
 import type { Tool } from '../../shared/types/tool';
 import { h, icon } from '../../shared/ui/dom';
+import { loadSettings } from '../../shared/state/tool-settings';
 import { createResizer } from '../../shared/ui/resizer';
 import { TOOLS } from '../tools';
 import { enableDragSort } from '../../shared/ui/drag-sort';
@@ -23,6 +25,7 @@ export function createAIPanel(): HTMLElement {
       await runTool(tool);
       return;
     }
+    await loadSettings();
     toolWindow.open({
       title: tool.name,
       icon: tool.icon,

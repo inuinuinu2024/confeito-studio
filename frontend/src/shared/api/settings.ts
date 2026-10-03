@@ -1,4 +1,4 @@
-/** /api/settings — Gemini API key and persisted tool settings (settings/default_prompts.json). */
+/** /api/settings — Gemini API key and the tool settings (settings/default_prompts.json + user_settings.json). */
 import { postJson, requestJson } from './http';
 
 export async function getGeminiKeyStatus(): Promise<{ has_key: boolean }> {
@@ -10,11 +10,12 @@ export async function saveGeminiKey(apiKey: string): Promise<void> {
   await postJson('/settings/gemini', { api_key: apiKey });
 }
 
-export async function getToolSettings(): Promise<Record<string, string>> {
-  return requestJson('/settings/prompts');
+/** Tool settings: the initial values with the user's values on top, and warnings to show (broken files). */
+export async function getToolSettings(): Promise<{ values: Record<string, string>; warnings: string[] }> {
+  return requestJson('/settings/tools');
 }
 
-/** Replaces the whole settings map. */
-export async function saveToolSettings(values: Record<string, string>): Promise<void> {
-  await postJson('/settings/prompts', values);
+/** Merges `values` into the user's settings (other keys are kept); resolves with warnings to show. */
+export async function updateToolSettings(values: Record<string, string>): Promise<{ warnings: string[] }> {
+  return postJson('/settings/tools', { values });
 }

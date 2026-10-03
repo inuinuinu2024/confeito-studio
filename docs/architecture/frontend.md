@@ -28,7 +28,8 @@ frontend/src/
     └── tools/                # AI ツール（1 ツール 1 ファイル、大きいものは <id>/ フォルダ）。index.ts が一覧
         ├── gemini-image/     # Gemini 画像ツールの共通部品（参照画像の一覧・プロンプト欄・送信テキスト）
         └── nano-banana-pro/  # models.ts（モデルごとの対応値）, options.ts（設定項目と解決）,
-                              # request.ts（API 別のリクエスト組み立て）, nano-banana-pro.ts（画面）
+                              # request.ts（API 別のリクエスト組み立て）, nano-banana-pro.ts（画面）,
+                              # original.ts / original-image.ts（原画: 余白付けと元の大きさへの戻し）
 ```
 
 ## 主要な仕組み
@@ -57,8 +58,10 @@ frontend/src/
   参照は `isViewMode('batch')` 等。Canvas は描画順序を保つため toggle イベントで自前のフラグも更新する。
 - **現在の画像・保存先**: `DocumentManager`。`getCurrentCanvas()` はツールが処理する画像、`getCurrentKey()` はその ARCHIVES キー、
   `getCurrentArchiveFolder()` は ARCHIVES で選んでいる場所（トップレベルが結果の保存先。選択解除で null。詳細は [specs/archives.md](../specs/archives.md)）。
-- **ツール設定**: `toolSettings('<prefix>')` で `settings/default_prompts.json` に保存（キーは `<prefix>_<key>`）。
-- **UI の好み**（ツールの並び順）: ツール設定と同じ設定ファイル（`toolSettings('aiPanel')`。[specs/ai-panel.md](../specs/ai-panel.md)）。
+- **ツール設定**: `toolSettings('<prefix>')`（キーは `<prefix>_<key>`）。`set` はメモリ上だけ変え、ツールの `settingsPrefix` の変更分を
+  `tool-runner` が実行開始時に保存する。ツールウィンドウを開く時に `loadSettings()` で読み直す（未保存の変更は消える）。
+  明示的な保存操作だけ `settings.save([key])` でその場で書く（[specs/app-shell.md](../specs/app-shell.md)「設定の保存」）。
+- **UI の好み**（ツールの並び順）: ツール設定と同じ仕組み（`toolSettings('aiPanel')`、並べ替えた時点で保存。[specs/ai-panel.md](../specs/ai-panel.md)）。
   localStorage・IndexedDB などブラウザ側の保存は使わない（[specs/app-shell.md](../specs/app-shell.md)「ブラウザに残すもの」）。
 - **HTTP キャッシュ**: 使わない。`shared/api/http.ts` は `cache: 'no-store'` で fetch し、バックエンド（`main.py` のミドルウェア）と
   Vite 開発サーバー（`vite.config.mts` の `noStorePlugin`）は全応答に `Cache-Control: no-store` を付ける。
@@ -89,7 +92,8 @@ frontend/src/
 
 ### ツールを追加する
 1. `features/tools/<id>.ts`（大きいツールは `features/tools/<id>/<id>.ts` + 部品）に `Tool`（`shared/types/tool.ts`）を実装する。
-   - 設定が必要なら `renderSettings(container)` を実装し `shared/ui/form.ts` の部品で組む。設定値は `toolSettings('<prefix>')`。
+   - 設定が必要なら `renderSettings(container)` を実装し `shared/ui/form.ts` の部品で組む。設定値は `toolSettings('<prefix>')` で、
+     同じ接頭辞を `settingsPrefix` に宣言する（実行開始時に変更分が保存される。宣言しないと保存されない）。
    - `execute()` は結果の要約（日本語）を返す。共通処理（`ai-panel/tool-runner.ts`）が「<ツール名>: <要約>」のトーストを出すので、ツール自身は成功トーストを出さない。
    - 入力が足りない（画像未選択など）ときは `execute()` の先頭で `throw new ToolNotReady('案内')`（注意トーストになり、失敗扱いにしない）。
      キャンセルは `throw new ToolCancelled()`。失敗は `AppMessageError` を投げるか `ApiError` をそのまま通す。ログファイルは書かない。

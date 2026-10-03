@@ -27,6 +27,11 @@ export interface Tool {
    * appends that many `.tool-window__column` elements, each scrolling on its own. Default: one column.
    */
   windowColumns?: number;
+  /**
+   * Key prefix of the tool's `toolSettings`. Its changed settings are saved when a run starts
+   * (docs/specs/app-shell.md 「設定の保存」); tools without settings leave it out.
+   */
+  settingsPrefix?: string;
   /** Icon of the tool window's run button, which is always labelled 「実行」 (default "auto_awesome"; null = no icon). */
   executeIcon?: string | null;
   /**

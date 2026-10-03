@@ -385,7 +385,13 @@ async function setMode(page: Page, mode: 'Normal' | 'Compare' | 'Overlay' | 'Bat
 
 // ── Scenarios ─────────────────────────────────────────────────────────
 
-async function runScenarios(page: Page, apiBase: string, out: string, obs: Record<string, unknown>): Promise<void> {
+async function runScenarios(
+  page: Page,
+  apiBase: string,
+  settingsDir: string,
+  out: string,
+  obs: Record<string, unknown>,
+): Promise<void> {
   let shot = 0;
   const screenshot = async (name: string, selector?: string) => {
     shot += 1;
@@ -427,11 +433,12 @@ async function runScenarios(page: Page, apiBase: string, out: string, obs: Recor
     // Drop the last tool on the upper half of the first one → it moves to the top.
     await rows.last().dragTo(rows.first(), { targetPosition: { x: 20, y: 4 } });
     const after = await names();
-    // The order goes to the settings file (not the browser).
+    // The order goes to the user's settings file right away (not the browser, not at the next run).
     await page.waitForTimeout(300);
     const saved = await page.evaluate(
       async apiBase =>
-        ((await (await fetch(`${apiBase}/settings/prompts`)).json()) as Record<string, string>).aiPanel_toolOrder,
+        ((await (await fetch(`${apiBase}/settings/tools`)).json()) as { values: Record<string, string> }).values
+          .aiPanel_toolOrder,
       apiBase,
     );
     return { before, after, saved };
@@ -978,6 +985,8 @@ async function runScenarios(page: Page, apiBase: string, out: string, obs: Recor
       }, colors);
     await clickTool(page, 'Nano Banana画像生成');
     await page.waitForSelector(win);
+    // Unsaved changes of the previous step are gone (settings are read again when the window opens).
+    await page.locator(`${win} .nbp-step select`).nth(1).selectOption('interactions');
     await addImages(['#cc3333', '#3366cc']);
     await cards.nth(1).waitFor();
     const added = await cardState();
@@ -1032,6 +1041,281 @@ async function runScenarios(page: Page, apiBase: string, out: string, obs: Recor
     await modelSelect.selectOption('gemini-3-pro-image');
     await closeToolWindow(page);
     return { added, edited, reordered, sentText: text, overRecommended, legacy, legacyFull };
+  });
+
+  await step('19c-original-image', async () => {
+    // 原画: the aspect ratio follows the original, the original is padded to it, and the result is
+    // cut back to the original's size. Gemini is stubbed in the browser (the stub returns the 原画 as sent).
+    const win = '.tool-window';
+    const middle = `${win} .tool-window__column:nth-child(2)`;
+    const aspectState = () =>
+      page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.tool-window .ar-grid__btn'));
+        return {
+          disabled: buttons.length > 0 && buttons.every(b => b.disabled),
+          selected: buttons.find(b => b.classList.contains('ar-grid__btn--selected'))?.textContent ?? null,
+          caption: document.querySelector('.tool-window .nbp-aspect .nbp-caption')?.textContent ?? null,
+        };
+      });
+    const originalState = () =>
+      page.evaluate(() => {
+        const section = document.querySelector<HTMLElement>('.tool-window .nbp-original');
+        return {
+          text: section?.innerText ?? null,
+          hasCard: !!section?.querySelector('.nbp-original__card'),
+          counts: document.querySelector<HTMLElement>('.tool-window .ref-list__counts')?.innerText ?? null,
+        };
+      });
+    // 300 x 420, four coloured quadrants; drawn the same way again to compare with the result.
+    const drawOriginal = `(() => {
+      const c = document.createElement('canvas');
+      c.width = 300;
+      c.height = 420;
+      const ctx = c.getContext('2d');
+      [['#cc3333', 0, 0], ['#33aa33', 150, 0], ['#3366cc', 0, 210], ['#ddbb22', 150, 210]].forEach(([color, x, y]) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, 150, 210);
+      });
+      return c;
+    })()`;
+
+    await clickTool(page, 'Nano Banana画像生成');
+    await page.waitForSelector(win);
+    await page.locator(`${win} .nbp-step select`).nth(1).selectOption('interactions');
+    const before = { aspect: await aspectState(), original: await originalState() };
+
+    await page.evaluate(async draw => {
+      const c = eval(draw) as HTMLCanvasElement;
+      const blob = await new Promise<Blob>(r => c.toBlob(b => r(b!), 'image/png'));
+      const dt = new DataTransfer();
+      dt.items.add(new File([blob], 'rough.png', { type: 'image/png' }));
+      const input = document.querySelector<HTMLInputElement>('.tool-window .nbp-original input[type=file]')!;
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change'));
+    }, drawOriginal);
+    await page.waitForSelector(`${win} .nbp-original__card`);
+    const withOriginal = { aspect: await aspectState(), original: await originalState() };
+    await screenshot('nbp-original', middle);
+    await screenshot('nbp-original-aspect', `${win} .nbp-parameters`);
+
+    // The request: the automatic aspect ratio, and the 原画 after the reference images with its heading.
+    await page.locator(`${win} button`, { hasText: 'JSONプレビュー' }).click();
+    const dialog = page.locator('dialog[open]');
+    await dialog.waitFor();
+    const preview = JSON.parse((await dialog.locator('pre').textContent()) ?? '') as {
+      input: { type: string; text?: string }[];
+      response_format: Record<string, string>;
+    };
+    await dialog.locator('button', { hasText: '閉じる' }).click();
+    const request = {
+      responseFormat: preview.response_format,
+      parts: preview.input.map(p => p.type),
+      text: preview.input.find(p => p.type === 'text')?.text ?? null,
+    };
+
+    // A reference image larger than the upload limit (2048 px) is sent scaled down; Inputs/ keeps it as added.
+    await page.evaluate(async () => {
+      const c = document.createElement('canvas');
+      c.width = 3000;
+      c.height = 1000;
+      const ctx = c.getContext('2d')!;
+      ctx.fillStyle = '#884488';
+      ctx.fillRect(0, 0, 3000, 1000);
+      const blob = await new Promise<Blob>(r => c.toBlob(b => r(b!), 'image/png'));
+      const dt = new DataTransfer();
+      dt.items.add(new File([blob], 'large.png', { type: 'image/png' }));
+      const input = document.querySelector<HTMLInputElement>('.tool-window .ref-section input[type=file]')!;
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change'));
+    });
+    await page.locator(`${win} .ref-card`).nth(3).waitFor();
+
+    // Run with the stub: the saved image must be the 原画's size and match it inside.
+    let sentImages: { width: number; height: number }[] = [];
+    await page.route('**/api/nano-banana-pro', async route => {
+      const payload = route.request().postDataJSON() as { input: { type: string; data?: string }[] };
+      const images = payload.input.filter(p => p.type === 'image').map(p => Buffer.from(p.data!, 'base64'));
+      sentImages = images.map(b => ({ width: b.readUInt32BE(16), height: b.readUInt32BE(20) })); // PNG IHDR
+      const body = images.at(-1)!;
+      await route.fulfill({ status: 200, contentType: 'image/png', headers: { 'Cache-Control': 'no-store' }, body });
+    });
+    await page.locator(`${win} .tool-window__run`).click();
+    const toast = await waitForToast(page, /Nano Banana画像生成: .*画像を保存しました/);
+    await page.unroute('**/api/nano-banana-pro');
+    // The folder name from the toast as shown (lastToast masks the timestamps).
+    const folder = await page.$$eval(
+      '.toast',
+      els => els.map(t => /「(.+)」に画像を保存しました/.exec(t.textContent ?? '')?.[1]).find(Boolean) ?? '',
+    );
+    const result = await page.evaluate(
+      async ({ apiBase, folder, draw }) => {
+        const archive = folder.split('/')[0];
+        const entries = (await (await fetch(`${apiBase}/archives/${encodeURIComponent(archive)}/contents`)).json()) as {
+          key: string;
+        }[];
+        const files = entries.map(e => e.key).filter(k => k.startsWith(`${folder}/`));
+        const extract = (key: string) =>
+          fetch(
+            `${apiBase}/archives/${encodeURIComponent(archive)}/extract?path=${encodeURIComponent(key.slice(archive.length + 1))}`,
+          );
+        const mainKey = files.find(k => /_Nano Banana画像生成\.png$/.test(k));
+        if (!mainKey) return { files };
+        const info = await (await extract(`${folder}/info.json`)).json();
+        const saved = await createImageBitmap(await (await extract(mainKey)).blob());
+        const a = document.createElement('canvas');
+        a.width = saved.width;
+        a.height = saved.height;
+        a.getContext('2d')!.drawImage(saved, 0, 0);
+        const b = eval(draw) as HTMLCanvasElement;
+        // Centres of the quadrants and points near the edges (inside the original, outside the padding).
+        const points = [
+          [75, 105],
+          [225, 105],
+          [75, 315],
+          [225, 315],
+          [5, 5],
+          [294, 414],
+          [150 - 8, 4],
+          [150 + 8, 415],
+        ];
+        let maxDiff = 0;
+        for (const [x, y] of points) {
+          const p = a.getContext('2d')!.getImageData(x, y, 1, 1).data;
+          const q = b.getContext('2d')!.getImageData(x, y, 1, 1).data;
+          for (let i = 0; i < 3; i++) maxDiff = Math.max(maxDiff, Math.abs(p[i] - q[i]));
+        }
+        const large = await createImageBitmap(await (await extract(`${folder}/Inputs/Image4.png`)).blob());
+        return {
+          files: files.map(k => k.slice(folder.length + 1)).sort(),
+          savedLargeReference: [large.width, large.height],
+          info,
+          savedSize: [saved.width, saved.height],
+          maxDiff,
+        };
+      },
+      { apiBase, folder, draw: drawOriginal },
+    );
+
+    // The image on the canvas (the result, selected after saving) can be the 原画 too; × removes it.
+    await clickTool(page, 'Nano Banana画像生成');
+    await page.waitForSelector(win);
+    await page.locator(`${win} .nbp-original__card .ref-card__remove`).click();
+    await page.locator(`${win} button`, { hasText: '表示中の画像を原画にする' }).click();
+    await page.waitForSelector(`${win} .nbp-original__card`);
+    const fromCanvas = { aspect: await aspectState(), original: await originalState() };
+    await page.locator(`${win} .nbp-original__card .ref-card__remove`).click();
+    await page.waitForSelector(`${win} .nbp-original__add`);
+    const removed = { aspect: await aspectState(), original: await originalState() };
+    await closeToolWindow(page);
+    return {
+      before,
+      withOriginal,
+      request,
+      sentImages,
+      toast,
+      result: JSON.parse(maskTimestamps(JSON.stringify(result))),
+      fromCanvas: JSON.parse(maskTimestamps(JSON.stringify(fromCanvas))),
+      removed,
+    };
+  });
+
+  await step('19d-generation-blocked', async () => {
+    // Gemini answered without an image (here: PROHIBITED_CONTENT). The backend's 422 body
+    // (providers/gemini_reasons.py, unit tested in backend/tests/test_gemini_reasons.py) is stubbed in the browser.
+    const finishMessage =
+      "Unable to show the generated image. The image was filtered out because it violated Google's " +
+      'Generative AI Prohibited Use policy. Try rephrasing the prompt.';
+    const geminiResponse = {
+      candidates: [{ content: {}, finishReason: 'PROHIBITED_CONTENT', index: 0, finishMessage }],
+      usageMetadata: { promptTokenCount: 341, totalTokenCount: 498, thoughtsTokenCount: 157 },
+    };
+    const detail = {
+      message:
+        '画像が生成されませんでした（finishReason: PROHIBITED_CONTENT）。' +
+        'Google の利用ポリシーで禁止されている内容と判定されました。' +
+        '安全設定では解除できません。プロンプトや参照画像を変えてください。',
+      raw_response:
+        `finishReason: PROHIBITED_CONTENT\nfinishMessage: ${finishMessage}\n\n` +
+        JSON.stringify(geminiResponse, null, 2),
+    };
+    await page.route('**/api/nano-banana-pro', route =>
+      route.fulfill({
+        status: 422,
+        contentType: 'application/json',
+        headers: { 'Cache-Control': 'no-store' },
+        body: JSON.stringify({ detail }),
+      }),
+    );
+    await clickTool(page, 'Nano Banana画像生成');
+    await page.waitForSelector('.tool-window');
+    await page.locator('.tool-window .nbp-step select').nth(1).selectOption('interactions');
+    await page.locator('.tool-window .tool-window__run').click();
+    await waitForToast(page, /PROHIBITED_CONTENT/);
+    await page.unroute('**/api/nano-banana-pro');
+    const toasts = (await toastStack(page)).filter(t => t.type === 'toast--error');
+    await closeToolWindow(page);
+    // Error toasts stay until closed: shoot the new one, then close every error toast.
+    await withVisibleToasts(page, async () => {
+      await screenshot('nbp-blocked-toast', '.toast--error >> nth=-1');
+      while ((await page.locator('.toast--error').count()) > 0) {
+        const count = await page.locator('.toast--error').count();
+        await page.locator('.toast--error .toast__close').first().click();
+        await page.waitForFunction(n => document.querySelectorAll('.toast--error').length < n, count);
+      }
+    });
+    return { toasts };
+  });
+
+  await step('19e-settings-timing', async () => {
+    // Settings are read when a tool window opens and written when a run starts
+    // (docs/specs/app-shell.md 「設定の保存」). The user's values go to user_settings.json.
+    const win = '.tool-window';
+    const userFile = path.join(settingsDir, 'user_settings.json');
+    const savedSeed = () => {
+      try {
+        return (JSON.parse(fs.readFileSync(userFile, 'utf-8')) as Record<string, string>).nanoBananaPro_seed ?? null;
+      } catch {
+        return null;
+      }
+    };
+    const seedInput = () =>
+      page.locator(`${win} .cs-field`, { has: page.locator('label', { hasText: /^seed$/ }) }).locator('input');
+    const openTool = async () => {
+      await clickTool(page, 'Nano Banana画像生成');
+      await page.waitForSelector(win);
+    };
+
+    await openTool();
+    const initial = await seedInput().inputValue();
+    // Changed but not run: nothing is written, and reopening shows the saved value again.
+    await seedInput().fill('777');
+    await closeToolWindow(page);
+    const notRun = { file: savedSeed() };
+    await openTool();
+    const reopened = await seedInput().inputValue();
+
+    // Run (E2E has no API key, so it fails): the settings are saved when the run starts.
+    await seedInput().fill('777');
+    await page.locator(`${win} .tool-window__run`).click();
+    await waitForToast(page, /Nano Banana画像生成の実行に失敗しました/);
+    const afterRun = { file: savedSeed() };
+    await closeToolWindow(page);
+    await openTool();
+    const reopenedAfterRun = await seedInput().inputValue();
+    await closeToolWindow(page);
+
+    // A broken user file is moved aside (not overwritten) and reported when a tool opens.
+    fs.writeFileSync(userFile, '{broken', 'utf-8');
+    await openTool();
+    const brokenToast = await waitForToast(page, /壊れていたため/);
+    const broken = {
+      toast: brokenToast.replace(/broken-\d{8}_\d{6}/, 'broken-<STAMP>'),
+      seed: await seedInput().inputValue(),
+      backups: fs.readdirSync(settingsDir).filter(f => f.startsWith('user_settings.broken-')).length,
+      userFileExists: fs.existsSync(userFile),
+    };
+    await closeToolWindow(page);
+    return { initial, notRun, reopened, afterRun, reopenedAfterRun, broken };
   });
 
   await step('20-browser-storage', async () => {
@@ -1123,7 +1407,7 @@ async function main(): Promise<void> {
       });
     });
     await page.goto(`http://localhost:${opts.frontendPort}/`);
-    await runScenarios(page, apiBase, opts.out, obs);
+    await runScenarios(page, apiBase, settingsDir, opts.out, obs);
   } finally {
     obs.storableResponses = [...storableResponses].sort();
     obs.console = consoleMessages;

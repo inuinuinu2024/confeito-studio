@@ -18,8 +18,9 @@ from typing import Any
 
 import requests
 
-from ..errors import AppError, exception_text
+from ..errors import AppError, BadRequestError, exception_text
 from .base import GenerationApi, GenerationResult, ImageGenerationProvider
+from .gemini_reasons import describe_no_image
 
 API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 IMAGE_GENERATION_TIMEOUT_SEC = 600
@@ -34,6 +35,16 @@ class GeminiAPIError(AppError):
     def __init__(self, message: str, *, status_code: int, raw_response: Any = None) -> None:
         super().__init__(message, raw_response=raw_response)
         self.http_status = status_code
+
+
+class GeminiNoImageError(AppError):
+    """Gemini answered but without an image (blocked or filtered). Not a server failure, hence 422."""
+
+    status_code = 422
+
+    def __init__(self, data: Any, *, status: str | None = None) -> None:
+        message, raw = describe_no_image(data, status=status)
+        super().__init__(message, raw_response=raw)
 
 
 def resolve_api_key(api_key: str | None = None) -> str | None:
@@ -145,24 +156,19 @@ def _find_candidate_image(data: dict[str, Any]) -> tuple[str, str | None] | None
 def _interaction_image(data: dict[str, Any]) -> tuple[str, str | None]:
     status = data.get("status")
     if status and status != "completed":
-        raise AppError(f"画像の生成が完了しませんでした（status: {status}）。", raw_response=data)
+        raise GeminiNoImageError(data, status=status)
     image = _find_interaction_image(data)
     if not image:
-        raise AppError("Gemini の応答に画像が含まれていませんでした。", raw_response=data)
+        raise GeminiNoImageError(data)
     return image
 
 
 def _generate_content_image(data: dict[str, Any]) -> tuple[str, str | None]:
-    block_reason = (data.get("promptFeedback") or {}).get("blockReason")
-    if block_reason:
-        raise AppError(f"プロンプトがブロックされました（blockReason: {block_reason}）。", raw_response=data)
+    if (data.get("promptFeedback") or {}).get("blockReason"):
+        raise GeminiNoImageError(data)
     image = _find_candidate_image(data)
     if not image:
-        reasons = [c["finishReason"] for c in data.get("candidates", []) if c.get("finishReason")]
-        raise AppError(
-            f"Gemini の応答に画像が含まれていませんでした（finishReason: {', '.join(reasons) or 'なし'}）。",
-            raw_response=data,
-        )
+        raise GeminiNoImageError(data)
     return image
 
 
@@ -181,7 +187,8 @@ class GeminiProvider(ImageGenerationProvider):
     ) -> GenerationResult:
         key = resolve_api_key(api_key)
         if not key:
-            raise AppError(MISSING_API_KEY_MESSAGE)
+            # A setting the user has to fix, not a server failure (400, like コマ分割).
+            raise BadRequestError(MISSING_API_KEY_MESSAGE)
 
         model_name = payload.get("model", "interactions-api")
         try:

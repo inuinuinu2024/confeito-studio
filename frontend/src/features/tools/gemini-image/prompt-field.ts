@@ -1,6 +1,7 @@
 /**
  * Prompt textarea with a "default prompt" editor (pencil icon).
- * Settings keys: `<prefix>_prompt` (current text) and `<prefix>_defaultPrompt`.
+ * Settings keys: `<prefix>_prompt` (current text, saved when the tool runs) and `<prefix>_defaultPrompt`
+ * (saved as soon as the editor's 保存 is pressed, with the prompt when it follows the new default).
  */
 import type { ToolSettings } from '../../../shared/state/tool-settings';
 import { openTextEditDialog } from '../../../shared/ui/dialogs';
@@ -22,12 +23,15 @@ export function promptField(label: string, settings: ToolSettings, fallbackDefau
       value: settings.get('defaultPrompt', fallbackDefault),
       onSave: value => {
         settings.set('defaultPrompt', value);
+        const saved = ['defaultPrompt'];
         // A prompt that matches the stored one follows the new default.
         if (textarea.value === settings.get('prompt', '')) {
           textarea.value = value;
           settings.set('prompt', value);
+          saved.push('prompt');
         }
         textarea.placeholder = value;
+        void settings.save(saved);
       },
     });
 

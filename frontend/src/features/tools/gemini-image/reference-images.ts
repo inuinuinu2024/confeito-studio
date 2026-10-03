@@ -43,9 +43,15 @@ function previewUrl(file: File): string {
   return url;
 }
 
-/** Renders the list backed by `images` (mutated in place); `zones` are the model's types and recommended numbers. */
-export function createReferenceList(images: ReferenceImage[], zones: ZoneDef[]): HTMLElement {
-  const limit = totalLimit(zones);
+/**
+ * Renders the list backed by `images` (mutated in place); `zones` are the model's types and recommended
+ * numbers, `limit` the total number of images allowed (by default the sum of the recommended numbers).
+ */
+export function createReferenceList(
+  images: ReferenceImage[],
+  zones: ZoneDef[],
+  limit = totalLimit(zones),
+): HTMLElement {
   const counts = h('div', { class: 'ref-list__counts' });
   const addArea = h('div', { class: 'cs-dropzone__area ref-list__add' });
   const fileInput = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true });
@@ -55,7 +61,7 @@ export function createReferenceList(images: ReferenceImage[], zones: ZoneDef[]):
   const addFiles = (files: FileList | File[]) => {
     let skipped = 0;
     for (const file of Array.from(files).filter(f => f.type.startsWith('image/'))) {
-      const zone = zoneForNewImage(images, zones);
+      const zone = zoneForNewImage(images, zones, limit);
       if (zone) images.push({ file, zoneTitle: zone.title });
       else skipped++;
     }

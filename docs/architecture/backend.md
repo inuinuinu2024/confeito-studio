@@ -21,7 +21,8 @@ backend/src/app/
 │   └── system_service.py    # シャットダウン
 └── providers/       # 外部 AI の差し替え層
     ├── base.py      # ImageGenerationProvider（generate_multimodal、api = interactions / generate_content）
-    └── gemini.py    # Gemini API（Interactions / generateContent）、GeminiAPIError
+    ├── gemini.py    # Gemini API（Interactions / generateContent）、GeminiAPIError、GeminiNoImageError
+    └── gemini_reasons.py # 画像のない応答（ブロック・除外）を日本語で説明する
 ```
 
 - 依存方向: routers → services → providers / config / errors。services は routers を import しない。
@@ -30,6 +31,7 @@ backend/src/app/
 ## エラー処理
 - サービスは `AppError` のサブクラスを投げる。`main.py` が `{"detail": exc.detail}` と `status_code` に変換する。
   - `BadRequestError`(400) / `NotFoundError`(404) / `AppError`(500)
+  - `GeminiNoImageError`(422): Gemini は応答したが画像がない（ブロック・除外）。サーバーの故障ではないので 5xx にしない。
   - `raw_response` を持つ場合 `detail` は `{"message": ..., "raw_response": ...}`
 - **メッセージは日本語で書き、そのままユーザーに見せる。** 例外の文言や外部 API の応答（Gemini のセーフティブロック等）は
   メッセージに埋め込まず `raw_response` に入れる（フロントのエラートーストに「原文」として出る。[specs/notifications.md](../specs/notifications.md)）。
@@ -50,7 +52,7 @@ backend/src/app/
 |---|---|---|
 | `CONFEITO_ENV_FILE` | `<repo>/.env` | 起動時に os.environ へ読み込む（既存の環境変数が優先） |
 | `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブ保存先（ゴミ箱 `.trash/` を含む） |
-| `CONFEITO_SETTINGS_DIR` | `<repo>/settings` | `default_prompts.json` |
+| `CONFEITO_SETTINGS_DIR` | `<repo>/settings` | `default_prompts.json`（初期設定）と `user_settings.json`（ユーザー設定） |
 | `GEMINI_API_KEY` | （.env） | Gemini API キー。リクエストの `X-API-Key` ヘッダーが優先 |
 | `CONFEITO_MODELS_DIR` | `<repo>/models` | rembg モデルの場所。起動時に `U2NET_HOME` の既定値にする（.env に書く必要はない） |
 | `U2NET_HOME` | （未設定） | 環境変数か .env で指定した場合はそちらが優先（.env の相対パスは .env の場所基準） |
@@ -77,7 +79,7 @@ backend/src/app/
 | POST | `/nano-banana-pro` | 画像生成・Interactions API（応答は画像そのもの） |
 | POST | `/nano-banana-pro/generate-content` | 画像生成・generateContent API（応答は上と同じ） |
 | GET/POST | `/settings/gemini` | API キーの有無 / 保存（.env） |
-| GET/POST | `/settings/prompts` | ツール設定マップ全体の取得 / 置換 |
+| GET/POST | `/settings/tools` | ツール設定の取得（初期設定 + ユーザー設定、`{values, warnings}`）/ ユーザー設定への追加・更新（`{values}` を重ねる） |
 
 ## Gemini プロバイダー（`providers/gemini.py`）
 - 画像生成は Interactions API（`/v1beta/interactions`）または `models/{model}:generateContent`（どちらもタイムアウト 600 秒）。
@@ -85,11 +87,12 @@ backend/src/app/
 - 画像生成の応答の Content-Type は、Gemini が返した画像の MIME タイプ
   （不明ならバイト列から判定、それも不明なら要求した `mime_type`、既定 `image/png`）。
 - generateContent の画像は、最初に画像を含む候補の「思考ではない（`thought` が true でない）」最後の `inlineData`。
-  `promptFeedback.blockReason` があるとき、画像がないとき（`finishReason` を表示）は `raw_response` 付きのエラーにする。
+  `promptFeedback.blockReason` があるとき、画像がないときは `GeminiNoImageError`（422）。Interactions API で画像がない・`status` が
+  `completed` でないときも同じ。メッセージと `raw_response` は `gemini_reasons.py` が作る（[specs/tools/gemini-image.md](../specs/tools/gemini-image.md)「画像が生成されなかった時」）。
 - API キーは `x-goog-api-key` ヘッダーで送る（URL に載せない）。
 - `gemini-3-pro-image` にはメディアごとの解像度指定（`resolution`）を付けない（400 エラーになる）。
 - Gemini が 200 以外を返したら「Gemini API がエラーを返しました（HTTP <status>）。」とし、エラー本文を `raw_response` に入れる。
-  "high demand" のときは日本語の補足を付ける。API キー未設定は `MISSING_API_KEY_MESSAGE`（コマ分割と共通）。
+  "high demand" のときは日本語の補足を付ける。API キー未設定は `MISSING_API_KEY_MESSAGE`（コマ分割と共通。どちらも 400）。
 - リクエストモデルは宣言した項目だけを Gemini に送り、それ以外のトップレベル項目は捨てる。
   - `NanoBananaProRequest`（Interactions）: `model` / `input` / `response_format` / `generation_config` /
     `system_instruction` / `tools` / `store` / `service_tier`。

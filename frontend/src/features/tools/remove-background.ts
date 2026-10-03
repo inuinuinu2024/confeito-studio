@@ -43,7 +43,8 @@ export class RemoveBackgroundTool implements Tool {
   icon = '';
   executeIcon = null;
 
-  private settings = toolSettings('removeBg');
+  settingsPrefix = 'removeBg';
+  private settings = toolSettings(this.settingsPrefix);
 
   private get(key: keyof typeof DEFAULTS): string {
     return this.settings.get(key, DEFAULTS[key]);

@@ -20,6 +20,10 @@ setup/*.log
 
 # User data — never commit or delete
 archives/
+# The user's tool settings (initial values are settings/default_prompts.json) and broken copies set aside
+settings/user_settings.json
+settings/user_settings.json.tmp
+settings/user_settings.broken-*.json
 
 # Local models (rembg isnet-anime.onnx)
 models/

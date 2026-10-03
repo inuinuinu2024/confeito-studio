@@ -1,4 +1,4 @@
-"""/api/settings — Gemini API key status and persisted tool settings."""
+"""/api/settings — Gemini API key status and the tool settings (initial values + the user's values)."""
 
 from typing import Any
 
@@ -26,13 +26,18 @@ async def set_gemini_key(request: GeminiKeyRequest) -> dict:
     return {"status": "success", "message": "API Key saved to .env"}
 
 
-@router.get("/prompts")
-async def get_default_prompts() -> dict[str, Any]:
-    """All persisted tool settings (flat map, see settings/default_prompts.json)."""
-    return svc.get_default_prompts()
+class ToolSettingsUpdate(BaseModel):
+    values: dict[str, Any]
 
 
-@router.post("/prompts")
-async def set_default_prompts(prompts: dict[str, Any]) -> dict:
-    svc.save_default_prompts(prompts)
-    return {"status": "success"}
+@router.get("/tools")
+async def get_tool_settings() -> dict[str, Any]:
+    """Tool settings: the initial values with the user's values on top, and warnings to show."""
+    result = svc.load_tool_settings()
+    return {"values": result.values, "warnings": result.warnings}
+
+
+@router.post("/tools")
+async def update_tool_settings(request: ToolSettingsUpdate) -> dict[str, Any]:
+    """Merges ``values`` into the user's settings (other keys are kept)."""
+    return {"warnings": svc.update_user_settings(request.values)}

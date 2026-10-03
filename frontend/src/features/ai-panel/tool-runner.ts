@@ -4,6 +4,7 @@
  * missing, and an error toast (message + original text) on failure. Nothing is written to the archives.
  */
 import { emit } from '../../shared/events';
+import { saveSettings } from '../../shared/state/tool-settings';
 import { type Tool, type ToolContext, ToolNotReady } from '../../shared/types/tool';
 import { showError, showToast } from '../../shared/ui/toast';
 import { toCanvas } from '../../shared/utils/image';
@@ -23,10 +24,15 @@ function isCancellation(err: unknown): boolean {
   return e?.name === 'AbortError' || e?.message === 'AbortError';
 }
 
-/** Executes the tool; resolves true on success. Never throws. */
-export async function runTool(tool: Pick<Tool, 'name' | 'execute'>): Promise<boolean> {
+/**
+ * Executes the tool; resolves true on success. Never throws.
+ * The tool's changed settings are saved first, so they are kept even when the run fails
+ * (a failed save shows its own error toast and the run goes on).
+ */
+export async function runTool(tool: Pick<Tool, 'name' | 'execute' | 'settingsPrefix'>): Promise<boolean> {
   emit('tool:start', { toolName: tool.name });
   try {
+    if (tool.settingsPrefix) await saveSettings(tool.settingsPrefix);
     const summary = await tool.execute(createToolContext());
     showToast(`${tool.name}: ${summary}`, 'success');
     return true;

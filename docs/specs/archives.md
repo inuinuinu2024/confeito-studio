@@ -25,9 +25,9 @@
     "outputs": ["nobg.png"]
   }
   ```
-  - `source`: 入力の ARCHIVES キー（キャンバスに表示中の画像。コマ結合は対象フォルダ）。Nano Banana画像生成 は null（入力は Inputs/ の参照画像）。
+  - `source`: 入力の ARCHIVES キー（キャンバスに表示中の画像。コマ結合は対象フォルダ）。Nano Banana画像生成 は null（入力は Inputs/ の参照画像）。ただしキャンバスの画像を原画にした時はその画像のキー。
   - `settings`: そのツールの設定値。`outputs`: info.json 以外に保存したファイル（結果フォルダからの相対パス）。
-- **入力のコピーは残さない**（元画像はアーカイブにあるため）。Nano Banana画像生成 の参照画像（`Inputs/`）は、アーカイブ外から追加したものもあるので残す。
+- **入力のコピーは残さない**（元画像はアーカイブにあるため）。Nano Banana画像生成 の参照画像（`Inputs/`）は、アーカイブ外から追加したものもあるので残す。原画も、ファイルから設定した時だけ `Inputs/Original.*` に残す。
 - **保存後**: 結果の画像（コマ分割は `01.png`）を自動で選択してキャンバスに表示する。表示した画像のアーカイブが次の保存先になる。
 
 | ツール | 結果フォルダの中身 |
@@ -35,7 +35,7 @@
 | コマ分割 | `01.png`, `02.png`, …, `panels.json`, `info.json` |
 | コマ結合 | `<YYYYMMDD_HHMMSS>_コマ結合.png`, `info.json` |
 | 背景除去 | `nobg.png`, `info.json` |
-| Nano Banana画像生成 | `<YYYYMMDD_HHMMSS>_Nano Banana画像生成.png|.jpg`, `Inputs/Image1.*` …, `Inputs/payload.json`, `info.json` |
+| Nano Banana画像生成 | `<YYYYMMDD_HHMMSS>_Nano Banana画像生成.png|.jpg`, `Inputs/Image1.*` …, `Inputs/payload.json`, `info.json`（原画がある時は `Raw/generated.*`、ファイルから設定した原画の `Inputs/Original.*` も） |
 
 ## 一覧（ツリー）
 - 起動時はトップレベルのアーカイブを新しい順に折りたたんで表示し、展開した時に中身を取得する（遅延読み込み）。

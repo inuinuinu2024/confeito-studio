@@ -1,13 +1,9 @@
 {
-  "coloring_defaultPrompt": "## 依頼\n原画に線画を渡すので、着彩して。\n出力は原画を忠実に再現し、元の線に自然な掠れや途切れがある場合もそれを再現して。\n背景は描かない。\n\n## Image 2\n参考の三面図を渡します。",
-  "coloring_prompt": "## 依頼\n原画に線画を渡すので、着彩して。\n出力は原画を忠実に再現し、元の線に自然な掠れや途切れがある場合もそれを再現して。\n背景は描かない。\n",
   "nanoBananaPro_defaultPrompt": "【最重要】キャラクターの顔立ち・体型・絵柄は画像2のみを正解として描くこと。画像1のキャラクターの顔・体型の特徴は一切引用しないこと。\n\n■画像1(構図・ポーズ参照専用/絵柄もキャラも無視)\n・使うのは「コマ割り・カメラアングル・人物のポーズ・表情・視線・手足の配置」のみ\n・画像1に描かれている人物そのものの顔立ち、輪郭、体型、髪型、絵柄は完全に無視すること\n\n■画像2(キャラクターデザイン・絵柄の正解データ)\n・顔のパーツ(目の形、鼻、口、輪郭)、髪型・髪色、体型・プロポーションはすべて画像2に忠実に一致させること\n・線の太さ・塗りの質感・陰影のつけ方・配色などの画風も画像2を完全再現すること\n・画像2は三面図(正面・側面・背面)なので、そこから立体的な体型情報を正確に読み取ること\n\n■出力\n画像1の構図・ポーズ・表情のレイアウトの中に、画像2のキャラクター(顔立ち・体型・絵柄すべて画像2基準)を描き直したイラストを1枚生成してください。画像1の人物の顔や体型の特徴が混ざらないよう特に注意してください。",
   "nanoBananaPro_prompt": "いろいろな表情差分を作ってください。4×4のタイル状に顔を並べて",
   "nanoBananaPro_aspectRatio": "1:1",
   "nanoBananaPro_imageSize": "1K",
   "nanoBananaPro_mimeType": "image/jpeg",
-  "coloring_aspectRatio": "9:16",
-  "coloring_mimeType": "image/jpeg",
   "removeBg_alpha_matting": "false",
   "removeBg_bg_threshold": "41",
   "removeBg_fg_threshold": "240",
@@ -15,7 +11,6 @@
   "panelSplitter_reading_order": "left_to_right",
   "panelSplitter_model": "gemini-3.1-pro-preview",
   "panelSplitter_thinking_level": "HIGH",
-  "coloring_imageSize": "2K",
   "nanoBananaPro_model": "gemini-3-pro-image",
   "nanoBananaPro_api": "interactions"
 }

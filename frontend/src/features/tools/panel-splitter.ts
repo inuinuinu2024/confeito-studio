@@ -32,7 +32,8 @@ export class PanelSplitterTool implements Tool {
   icon = 'auto_awesome';
   executeIcon = 'auto_awesome';
 
-  private settings = toolSettings('panelSplitter');
+  settingsPrefix = 'panelSplitter';
+  private settings = toolSettings(this.settingsPrefix);
 
   private options(): PanelSplitOptions {
     let model = this.settings.get('model', 'gemini-3.8-flash');
