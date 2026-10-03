@@ -1,6 +1,6 @@
 /**
  * ArchivePanel — the ARCHIVES tree (left sidebar; a second instance replaces the AI panel in
- * Compare mode and emits the `:right` variants of its events).
+ * Parallel mode and emits the `:right` variants of its events).
  *
  * Selecting a file emits `archive:item-selected` (the canvas shows it); a folder or several entries
  * emit `archive:selection-summary` (the canvas shows no image), or `archive:batch-selected` in
@@ -52,14 +52,14 @@ export interface SelectionState {
 
 export interface ArchivePanelOptions {
   side?: 'left' | 'right';
-  /** Selection to start with (the compare panel copies the left panel's selection). */
+  /** Selection to start with (the parallel panel copies the left panel's selection). */
   initialState?: SelectionState;
 }
 
 export interface ArchivePanel {
   el: HTMLElement;
   getSelectionState(): SelectionState;
-  /** Unsubscribes every listener (the compare-mode panel is recreated each time). */
+  /** Unsubscribes every listener (the parallel-mode panel is recreated each time). */
   destroy(): void;
 }
 
@@ -73,6 +73,10 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
   } as const;
   const disposers: (() => void)[] = [];
   const docManager = () => DocumentManager.getInstance();
+  /** Only the left panel chooses where tools save (the right one just picks what the right pane shows). */
+  const setSaveFolder = (folder: string) => {
+    if (!isRight) docManager().setCurrentArchiveFolder(folder);
+  };
 
   // ── State ──
   let rows: TreeRow[] = [];
@@ -177,7 +181,7 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
       const firstFile = selectedRows.find(r => !r.isGroup);
       // The first file's parent folder; only folders selected -> the first folder.
       const folder = firstFile ? folderOf(firstFile.item) : selectedRows[0].item.key;
-      if (folder) docManager().setCurrentArchiveFolder(folder);
+      if (folder) setSaveFolder(folder);
       // Batch mode shows the selected files (folders ignored) in tree order.
       if (isViewMode('batch')) publishBatch(selectedFiles(rows, selected));
       else emit(events.summary, { kind: 'multiple', count: selected.size });
@@ -185,13 +189,13 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
     }
     const row = rows[[...selected][0]];
     if (row.isGroup) {
-      docManager().setCurrentArchiveFolder(row.item.key);
+      setSaveFolder(row.item.key);
       if (isViewMode('batch')) await publishFolderBatch(row.item.key);
       else emit(events.summary, { kind: 'folder', name: displayName(row), count: 1 });
       return;
     }
     const folder = folderOf(row.item);
-    if (folder) docManager().setCurrentArchiveFolder(folder);
+    if (folder) setSaveFolder(folder);
     if (isViewMode('batch')) publishBatch([row.item]);
     else emit(events.selected, { key: row.item.key, name: row.item.name });
   };
@@ -284,7 +288,7 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
    */
   async function reload(autoSelectKey?: string, forceRefresh = false): Promise<boolean> {
     if (forceRefresh) for (const key of Object.keys(contentsCache)) delete contentsCache[key];
-    // The compare panel keeps its initial selection (indices from the left panel) on the first load.
+    // The parallel panel keeps its initial selection (indices from the left panel) on the first load.
     const keepSelection = !autoSelectKey && hasLoaded;
     const previousRows = rows;
     hasLoaded = true;
@@ -344,9 +348,9 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
 
   // ── Header actions ──
   const updateDeleteButton = () => {
-    deleteBtn.disabled = isViewMode('compare');
+    deleteBtn.disabled = isViewMode('parallel');
   };
-  listen('compare-mode:toggle', updateDeleteButton);
+  listen('parallel-mode:toggle', updateDeleteButton);
   updateDeleteButton();
 
   deleteBtn.addEventListener('click', async () => {

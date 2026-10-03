@@ -1,16 +1,19 @@
 /**
  * Zoom bar and zoom math for the canvas area.
  *
- * Zoom is relative to "fit": at 100% the canvas (state.drawW x drawH) is scaled to fit the
- * scroll area minus 64px padding; 10%–1000% multiplies that. Zooming keeps the point under
- * the cursor (or the centre) fixed by adjusting scroll offsets.
+ * Zoom is relative to "fit": at 100% the canvas (state.drawW x drawH) is scaled to fit one pane's
+ * viewport minus 64px padding; 10%–1000% multiplies that. Zooming keeps the point under the cursor
+ * (or the centre) fixed by adjusting scroll offsets.
  *
  * The canvas always has free margins around it (viewport size minus KEEP_VISIBLE), so it can be
  * scrolled — dragged, wheeled or with the scrollbars — anywhere until only KEEP_VISIBLE px of an
  * edge remain, even when it is smaller than the viewport.
+ *
+ * Parallel mode has two panes (fixed frames). Both inners get the same size, computed from the left
+ * viewport (always shown), and their scroll positions are kept equal, so pan and zoom apply to both.
  */
 import { h, icon } from '../../shared/ui/dom';
-import { type CanvasState, isTextActive } from './canvas-state';
+import type { CanvasState, Side } from './canvas-state';
 
 const MIN_ZOOM = 10;
 const MAX_ZOOM = 1000;
@@ -25,26 +28,37 @@ export interface ZoomController {
   apply(previousZoom: number, focusX?: number, focusY?: number, force?: boolean): void;
   /** Zoom 100%: centred horizontally; vertically centred if it fits, else its top shown. */
   resetTo100(): void;
-  /** Largest zoom (≤100%) that shows the whole canvas, centred. */
+  /** Largest zoom that shows the whole canvas (= 100%, the fit size), centred. */
   fitToScreen(): void;
-  /** Zoom by ±STEP around a point of the scroll area (Ctrl + wheel). */
+  /** Zoom by ±STEP around a point of the pane viewport (Ctrl + wheel). */
   zoomBy(direction: 1 | -1, focusX?: number, focusY?: number): void;
+  /** Copies the scroll position of this pane's viewport to the other pane (call after scrolling it). */
+  syncScroll(from: HTMLElement): void;
+  /** Runs a layout change that resizes the panes, keeping the point at the centre of the view and the zoom. */
+  relayout(change: () => void): void;
 }
 
-export function createZoomController(state: CanvasState, scrollArea: HTMLElement, inner: HTMLElement): ZoomController {
+/** One pane: its scrolling viewport and the zoomed element inside it. */
+export interface ZoomPane {
+  viewport: HTMLElement;
+  inner: HTMLElement;
+}
+
+export function createZoomController(state: CanvasState, panes: Record<Side, ZoomPane>): ZoomController {
   const slider = h('input', { type: 'range', min: String(MIN_ZOOM), max: String(MAX_ZOOM), value: '100' });
   const label = h('span', { class: 'canvas-zoom-bar__label', text: '100%' });
+  // The left pane is always shown: sizes and scroll positions are computed on it.
+  const { viewport: scrollArea, inner } = panes.left;
 
-  const fillInner = () => {
-    Object.assign(inner.style, {
-      width: '100%',
-      height: '100%',
-      marginTop: '0',
-      marginBottom: '0',
-      marginLeft: '0',
-      marginRight: '0',
-    });
+  /** Copies the scroll position of `from` to the other pane. */
+  const syncScroll = (from: HTMLElement) => {
+    const to = from === panes.left.viewport ? panes.right.viewport : panes.left.viewport;
+    if (to.scrollLeft !== from.scrollLeft) to.scrollLeft = from.scrollLeft;
+    if (to.scrollTop !== from.scrollTop) to.scrollTop = from.scrollTop;
   };
+  for (const { viewport } of [panes.left, panes.right]) {
+    viewport.addEventListener('scroll', () => syncScroll(viewport));
+  }
 
   const baseScale = () => {
     const availableW = Math.max(1, scrollArea.clientWidth - PADDING);
@@ -60,13 +74,10 @@ export function createZoomController(state: CanvasState, scrollArea: HTMLElement
     const freeH = (scrollArea.clientHeight - inner.offsetHeight) / 2;
     scrollArea.scrollLeft = inner.offsetLeft - (scrollArea.clientWidth - inner.offsetWidth) / 2;
     scrollArea.scrollTop = inner.offsetTop - (vertical === 'center' ? freeH : Math.max(PADDING / 2, freeH));
+    syncScroll(scrollArea);
   };
 
   function apply(previousZoom: number, focusX?: number, focusY?: number, force = false): void {
-    if (isTextActive(state)) {
-      fillInner();
-      return;
-    }
     if (previousZoom === state.zoom && !force) return;
 
     slider.value = String(state.zoom);
@@ -88,18 +99,34 @@ export function createZoomController(state: CanvasState, scrollArea: HTMLElement
       if (innerRect.width > 0) ratio = renderW / innerRect.width;
       const marginX = freeMargin(scrollArea.clientWidth);
       const marginY = freeMargin(scrollArea.clientHeight);
-      Object.assign(inner.style, {
-        width: `${renderW}px`,
-        height: `${renderH}px`,
-        marginTop: marginY,
-        marginBottom: marginY,
-        marginLeft: marginX,
-        marginRight: marginX,
-      });
+      for (const pane of [panes.left, panes.right]) {
+        Object.assign(pane.inner.style, {
+          width: `${renderW}px`,
+          height: `${renderH}px`,
+          marginTop: marginY,
+          marginBottom: marginY,
+          marginLeft: marginX,
+          marginRight: marginX,
+        });
+      }
     }
-    // offsetLeft/Top: position inside the scrolled content (scrollArea is the offset parent).
+    // offsetLeft/Top: position inside the scrolled content (the viewport is the offset parent).
     scrollArea.scrollLeft = inner.offsetLeft + contentX * ratio - cx;
     scrollArea.scrollTop = inner.offsetTop + contentY * ratio - cy;
+    syncScroll(scrollArea);
+  }
+
+  function relayout(change: () => void): void {
+    // Measured before the change: the pane size (and the 100% size) changes with it.
+    const w = inner.offsetWidth;
+    const hh = inner.offsetHeight;
+    const fx = w ? (scrollArea.scrollLeft + scrollArea.clientWidth / 2 - inner.offsetLeft) / w : 0.5;
+    const fy = hh ? (scrollArea.scrollTop + scrollArea.clientHeight / 2 - inner.offsetTop) / hh : 0.5;
+    change();
+    apply(state.zoom, undefined, undefined, true);
+    scrollArea.scrollLeft = inner.offsetLeft + fx * inner.offsetWidth - scrollArea.clientWidth / 2;
+    scrollArea.scrollTop = inner.offsetTop + fy * inner.offsetHeight - scrollArea.clientHeight / 2;
+    syncScroll(scrollArea);
   }
 
   const setZoom = (zoom: number, focusX?: number, focusY?: number, force = false) => {
@@ -108,29 +135,14 @@ export function createZoomController(state: CanvasState, scrollArea: HTMLElement
     apply(previous, focusX, focusY, force);
   };
 
-  const resetScroll = () => {
-    scrollArea.scrollLeft = 0;
-    scrollArea.scrollTop = 0;
-  };
-
   function resetTo100(): void {
-    if (isTextActive(state)) {
-      fillInner();
-      resetScroll();
-      return;
-    }
     setZoom(100, undefined, undefined, true);
     setTimeout(() => align('top'), 0);
   }
 
   function fitToScreen(): void {
-    if (isTextActive(state)) {
-      fillInner();
-      resetScroll();
-      return;
-    }
     if (!state.drawW || !state.drawH) return;
-    setZoom(Math.min(100, Math.floor(baseScale().scale * 100)), undefined, undefined, true);
+    setZoom(100, undefined, undefined, true); // 100% is the fit size
     setTimeout(() => align('center'), 0);
   }
 
@@ -153,7 +165,7 @@ export function createZoomController(state: CanvasState, scrollArea: HTMLElement
     setZoom(state.zoom + direction * STEP, focusX, focusY);
 
   slider.addEventListener('input', () => setZoom(parseInt(slider.value, 10)));
-  // Window / sidebar resizes change the 100% size and the free margins.
+  // Window / sidebar resizes (and the Parallel panes appearing) change the 100% size and the free margins.
   new ResizeObserver(() => apply(state.zoom, undefined, undefined, true)).observe(scrollArea);
 
   const button = (content: string | HTMLElement, title: string, onClick: () => void) =>
@@ -172,5 +184,5 @@ export function createZoomController(state: CanvasState, scrollArea: HTMLElement
     button(icon('home', 16), 'Zoom 100%', resetTo100),
   );
 
-  return { bar, apply, resetTo100, fitToScreen, zoomBy };
+  return { bar, apply, resetTo100, fitToScreen, zoomBy, syncScroll, relayout };
 }

@@ -45,14 +45,14 @@ frontend/src/
 | `archive:selection-summary(:right)` | ArchivePanel → Canvas | フォルダ・複数選択（Batch 以外。画像を出さず、案内文で選択内容を示す） |
 | `archive:batch-selected` | ArchivePanel → Canvas | Batch モードでの選択（グリッド表示する画像の一覧） |
 | `archives:changed` | ツール/削除処理 → ArchivePanel | 一覧を再取得。`autoSelectKey` があれば展開して選択 |
-| `<mode>-mode:toggle` | view-mode.ts → 各機能 | 表示モードの ON/OFF（normal/compare/overlay/batch） |
+| `<mode>-mode:toggle` | view-mode.ts → 各機能 | 表示モードの ON/OFF（normal/parallel/overlay/batch） |
 | `overlay:underdrawing-selected(:right)` | ArchivePanel → ArchivePanel, Canvas | Overlay の下絵(U) 選択 |
 | `overlay-mode:changed` | ArchivePanel → ArchivePanel | U チェックボックスの再同期 |
 | `document:loaded` / `document:redraw` | DocumentManager → Canvas | 現在画像の変更 / 再描画要求 |
 | `tool:start` / `tool:progress` / `tool:end` | tool-runner, ツール → StatusBar | 実行状況 |
 | `canvas:bg-color`, `settings:updated`, `history:changed` | 各ダイアログ, history | 背景色 / API キー保存 / Undo スタック変化 |
 
-`:right` 付きは Compare モードで AI パネルの代わりに表示される 2 つ目の ARCHIVES パネル由来。
+`:right` 付きは Parallel モードで AI パネルの代わりに表示される 2 つ目の ARCHIVES パネル由来。
 
 ### 状態の持ち場所
 - **表示モード**: `shared/state/view-mode.ts` が唯一の正。変更は `setViewMode()` / `toggleViewMode()` のみ。

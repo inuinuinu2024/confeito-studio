@@ -1,4 +1,4 @@
-/** Floating toolbar groups at the top of the canvas (Compare options and Overlay options). */
+/** Floating toolbar groups at the top of the canvas (Parallel options and Overlay options). */
 import { h, icon } from '../../shared/ui/dom';
 import { TINT_COLORS } from './render';
 
@@ -18,10 +18,10 @@ function toggleSwitch(onClick: () => void): ToggleSwitch {
   };
 }
 
-const label = (text: string) => h('span', { class: 'canvas-toolbar__compare-label', text });
+const label = (text: string) => h('span', { class: 'canvas-toolbar__label', text });
 const spacer = () => h('div', { class: 'canvas-toolbar__spacer' });
 
-export interface CompareToolbar {
+export interface ParallelToolbar {
   el: HTMLDivElement;
   slider: ToggleSwitch;
   vertical: ToggleSwitch;
@@ -30,17 +30,17 @@ export interface CompareToolbar {
   showSliderOptions(visible: boolean): void;
 }
 
-export function createCompareToolbar(handlers: {
+export function createParallelToolbar(handlers: {
   onSlider: () => void;
   onVertical: () => void;
   onFlip: () => void;
-}): CompareToolbar {
+}): ParallelToolbar {
   const slider = toggleSwitch(handlers.onSlider);
   const vertical = toggleSwitch(handlers.onVertical);
   const flip = toggleSwitch(handlers.onFlip);
   const sliderOptions = [spacer(), label('Transpose'), vertical.el, spacer(), label('Flip'), flip.el];
   return {
-    el: h('div', { class: 'canvas-toolbar__compare' }, label('Slider'), slider.el, ...sliderOptions),
+    el: h('div', { class: 'canvas-toolbar__group' }, label('Slider'), slider.el, ...sliderOptions),
     slider,
     vertical,
     flip,
@@ -73,7 +73,7 @@ export function createOverlayToolbar(handlers: {
     swatches.forEach(s => s.classList.toggle('canvas-toolbar__swatch--active', s.dataset.tint === tint));
   render();
 
-  const opacityLabel = h('span', { class: 'canvas-toolbar__compare-label canvas-toolbar__opacity-value', text: '50%' });
+  const opacityLabel = h('span', { class: 'canvas-toolbar__label canvas-toolbar__opacity-value', text: '50%' });
   const opacity = h('input', { class: 'canvas-toolbar__opacity', type: 'range', min: '0', max: '100', value: '50' });
   opacity.addEventListener('input', () => {
     const value = parseInt(opacity.value, 10);
@@ -83,7 +83,7 @@ export function createOverlayToolbar(handlers: {
 
   return h(
     'div',
-    { class: 'canvas-toolbar__compare' },
+    { class: 'canvas-toolbar__group' },
     label('Underdrawing'),
     h('div', { class: 'canvas-toolbar__swatches' }, ...swatches),
     spacer(),

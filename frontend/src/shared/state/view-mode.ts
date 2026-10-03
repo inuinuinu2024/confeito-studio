@@ -1,5 +1,5 @@
 /**
- * View mode store: exactly one of normal / compare / overlay / batch is active.
+ * View mode store: exactly one of normal / parallel / overlay / batch is active.
  *
  * `setViewMode()` is the only way to change it. Listeners receive the per-mode
  * `<mode>-mode:toggle` events, always emitted in MODE_ORDER: the target mode is
@@ -8,12 +8,12 @@
  */
 import { emit } from '../events';
 
-export type ViewMode = 'normal' | 'compare' | 'overlay' | 'batch';
+export type ViewMode = 'normal' | 'parallel' | 'overlay' | 'batch';
 
-const MODE_ORDER: ViewMode[] = ['normal', 'compare', 'overlay', 'batch'];
+const MODE_ORDER: ViewMode[] = ['normal', 'parallel', 'overlay', 'batch'];
 const TOGGLE_EVENT = {
   normal: 'normal-mode:toggle',
-  compare: 'compare-mode:toggle',
+  parallel: 'parallel-mode:toggle',
   overlay: 'overlay-mode:toggle',
   batch: 'batch-mode:toggle',
 } as const;

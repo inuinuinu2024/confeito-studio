@@ -1,13 +1,19 @@
 /**
- * Canvas — the central viewing area: two panes (left/right) holding one <canvas> and one
- * text overlay each, the zoom bar, and the floating Compare / Overlay toolbars.
+ * Canvas — the central viewing area: two panes (left/right) holding a scrolling viewport with one
+ * <canvas>, a text overlay and an empty-pane notice each, the zoom bar, and the floating
+ * Parallel / Overlay toolbars.
+ *
+ * The panes are fixed frames: side by side in Parallel mode (a 1px boundary between them), stacked
+ * with the front one clipped at a screen-fixed divider in the slider view, and only the left one in
+ * the other modes. Pan and zoom move the images inside both panes together (zoom.ts).
  *
  * Inputs (events):  archive:item-selected(:right), archive:selection-cleared(:right),
  *                   archive:selection-summary(:right), archive:batch-selected, overlay:underdrawing-selected(:right),
  *                   <mode>-mode:toggle, document:loaded/redraw, canvas:bg-color
  * Drawing:          render.ts (from CanvasState in canvas-state.ts)
- * Zoom:             zoom.ts
- * Nothing to show:  a centred message asks the user to pick an image (emptyCanvasMessage).
+ * Zoom / scroll:    zoom.ts
+ * Nothing to show:  a centred message asks the user to pick an image (emptyCanvasMessage; per pane in
+ *                   Parallel mode, emptyPaneMessage).
  * Image files dropped on the area are imported by running the image loader tool.
  */
 import './canvas.css';
@@ -25,12 +31,16 @@ import {
   contentSize,
   createCanvasState,
   emptyCanvasMessage,
-  isTextActive,
+  emptyPaneMessage,
+  isZoomBarShown,
   type Side,
+  sliderClip,
 } from './canvas-state';
 import { batchGridSize, renderSide, topImageRect } from './render';
-import { createCompareToolbar, createOverlayToolbar } from './toolbars';
+import { createOverlayToolbar, createParallelToolbar } from './toolbars';
 import { createZoomController } from './zoom';
+
+const SIDES = ['left', 'right'] as const;
 
 const isTextBlob = (name: string, blob: Blob) =>
   TEXT_FILE_PATTERN.test(name) || blob.type.startsWith('text/') || blob.type === 'application/json';
@@ -41,29 +51,25 @@ export function createCanvas(): HTMLElement {
 
   // ── DOM ──
   const main = h('main', { class: 'canvas-area' });
-  const panels = {
-    left: h('div', { class: 'canvas-split__panel' }),
-    right: h('div', { class: 'canvas-split__panel' }),
+  /** Pane (fixed frame) > viewport (scrolls) > inner (sized by zoom.ts) > canvas; text and notice over the viewport. */
+  const createPane = (side: Side) => {
+    const inner = h('div', { class: 'canvas-split__inner' });
+    const viewport = h('div', { class: 'canvas-split__viewport' }, inner);
+    const text = h('div', { class: 'canvas-text-overlay' });
+    const message = h('span', { class: 'canvas-split__pane-message' });
+    const notice = h('div', { class: 'canvas-split__pane-empty' }, icon('image', 40), message);
+    const el = h('div', { class: `canvas-split__pane canvas-split__pane--${side}` }, viewport, text, notice);
+    return { el, viewport, inner, text, notice, message };
   };
-  const wrappers = {
-    left: h('div', { class: 'canvas-split__content-wrapper' }),
-    right: h('div', { class: 'canvas-split__content-wrapper' }),
-  };
-  const textOverlays = {
-    left: h('div', { class: 'canvas-text-overlay' }),
-    right: h('div', { class: 'canvas-text-overlay' }),
-  };
+  const panes = { left: createPane('left'), right: createPane('right') };
   const divider = h(
     'div',
     { class: 'canvas-split__divider' },
     h('div', { class: 'canvas-split__divider-handle' }, icon('drag_indicator', 14)),
   );
-  const inner = h('div', { class: 'canvas-split__inner' }, panels.left, divider, panels.right);
-  const scrollArea = h('div', { class: 'canvas-split' }, inner);
-  panels.left.append(wrappers.left);
-  panels.right.append(wrappers.right);
+  const split = h('div', { class: 'canvas-split' }, panes.left.el, panes.right.el, divider);
 
-  const zoom = createZoomController(state, scrollArea, inner);
+  const zoom = createZoomController(state, panes);
 
   const emptyMessage = h('span', { class: 'canvas-empty__message' });
   const emptyState = h(
@@ -74,22 +80,22 @@ export function createCanvas(): HTMLElement {
     h('span', { class: 'canvas-empty__hint', text: 'または画像ファイルをここにドロップして読み込み' }),
   );
 
-  const compareToolbar = createCompareToolbar({
+  const parallelToolbar = createParallelToolbar({
     onSlider: () => {
-      if (!state.slider && !state.compare) return; // the slider compares the two Compare-mode panes
+      if (!state.slider && !state.parallel) return; // the slider compares the two Parallel-mode panes
       state.slider = !state.slider;
       if (!state.slider) resetSliderOptions();
-      compareToolbar.slider.set(state.slider);
+      parallelToolbar.slider.set(state.slider);
       updateLayout();
     },
     onVertical: () => {
       state.vertical = !state.vertical;
-      compareToolbar.vertical.set(state.vertical);
+      parallelToolbar.vertical.set(state.vertical);
       updateLayout();
     },
     onFlip: () => {
       state.flipped = !state.flipped;
-      compareToolbar.flip.set(state.flipped);
+      parallelToolbar.flip.set(state.flipped);
       updateLayout();
     },
   });
@@ -110,12 +116,12 @@ export function createCanvas(): HTMLElement {
     },
   });
   setShown(overlayToolbar, false);
-  const toolbar = h('div', { class: 'canvas-toolbar' }, compareToolbar.el, overlayToolbar);
-  main.append(toolbar, zoom.bar, scrollArea, emptyState);
+  const toolbar = h('div', { class: 'canvas-toolbar' }, parallelToolbar.el, overlayToolbar);
+  main.append(toolbar, zoom.bar, split, emptyState);
 
   // ── Rendering ──
   function redraw(): void {
-    for (const side of ['left', 'right'] as const) {
+    for (const side of SIDES) {
       const ctx = canvases[side]?.getContext('2d');
       if (ctx) renderSide(ctx, state, side);
     }
@@ -127,6 +133,11 @@ export function createCanvas(): HTMLElement {
     const message = emptyCanvasMessage(state);
     if (message !== null) emptyMessage.textContent = message;
     setShown(emptyState, message !== null, 'flex');
+    for (const side of SIDES) {
+      const paneMessage = emptyPaneMessage(state, side);
+      if (paneMessage !== null) panes[side].message.textContent = paneMessage;
+      setShown(panes[side].notice, paneMessage !== null, 'flex');
+    }
   }
 
   function updateTooltips(): void {
@@ -134,8 +145,8 @@ export function createCanvas(): HTMLElement {
     const size = (img: HTMLCanvasElement | null) => (img ? `${img.width} x ${img.height}px` : null);
     const fallback = `${state.drawW} x ${state.drawH}px`;
     const { left, right } = state.sides;
-    canvases.left.title = (!state.overlay && state.compare && size(left.image)) || fallback;
-    canvases.right.title = (!state.overlay && state.compare ? size(right.image) : size(left.image)) || fallback;
+    canvases.left.title = (!state.overlay && state.parallel && size(left.image)) || fallback;
+    canvases.right.title = (!state.overlay && state.parallel ? size(right.image) : size(left.image)) || fallback;
   }
 
   /** (Re)creates both canvases when the base size changes. */
@@ -143,23 +154,19 @@ export function createCanvas(): HTMLElement {
     if (canvases.left && canvases.right && state.baseW === width && state.baseH === height) return;
     state.baseW = state.drawW = width;
     state.baseH = state.drawH = height;
-    for (const side of ['left', 'right'] as const) {
+    for (const side of SIDES) {
       const canvas = h('canvas', { class: 'canvas-split__canvas', width, height, title: `${width} x ${height}px` });
       canvases[side] = canvas;
       const ctx = canvas.getContext('2d');
       if (ctx) renderSide(ctx, state, side);
-      wrappers[side].replaceChildren(canvas, textOverlays[side]);
-      panels[side].replaceChildren(wrappers[side]);
+      panes[side].inner.replaceChildren(canvas);
     }
     updateTooltips();
   }
 
   /** Resizes the canvases to the content of the current mode and re-applies the zoom. */
   function updateDrawSize(fit: boolean): void {
-    if (!state.compare && !state.slider && state.sides.left.text) {
-      zoom.fitToScreen();
-      return;
-    }
+    if (!state.parallel && state.sides.left.text) return; // the text overlay covers the pane
     const { w, h: height } = contentSize(state);
     if (!w || !height) return;
     const sizeChanged = state.drawW !== w || state.drawH !== height;
@@ -183,98 +190,65 @@ export function createCanvas(): HTMLElement {
 
   function setText(side: Side, text: string | null): void {
     state.sides[side].text = text !== null;
-    if (text !== null) textOverlays[side].textContent = text;
-    textOverlays[side].style.display = text !== null ? 'block' : 'none';
+    if (text !== null) panes[side].text.textContent = text;
+    panes[side].text.style.display = text !== null ? 'block' : 'none';
+    panes[side].el.classList.toggle('canvas-split__pane--text', text !== null);
   }
 
   function resetSliderOptions(): void {
     state.slider = state.vertical = state.flipped = false;
-    compareToolbar.slider.set(false);
-    compareToolbar.vertical.set(false);
-    compareToolbar.flip.set(false);
-  }
-
-  /** The slider (wipe) view only exists in Compare mode. */
-  function ensureSliderValid(): void {
-    if (state.slider && !state.compare) {
-      resetSliderOptions();
-      updateLayout();
-    }
+    state.splitPct = 50;
+    parallelToolbar.slider.set(false);
+    parallelToolbar.vertical.set(false);
+    parallelToolbar.flip.set(false);
   }
 
   function updateLayout(): void {
-    const textActive = isTextActive(state);
-    setShown(zoom.bar, !state.batch && !textActive, 'flex');
-    if (textActive) Object.assign(inner.style, { width: '100%', height: '100%', margin: '0' });
-    else zoom.apply(state.zoom, undefined, undefined, true);
+    setShown(zoom.bar, isZoomBarShown(state), 'flex');
+    setShown(parallelToolbar.el, state.parallel, 'flex');
+    setShown(toolbar, state.parallel || state.overlay, 'flex');
+    parallelToolbar.showSliderOptions(state.slider);
 
-    if (state.compare) {
-      wrappers.left.append(textOverlays.left);
-      wrappers.right.append(textOverlays.right);
-    } else {
-      wrappers.left.append(textOverlays.left);
-    }
-
-    setShown(compareToolbar.el, state.compare, 'flex');
-    setShown(toolbar, state.compare || state.overlay, 'flex');
-    compareToolbar.showSliderOptions(state.slider);
-
-    const twoPanes = state.compare || state.slider;
-    panels.right.style.display = twoPanes ? '' : 'none';
-    divider.style.display = state.slider ? 'flex' : 'none';
-    inner.style.gap = twoPanes && !state.slider ? '16px' : '0';
-    inner.classList.toggle('canvas-split__inner--slider', state.slider);
-    divider.classList.toggle('canvas-split__divider--vertical', state.slider && state.vertical);
-
-    if (state.slider) {
-      const front = state.flipped ? panels.right : panels.left;
-      const back = state.flipped ? panels.left : panels.right;
-      front.classList.add('canvas-split__panel--front');
-      back.classList.remove('canvas-split__panel--front');
-      back.style.clipPath = 'none';
-      applySplit(front);
-    } else {
-      for (const panel of [panels.left, panels.right]) {
-        panel.classList.remove('canvas-split__panel--front');
-        panel.style.clipPath = 'none';
+    // The pane size (the 100% basis) changes with the layout.
+    zoom.relayout(() => {
+      setShown(panes.right.el, state.parallel);
+      split.classList.toggle('canvas-split--parallel', state.parallel && !state.slider);
+      split.classList.toggle('canvas-split--slider', state.slider);
+      split.classList.toggle('canvas-split--vertical', state.slider && state.vertical);
+      for (const side of SIDES) {
+        panes[side].el.classList.remove('canvas-split__pane--front');
+        panes[side].el.style.clipPath = '';
       }
-      Object.assign(divider.style, { top: '', bottom: '', left: '', right: '', transform: '' });
-    }
+      if (state.slider) {
+        frontPane().el.classList.add('canvas-split__pane--front');
+        applySplit();
+      }
+    });
   }
 
-  /** Clips the front pane at state.splitPct and moves the divider there. */
-  function applySplit(front: HTMLElement): void {
-    const pct = state.splitPct;
-    if (state.vertical) {
-      front.style.clipPath = `polygon(0 0, 100% 0, 100% ${pct}%, 0 ${pct}%)`;
-      Object.assign(divider.style, {
-        top: `${pct}%`,
-        bottom: 'auto',
-        left: '0',
-        right: '0',
-        transform: 'translateY(-50%)',
-      });
-    } else {
-      front.style.clipPath = `polygon(0 0, ${pct}% 0, ${pct}% 100%, 0 100%)`;
-      Object.assign(divider.style, {
-        top: '0',
-        bottom: '0',
-        left: `${pct}%`,
-        right: 'auto',
-        transform: 'translateX(-50%)',
-      });
-    }
+  /** Slider view: the pane drawn in front, shown before the divider (the left one, or the right one when flipped). */
+  const frontPane = () => (state.flipped ? panes.right : panes.left);
+
+  /** Clips the front pane at state.splitPct and moves the divider there (both fixed to the screen). */
+  function applySplit(): void {
+    split.style.setProperty('--split-pct', `${state.splitPct}%`);
+    frontPane().el.style.clipPath = sliderClip(state.splitPct, state.vertical);
   }
 
   // ── Pointer interaction: pan, slider divider, Overlay T drag/select ──
-  let pan: { x: number; y: number; scrollLeft: number; scrollTop: number } | null = null;
+  let pan: { viewport: HTMLElement; x: number; y: number; scrollLeft: number; scrollTop: number } | null = null;
   let draggingDivider = false;
   let topDrag: { side: Side; x: number; y: number; offsetX: number; offsetY: number } | null = null;
 
+  /** Pane under the pointer (in the slider view, the clipped-off part of the front pane belongs to the back one). */
+  const paneSide = (target: EventTarget | null): Side =>
+    state.parallel && (target as HTMLElement | null)?.closest?.('.canvas-split__pane') === panes.right.el
+      ? 'right'
+      : 'left';
+
   /** Side under the pointer and the pointer position in canvas pixels (Overlay mode hit testing). */
   const canvasPoint = (e: MouseEvent) => {
-    const side: Side =
-      !state.compare || (e.target as HTMLElement).closest('.canvas-split__panel') === panels.left ? 'left' : 'right';
+    const side = paneSide(e.target);
     const canvas = canvases[side];
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
@@ -293,7 +267,7 @@ export function createCanvas(): HTMLElement {
   const isControl = (target: EventTarget | null) =>
     !!(target as HTMLElement).closest('.canvas-split__divider, .canvas-toolbar, .canvas-zoom-bar');
 
-  scrollArea.addEventListener('mousedown', e => {
+  split.addEventListener('mousedown', e => {
     if (isControl(e.target) || (e.target as HTMLElement).closest('.canvas-text-overlay')) return;
     if (state.overlay) {
       const p = canvasPoint(e);
@@ -308,12 +282,12 @@ export function createCanvas(): HTMLElement {
         redraw();
       }
     }
-    pan = { x: e.clientX, y: e.clientY, scrollLeft: scrollArea.scrollLeft, scrollTop: scrollArea.scrollTop };
+    const { viewport } = panes[paneSide(e.target)];
+    pan = { viewport, x: e.clientX, y: e.clientY, scrollLeft: viewport.scrollLeft, scrollTop: viewport.scrollTop };
     document.body.style.cursor = 'grabbing';
-    inner.style.transition = 'none';
   });
 
-  scrollArea.addEventListener('dblclick', e => {
+  split.addEventListener('dblclick', e => {
     if (!state.overlay || isControl(e.target)) return;
     const p = canvasPoint(e);
     if (p && hitsTop(p.side, p.x, p.y)) {
@@ -322,22 +296,24 @@ export function createCanvas(): HTMLElement {
     }
   });
 
-  divider.addEventListener('mousedown', () => {
+  divider.addEventListener('mousedown', e => {
+    e.preventDefault();
     draggingDivider = true;
-    document.body.style.cursor = 'col-resize';
+    document.body.style.cursor = state.vertical ? 'row-resize' : 'col-resize';
     document.body.style.userSelect = 'none';
   });
 
   window.addEventListener('mousemove', e => {
     if (draggingDivider) {
-      const rect = inner.getBoundingClientRect();
+      const rect = split.getBoundingClientRect();
       const pos = state.vertical ? (e.clientY - rect.top) / rect.height : (e.clientX - rect.left) / rect.width;
       state.splitPct = Math.max(0, Math.min(100, pos * 100));
-      applySplit(state.flipped ? panels.right : panels.left);
+      applySplit();
     }
     if (pan) {
-      scrollArea.scrollLeft = pan.scrollLeft + (pan.x - e.clientX);
-      scrollArea.scrollTop = pan.scrollTop + (pan.y - e.clientY);
+      pan.viewport.scrollLeft = pan.scrollLeft + (pan.x - e.clientX);
+      pan.viewport.scrollTop = pan.scrollTop + (pan.y - e.clientY);
+      zoom.syncScroll(pan.viewport);
     }
     if (topDrag) {
       const canvas = canvases[topDrag.side];
@@ -367,7 +343,7 @@ export function createCanvas(): HTMLElement {
     const step = e.shiftKey ? 10 : 1;
     const delta = { ArrowUp: [0, -step], ArrowDown: [0, step], ArrowLeft: [-step, 0], ArrowRight: [step, 0] }[e.key];
     if (!delta) return;
-    for (const side of ['left', 'right'] as const) {
+    for (const side of SIDES) {
       const me = state.sides[side];
       if (me.topSelected) me.topOffset = { x: me.topOffset.x + delta[0], y: me.topOffset.y + delta[1] };
     }
@@ -380,7 +356,8 @@ export function createCanvas(): HTMLElement {
     e => {
       if (!e.ctrlKey) return;
       e.preventDefault();
-      const rect = scrollArea.getBoundingClientRect();
+      // Both panes have the same size: the point in the pane under the cursor is the focus for both.
+      const rect = panes[paneSide(e.target)].viewport.getBoundingClientRect();
       zoom.zoomBy(e.deltaY < 0 ? 1 : -1, e.clientX - rect.left, e.clientY - rect.top);
     },
     { passive: false },
@@ -399,19 +376,27 @@ export function createCanvas(): HTMLElement {
   });
 
   // ── View modes ──
-  on('compare-mode:toggle', ({ enabled }) => {
-    state.compare = enabled;
+  on('parallel-mode:toggle', ({ enabled }) => {
+    state.parallel = enabled;
     if (enabled) {
-      state.sides.right.image = state.sides.left.image;
-      const ctx = canvases.right?.getContext('2d');
-      if (ctx) renderSide(ctx, state, 'right');
+      // The right ARCHIVES panel starts with the left panel's selection: show the same on the right.
+      const { left, right } = state.sides;
+      right.image = left.image;
+      right.summary = left.summary;
+      setText('right', left.text ? panes.left.text.textContent : null);
     } else {
-      if (state.slider) resetSliderOptions();
-      updateDrawSize(false); // back to the left image's own size
+      resetSliderOptions();
+      // The right pane is hidden outside Parallel mode: drop what it showed.
+      selectionRequest.right++;
+      state.sides.right.image = null;
+      state.sides.right.summary = null;
+      setText('right', null);
+      panes.right.text.textContent = '';
     }
     updateLayout();
+    updateDrawSize(false); // Parallel: both images' bounding box; back in Normal: the left image's own size
+    zoom.resetTo100();
     redraw();
-    ensureSliderValid();
   });
 
   on('overlay-mode:toggle', ({ enabled }) => {
@@ -472,7 +457,6 @@ export function createCanvas(): HTMLElement {
       state.sides[side].summary = null;
       if (side === 'left') clearDocument(); // tools have no image while a text file is shown
       if (!canvases.left) initializeCanvases(800, 600);
-      if (side === 'left') ensureSliderValid();
       updateDrawSize(true);
       updateLayout();
       redraw();
@@ -493,7 +477,7 @@ export function createCanvas(): HTMLElement {
     redraw();
   };
 
-  /** DocumentManager has no image now (tools see nothing; Compare / Overlay must not show the old one). */
+  /** DocumentManager has no image now (tools see nothing; Overlay must not show the old one). */
   const clearDocument = () => {
     state.docImage = null;
     DocumentManager.getInstance().setCanvas(null);
@@ -509,7 +493,6 @@ export function createCanvas(): HTMLElement {
     updateDrawSize(true);
     updateLayout();
     redraw();
-    if (side === 'left') ensureSliderValid();
   };
 
   const loadFailed = (side: Side, name: string) => {

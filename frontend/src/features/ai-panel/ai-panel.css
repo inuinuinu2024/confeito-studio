@@ -24,7 +24,7 @@
   opacity: 0.3;
 }
 
-/* Same look and height as the ARCHIVES header (its 24px action buttons), which takes this column in Compare mode. */
+/* Same look and height as the ARCHIVES header (its 24px action buttons), which takes this column in Parallel mode. */
 .ai-panel__header {
   display: flex;
   align-items: center;

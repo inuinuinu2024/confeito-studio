@@ -7,7 +7,7 @@
  *   grep "on('archives:changed'"     finds every consumer,
  * and payloads are type-checked.
  *
- * Events suffixed with `:right` come from the second ARCHIVES panel shown in Compare mode.
+ * Events suffixed with `:right` come from the second ARCHIVES panel shown in Parallel mode.
  */
 
 /** An archive entry chosen in the ARCHIVES panel. */
@@ -43,7 +43,7 @@ export interface UnderdrawingSelection {
 export interface AppEventMap {
   // ── View modes: emitted by setViewMode() (shared/state/view-mode.ts) ──
   'normal-mode:toggle': { enabled: boolean };
-  'compare-mode:toggle': { enabled: boolean };
+  'parallel-mode:toggle': { enabled: boolean };
   'overlay-mode:toggle': { enabled: boolean };
   'batch-mode:toggle': { enabled: boolean };
 

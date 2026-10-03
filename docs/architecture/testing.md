@@ -22,7 +22,7 @@
 ## E2E スモークテスト（`frontend/e2e/smoke.mts`）
 - 一時ディレクトリをデータ置き場にして backend（48100）と Vite（45273）を起動し、インストール済みの
   Microsoft Edge（なければ Chrome）をヘッドレスで操作する。起動中の本番アプリ（48000/45173）とは衝突しない。
-- 画像の読み込み（D&D）、ARCHIVES 選択、テキスト表示、ズーム、Overlay / Compare / Batch、各ツールの設定画面と
+- 画像の読み込み（D&D）、ARCHIVES 選択、テキスト表示、ズーム、Overlay / Parallel / Batch、各ツールの設定画面と
   JSON プレビュー、未実装ツールのエラー記録、コマ結合、アーカイブの削除と Undo、ダイアログ、メニュー、
   アーカイブ内のファイル・サブフォルダの削除と Undo、Batch モードでのファイル単体・複数選択を順に実行する。
 - 出力: `frontend/e2e/.output/latest/` に `observations.json`（各シナリオの UI 状態・キャンバスの画素サンプル）と

@@ -1,8 +1,8 @@
 /**
  * Draws one pane of the canvas area from CanvasState.
  *
- *   Normal   left pane: the selected archive image (or text overlay), centered.
- *   Compare  each pane: its side's image; a pane without one shows the document image.
+ *   Normal    left pane: the selected archive image (or text overlay), centered.
+ *   Parallel  each pane: its own side's image only, centered in the bounding box of both.
  *   Overlay  U (underdrawing, optionally tinted) + T (selected image, translucent, movable).
  *   Batch    2-column grid of the images under the selected folder.
  */
@@ -142,6 +142,12 @@ function drawOverlay(ctx: CanvasRenderingContext2D, s: CanvasState, side: Side):
   }
 }
 
+function fillBackground(ctx: CanvasRenderingContext2D, s: CanvasState, x: number, y: number, w: number, h: number) {
+  if (!s.bgColor || s.bgColor === 'transparent') return;
+  ctx.fillStyle = s.bgColor === 'checkerboard' ? checkerboard(ctx) : s.bgColor;
+  ctx.fillRect(x, y, w, h);
+}
+
 export function renderSide(ctx: CanvasRenderingContext2D, s: CanvasState, side: Side): void {
   ctx.clearRect(0, 0, s.drawW, s.drawH);
   const cx = s.drawW / 2;
@@ -150,41 +156,23 @@ export function renderSide(ctx: CanvasRenderingContext2D, s: CanvasState, side: 
   const docY = cy - s.baseH / 2;
   const me = s.sides[side];
 
-  // What this pane shows instead of the document image.
-  let image: HTMLCanvasElement | null = null;
-  let text = false;
-  if (!s.overlay && (s.compare || (side === 'left' && (me.image || me.text)))) {
-    image = me.image;
-    text = me.text;
-  }
-  // Normal mode never draws the document image: only the ARCHIVES selection is shown.
-  const skipDoc = (!s.overlay && !s.compare) || !!image || text;
-  const overlayContent = s.overlay && !!(me.underdrawing || me.image || s.sides.left.image || s.docImage);
-  const hasContent = (!!s.docImage && !skipDoc) || !!image || text || overlayContent || s.batch;
-
   if (s.batch) {
     drawBatchGrid(ctx, s.batchImages, docX, docY);
     return;
   }
 
-  if (hasContent && s.bgColor && s.bgColor !== 'transparent') {
-    ctx.fillStyle = s.bgColor === 'checkerboard' ? checkerboard(ctx) : s.bgColor;
-    if (!skipDoc) ctx.fillRect(docX, docY, s.baseW, s.baseH);
-    if (image) ctx.fillRect(cx - image.width / 2, cy - image.height / 2, image.width, image.height);
-  }
-
   if (s.overlay) {
+    if (me.underdrawing || me.image || s.sides.left.image || s.docImage)
+      fillBackground(ctx, s, docX, docY, s.baseW, s.baseH);
     drawOverlay(ctx, s, side);
     return;
   }
 
-  if (s.docImage && !skipDoc) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(docX, docY, s.baseW, s.baseH);
-    ctx.clip();
-    ctx.drawImage(s.docImage, docX, docY);
-    ctx.restore();
-  }
-  if (image) ctx.drawImage(image, cx - image.width / 2, cy - image.height / 2);
+  // Normal / Parallel: only this pane's own selection (never the document image or the other pane's).
+  const image = me.image;
+  if (!image) return;
+  const x = cx - image.width / 2;
+  const y = cy - image.height / 2;
+  fillBackground(ctx, s, x, y, image.width, image.height);
+  ctx.drawImage(image, x, y);
 }

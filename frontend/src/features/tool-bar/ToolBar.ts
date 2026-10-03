@@ -6,7 +6,7 @@ import { h, icon } from '../../shared/ui/dom';
 
 const MODES: { mode: ViewMode; title: string; icon: string }[] = [
   { mode: 'normal', title: 'Normal Mode', icon: 'image' },
-  { mode: 'compare', title: 'Compare Mode', icon: 'compare' },
+  { mode: 'parallel', title: 'Parallel Mode', icon: 'compare' },
   { mode: 'overlay', title: 'Overlay Mode', icon: 'photo_library' },
   { mode: 'batch', title: 'Batch Mode', icon: 'grid_view' },
 ];
@@ -21,7 +21,7 @@ export function createToolBar(): HTMLElement {
   };
   for (const event of [
     'normal-mode:toggle',
-    'compare-mode:toggle',
+    'parallel-mode:toggle',
     'overlay-mode:toggle',
     'batch-mode:toggle',
   ] as const) {

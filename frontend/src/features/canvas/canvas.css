@@ -7,7 +7,7 @@
   background: #000000;
 }
 
-/* Floating toolbar (toolbars.ts): Compare / Overlay option groups */
+/* Floating toolbar (toolbars.ts): Parallel / Overlay option groups */
 .canvas-toolbar {
   position: absolute;
   top: 16px;
@@ -24,14 +24,14 @@
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
-.canvas-toolbar__compare {
+.canvas-toolbar__group {
   display: flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
 }
 
-.canvas-toolbar__compare-label {
+.canvas-toolbar__label {
   font-family: var(--font-body);
   font-size: 13px;
   line-height: 18px;
@@ -138,39 +138,59 @@
   cursor: pointer;
 }
 
-/* Scroll area > inner (sized by zoom.ts) > two panes */
+/* Split area > panes (fixed frames) > viewport (scrolls) > inner (sized by zoom.ts) > canvas */
 .canvas-split {
+  --split-line: rgba(160, 160, 160, 0.6);
+  --split-pct: 50%;
   position: relative;
   display: flex;
   flex: 1;
+  min-height: 0;
+}
+
+.canvas-split__pane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Parallel mode: the fixed boundary between the two panes */
+.canvas-split--parallel .canvas-split__pane--right::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 4;
+  width: 1px;
+  background: var(--split-line);
+  pointer-events: none;
+  content: '';
+}
+
+.canvas-split__viewport {
+  position: absolute;
+  inset: 0;
+  display: flex;
   padding: 32px;
   overflow: auto;
 }
 
+/* A pane showing a text file: the text overlay covers it */
+.canvas-split__pane--text .canvas-split__viewport {
+  overflow: hidden;
+}
+
+.canvas-split__pane--text .canvas-split__canvas {
+  visibility: hidden;
+}
+
 .canvas-split__inner {
   position: relative;
-  display: flex;
   flex-shrink: 0;
   width: 100%;
   height: 100%;
   margin: auto;
-}
-
-.canvas-split__panel {
-  position: relative;
-  flex: 1;
-  height: 100%;
-  overflow: hidden;
-}
-
-.canvas-split__content-wrapper {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  transform-origin: center center;
-  transition: transform 0.1s ease-out;
 }
 
 .canvas-split__canvas {
@@ -183,50 +203,57 @@
   object-fit: contain;
 }
 
-/* Compare slider (wipe): both panes stacked, the front one clipped at the divider */
-.canvas-split__inner--slider .canvas-split__panel {
+/* Slider (wipe): both panes stacked, the front one clipped at the divider (sliderClip) */
+.canvas-split--slider .canvas-split__pane {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
   z-index: 1;
-  flex: none;
-  width: 100%;
-  height: 100%;
 }
 
-.canvas-split__inner--slider .canvas-split__panel--front {
+.canvas-split--slider .canvas-split__pane--front {
   z-index: 2;
 }
 
+/* Fixed to the screen at --split-pct of the split area */
 .canvas-split__divider {
-  position: relative;
-  z-index: 10;
-  display: flex;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--split-pct);
+  z-index: 3;
+  display: none;
   align-items: center;
   justify-content: center;
-  width: 2px;
-  height: 100%;
-  background: var(--color-primary);
+  width: 1px;
+  background: var(--split-line);
+  transform: translateX(-50%);
   cursor: col-resize;
 }
 
-.canvas-split__inner--slider .canvas-split__divider {
+.canvas-split--slider .canvas-split__divider {
+  display: flex;
+}
+
+/* Invisible grab area: 8px on each side of the line */
+.canvas-split__divider::before {
   position: absolute;
-  z-index: 3;
+  inset: 0 -8px;
+  content: '';
 }
 
-.canvas-split__divider:hover {
-  width: 4px;
+.canvas-split--vertical .canvas-split__divider {
+  top: var(--split-pct);
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: auto;
+  height: 1px;
+  transform: translateY(-50%);
+  cursor: row-resize;
 }
 
-.canvas-split__divider--vertical {
-  width: 100% !important;
-  height: 2px !important;
-  cursor: row-resize !important;
-}
-
-.canvas-split__divider--vertical:hover {
-  height: 4px !important;
+.canvas-split--vertical .canvas-split__divider::before {
+  inset: -8px 0;
 }
 
 .canvas-split__divider-handle {
@@ -234,10 +261,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  background: var(--color-surface);
-  border: 2px solid var(--color-primary);
+  width: 20px;
+  height: 20px;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(40, 40, 40, 0.6);
+  border: 1px solid var(--split-line);
   border-radius: 50%;
 }
 
@@ -245,15 +273,67 @@
   font-size: 14px;
 }
 
-/* Text / JSON preview of archive files */
+.canvas-split--vertical .canvas-split__divider-handle .material-symbols-outlined {
+  transform: rotate(90deg);
+}
+
+/* Parallel mode: notice in a pane that shows nothing (emptyPaneMessage); clicks and drops pass through. */
+.canvas-split__pane-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 5;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 64px);
+  padding: 20px 24px;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: var(--color-outline);
+  background: var(--color-surface-container);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+/* Slider view: centred in the part of the pane that is visible */
+.canvas-split--slider .canvas-split__pane--front .canvas-split__pane-empty {
+  left: calc(var(--split-pct) / 2);
+}
+
+.canvas-split--slider .canvas-split__pane:not(.canvas-split__pane--front) .canvas-split__pane-empty {
+  left: calc((100% + var(--split-pct)) / 2);
+}
+
+.canvas-split--slider.canvas-split--vertical .canvas-split__pane-empty {
+  left: 50% !important;
+}
+
+.canvas-split--slider.canvas-split--vertical .canvas-split__pane--front .canvas-split__pane-empty {
+  top: calc(var(--split-pct) / 2);
+}
+
+.canvas-split--slider.canvas-split--vertical
+  .canvas-split__pane:not(.canvas-split__pane--front)
+  .canvas-split__pane-empty {
+  top: calc((100% + var(--split-pct)) / 2);
+}
+
+.canvas-split__pane-message {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-on-surface);
+}
+
+/* Text / JSON preview of archive files (over the pane's viewport, inside its 32px padding) */
 .canvas-text-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 32px;
   z-index: 2;
   display: none;
-  width: 100%;
-  height: 100%;
   padding: 20px;
   overflow: auto;
   background-color: var(--color-surface-container);

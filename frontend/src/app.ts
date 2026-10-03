@@ -3,7 +3,7 @@
  *
  * Waits for the backend (/api/health) behind the splash screen, loads tool settings,
  * then builds the shell grid: TopBar / ToolBar / ARCHIVES / Canvas / AI panel / StatusBar.
- * In Compare mode the AI panel is swapped for a second ARCHIVES panel.
+ * In Parallel mode the AI panel is swapped for a second ARCHIVES panel.
  */
 import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
@@ -56,19 +56,19 @@ async function initApp(): Promise<void> {
 
   const archives = createArchivePanel({ side: 'left' });
   const aiPanel = createAIPanel();
-  let comparePanel: ArchivePanel | null = null;
+  let parallelPanel: ArchivePanel | null = null;
 
   // Grid order: topbar (row 1), toolbar | archives | canvas | right sidebar (row 2), statusbar (row 3)
   workspace.append(createTopBar(), createToolBar(), archives.el, createCanvas(), aiPanel, createStatusBar());
 
-  on('compare-mode:toggle', ({ enabled }) => {
+  on('parallel-mode:toggle', ({ enabled }) => {
     if (enabled) {
-      comparePanel = createArchivePanel({ side: 'right', initialState: archives.getSelectionState() });
-      aiPanel.replaceWith(comparePanel.el);
-    } else if (comparePanel) {
-      comparePanel.destroy();
-      comparePanel.el.replaceWith(aiPanel);
-      comparePanel = null;
+      parallelPanel = createArchivePanel({ side: 'right', initialState: archives.getSelectionState() });
+      aiPanel.replaceWith(parallelPanel.el);
+    } else if (parallelPanel) {
+      parallelPanel.destroy();
+      parallelPanel.el.replaceWith(aiPanel);
+      parallelPanel = null;
     }
   });
 

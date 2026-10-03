@@ -119,6 +119,7 @@ async function launchBrowser(headed: boolean): Promise<Browser> {
 
 const LEFT_PANEL = 'aside.layer-panel:not(.layer-panel--right)';
 const RIGHT_PANEL = 'aside.layer-panel--right';
+const LEFT_VIEWPORT = '.canvas-split__pane--left .canvas-split__viewport';
 
 /** Masks timestamps so observations are comparable across runs. */
 function maskTimestamps(value: string): string {
@@ -270,7 +271,7 @@ async function canvasState(page: Page) {
         zoomLabel: document.querySelector('.canvas-zoom-bar__label')?.textContent ?? null,
         zoomBarVisible: visible(zoomBar),
         toolbarVisible: visible(toolbar),
-        toolbarGroupsVisible: Array.from(document.querySelectorAll('.canvas-toolbar__compare')).map(visible),
+        toolbarGroupsVisible: Array.from(document.querySelectorAll('.canvas-toolbar__group')).map(visible),
         textOverlays: Array.from(document.querySelectorAll<HTMLElement>('.canvas-text-overlay')).map(o => ({
           visible: visible(o),
           text: (o.textContent ?? '').slice(0, 300),
@@ -499,7 +500,53 @@ async function closeToolWindow(page: Page): Promise<void> {
   await win.waitFor({ state: 'detached', timeout: 3000 });
 }
 
-async function setMode(page: Page, mode: 'Normal' | 'Compare' | 'Overlay' | 'Batch'): Promise<void> {
+/** Parallel mode layout: the fixed panes, their scroll positions, the boundary / divider and the per-pane notices. */
+async function parallelState(page: Page) {
+  return page.evaluate(() => {
+    const round = (r: DOMRect) => ({
+      x: Math.round(r.x),
+      y: Math.round(r.y),
+      w: Math.round(r.width),
+      h: Math.round(r.height),
+    });
+    const shown = (el: Element | null) =>
+      !!el && el.getClientRects().length > 0 && getComputedStyle(el).display !== 'none';
+    const split = document.querySelector<HTMLElement>('.canvas-split')!;
+    const panes = Array.from(split.querySelectorAll<HTMLElement>('.canvas-split__pane')).map(pane => {
+      const viewport = pane.querySelector<HTMLElement>('.canvas-split__viewport')!;
+      const canvas = pane.querySelector('canvas');
+      const boundary = getComputedStyle(pane, '::after');
+      return {
+        visible: shown(pane),
+        rect: round(pane.getBoundingClientRect()),
+        // The area the 100% zoom fits the canvas into (viewport minus its 64px padding).
+        available: { w: viewport.clientWidth - 64, h: viewport.clientHeight - 64 },
+        canvas: canvas ? { ...round(canvas.getBoundingClientRect()), title: canvas.title } : null,
+        scroll: { left: Math.round(viewport.scrollLeft), top: Math.round(viewport.scrollTop) },
+        front: pane.classList.contains('canvas-split__pane--front'),
+        clipPath: pane.style.clipPath || null,
+        boundary: boundary.content !== 'none' ? { width: boundary.width, color: boundary.backgroundColor } : null,
+        notice: shown(pane.querySelector('.canvas-split__pane-empty'))
+          ? (pane.querySelector('.canvas-split__pane-message')?.textContent ?? null)
+          : null,
+        text: shown(pane.querySelector('.canvas-text-overlay')),
+      };
+    });
+    const divider = split.querySelector<HTMLElement>('.canvas-split__divider')!;
+    return {
+      split: round(split.getBoundingClientRect()),
+      panes,
+      divider: shown(divider)
+        ? { ...round(divider.getBoundingClientRect()), color: getComputedStyle(divider).backgroundColor }
+        : null,
+      zoomLabel: document.querySelector('.canvas-zoom-bar__label')?.textContent ?? null,
+      zoomBarVisible: shown(document.querySelector('.canvas-zoom-bar')),
+      globalEmptyVisible: shown(document.querySelector('.canvas-empty')),
+    };
+  });
+}
+
+async function setMode(page: Page, mode: 'Normal' | 'Parallel' | 'Overlay' | 'Batch'): Promise<void> {
   await page.locator(`.left-toolbar__btn[title="${mode} Mode"]`).click();
   await page.waitForTimeout(300);
 }
@@ -707,7 +754,7 @@ async function runScenarios(
   await step('06-zoom', async () => {
     // Canvas position inside the visible scroll area (px from its top-left corner).
     const canvasBox = () =>
-      page.$eval('.canvas-split', area => {
+      page.$eval(LEFT_VIEWPORT, area => {
         const a = area.getBoundingClientRect();
         const r = area.querySelector('.canvas-split__inner')!.getBoundingClientRect();
         return {
@@ -718,7 +765,7 @@ async function runScenarios(
         };
       });
     const dragCanvas = async (dx: number, dy: number) => {
-      const area = (await page.locator('.canvas-split').boundingBox())!;
+      const area = (await page.locator(LEFT_VIEWPORT).boundingBox())!;
       const x = area.x + area.width / 2;
       const y = area.y + area.height / 2;
       await page.mouse.move(x, y);
@@ -780,8 +827,8 @@ async function runScenarios(
     };
   });
 
-  await step('08-compare-mode', async () => {
-    await setMode(page, 'Compare');
+  await step('08-parallel-mode', async () => {
+    await setMode(page, 'Parallel');
     await page.waitForSelector(RIGHT_PANEL);
     await page.waitForTimeout(500);
     const state = {
@@ -789,7 +836,7 @@ async function runScenarios(
       rightArchives: await archiveTree(page, RIGHT_PANEL),
       canvas: await canvasState(page),
     };
-    await screenshot('compare-mode');
+    await screenshot('parallel-mode-start');
     await setMode(page, 'Normal');
     await page.waitForSelector('aside.ai-panel');
     return { ...state, aiPanelRestored: await page.locator('aside.ai-panel').count() };
@@ -1124,20 +1171,22 @@ async function runScenarios(
     await collapseFolder(page, /e2e-image$/);
     const keptOnOtherFolder = (await canvasState(page)).canvases[0];
 
-    // Compare with a larger image on the right, then back: the canvas is the left image's size again.
+    // Parallel with a larger image on the right, then back: the canvas is the left image's size again.
     await expandFolder(page, /e2e-image$/);
-    await setMode(page, 'Compare');
+    await setMode(page, 'Parallel');
     await page.waitForSelector(RIGHT_PANEL);
     await archiveItem(page, 'e2e-image.png', RIGHT_PANEL).click();
     await waitForCanvasWidth(page, 640);
     await page.waitForTimeout(300);
-    const compareSize = (await canvasState(page)).canvases.map(c => `${c.w}x${c.h}`);
+    const parallelSize = (await canvasState(page)).canvases.map(c => `${c.w}x${c.h}`);
     await setMode(page, 'Normal');
     await page.waitForSelector('aside.ai-panel');
     await waitForCanvasWidth(page, 150);
     await page.waitForTimeout(300);
-    const afterCompare = await canvasState(page);
-    await screenshot('normal-after-compare', '.canvas-area');
+    const afterParallel = await canvasState(page);
+    await screenshot('normal-after-parallel', '.canvas-area');
+    // Selecting in the right ARCHIVES did not move the save folder: コマ結合 still targets the left selection.
+    const mergeCardAfterParallel = await toolCard(page, 'コマ結合');
 
     // Collapsing the folder of the shown image empties the canvas.
     await collapseFolder(page, /^sub$/);
@@ -1147,13 +1196,122 @@ async function runScenarios(
       keptOnExpand,
       mergeCard,
       keptOnOtherFolder: { size: `${keptOnOtherFolder.w}x${keptOnOtherFolder.h}`, title: keptOnOtherFolder.title },
-      compareSize,
-      afterCompare: {
-        size: afterCompare.canvases.map(c => `${c.w}x${c.h}`),
-        zoom: afterCompare.zoomLabel,
-        emptyMessage: afterCompare.emptyMessage,
+      parallelSize,
+      afterParallel: {
+        size: afterParallel.canvases.map(c => `${c.w}x${c.h}`),
+        zoom: afterParallel.zoomLabel,
+        emptyMessage: afterParallel.emptyMessage,
       },
+      mergeCardAfterParallel,
       collapsed,
+    };
+  });
+
+  await step('13c-parallel-mode', async () => {
+    const toggles = page.locator('.canvas-toolbar__group').first().locator('.toggle');
+    const drag = async (x: number, y: number, dx: number, dy: number) => {
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + dx, y + dy, { steps: 5 });
+      await page.mouse.up();
+      await page.waitForTimeout(150);
+    };
+    const waitForRightTitle = (title: string) =>
+      page.waitForFunction(
+        title => document.querySelector<HTMLCanvasElement>('.canvas-split__pane--right canvas')?.title === title,
+        title,
+        { timeout: 10000 },
+      );
+
+    // Left: the 640x480 image; right: the 150x200 panel (actual pixel ratio, both centred in the 640x480 box).
+    await archiveItem(page, 'e2e-image.png').click();
+    await waitForCanvasWidth(page, 640);
+    await setMode(page, 'Parallel');
+    await page.waitForSelector(RIGHT_PANEL);
+    await waitForRightTitle('640 x 480px'); // the right pane starts with the left selection
+    await page.waitForTimeout(300);
+    const started = await parallelState(page);
+    await expandFolder(page, 'e2e-panels', RIGHT_PANEL);
+    await expandFolder(page, /^sub$/, RIGHT_PANEL);
+    await archiveItem(page, '01.png', RIGHT_PANEL).click();
+    await waitForRightTitle('150 x 200px');
+    await page.waitForTimeout(300);
+    const sideBySide = await parallelState(page);
+    await screenshot('parallel-side-by-side', '.canvas-area');
+
+    // Dragging moves both images the same way; the panes and the boundary between them stay.
+    const right = (await page.locator('.canvas-split__pane--right').boundingBox())!;
+    await drag(right.x + right.width / 2, right.y + right.height / 2, -120, 60);
+    const dragged = await parallelState(page);
+    await screenshot('parallel-dragged', '.canvas-area');
+    await page.locator('.canvas-zoom-bar button[title="Zoom 100%"]').click();
+    await page.waitForTimeout(200);
+
+    // Deselecting the right image: a notice in the right pane, never the left image.
+    await archiveItem(page, '01.png', RIGHT_PANEL).click();
+    await page.waitForFunction(
+      () =>
+        getComputedStyle(document.querySelector('.canvas-split__pane--right .canvas-split__pane-empty')!).display !==
+        'none',
+    );
+    const rightEmpty = { ...(await parallelState(page)), rightPixels: (await canvasState(page)).canvases[1]?.pixels };
+    await screenshot('parallel-right-empty', '.canvas-area');
+
+    // A text file on the right: only that pane shows text; the zoom bar stays for the left image.
+    await archiveItem(page, 'notes.txt', RIGHT_PANEL).click();
+    await page.waitForFunction(
+      () =>
+        document.querySelector<HTMLElement>('.canvas-split__pane--right .canvas-text-overlay')?.style.display ===
+        'block',
+    );
+    await page.waitForTimeout(200);
+    const rightText = await parallelState(page);
+    await screenshot('parallel-right-text', '.canvas-area');
+
+    // Slider: the panes are stacked; the divider (fixed to the screen) clips the front one.
+    await archiveItem(page, '01.png', RIGHT_PANEL).click();
+    await waitForRightTitle('150 x 200px');
+    await toggles.nth(0).click();
+    await page.waitForTimeout(300);
+    const slider = await parallelState(page);
+    await screenshot('parallel-slider', '.canvas-area');
+    const split = (await page.locator('.canvas-split').boundingBox())!;
+    const handle = (await page.locator('.canvas-split__divider-handle').boundingBox())!;
+    const handleX = handle.x + handle.width / 2;
+    await drag(handleX, handle.y + handle.height / 2, split.x + split.width * 0.3 - handleX, 0);
+    const sliderMoved = await parallelState(page);
+    await drag(split.x + split.width * 0.7, split.y + split.height / 2, -100, 50); // pan on the back pane
+    const sliderDragged = await parallelState(page);
+    await screenshot('parallel-slider-dragged', '.canvas-area');
+    await toggles.nth(1).click();
+    await page.waitForTimeout(200);
+    const transposed = await parallelState(page);
+    await screenshot('parallel-slider-transpose', '.canvas-area');
+    await toggles.nth(2).click();
+    await page.waitForTimeout(200);
+    const flipped = await parallelState(page);
+    await screenshot('parallel-slider-flip', '.canvas-area');
+
+    // Leave the trees as the next step expects (panel folder collapsed, nothing selected on the left).
+    await collapseFolder(page, /^sub$/, RIGHT_PANEL);
+    await setMode(page, 'Normal');
+    await page.waitForSelector('aside.ai-panel');
+    await page.waitForTimeout(300);
+    const normal = await parallelState(page);
+    await archiveItem(page, 'e2e-image.png').click();
+    await waitForEmptyMessage(page, /^ARCHIVES から画像を選択してください$/);
+    return {
+      started,
+      sideBySide,
+      dragged,
+      rightEmpty,
+      rightText,
+      slider,
+      sliderMoved,
+      sliderDragged,
+      transposed,
+      flipped,
+      normal,
     };
   });
 
@@ -1781,7 +1939,7 @@ async function runScenarios(
     await archiveItem(page, 'e2e-image.png').click();
     await openNanoBananaWithoutOriginal(page);
     await closeToolWindow(page);
-    await setMode(page, 'Overlay'); // (Compare mode shows a second ARCHIVES panel instead of the tools)
+    await setMode(page, 'Overlay'); // (Parallel mode shows a second ARCHIVES panel instead of the tools)
     const overlayMode = await openAndRead();
     await setMode(page, 'Normal');
 
