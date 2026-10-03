@@ -1,4 +1,4 @@
-/** /api/settings — Gemini API key and the tool settings (settings/default_prompts.json + user_settings.json). */
+/** /api/settings — Gemini API key and the tool settings (settings/default_settings.json + user_settings.json). */
 import { postJson, requestJson } from './http';
 
 export async function getGeminiKeyStatus(): Promise<{ has_key: boolean }> {

@@ -71,27 +71,47 @@ export function openJsonPreview(data: unknown, title = 'JSON Preview'): void {
   dialog.showModal();
 }
 
-/** Multi-line text editor in a modal (e.g. the default prompt). */
-export function openTextEditDialog(opts: { title: string; value: string; onSave: (value: string) => void }): void {
-  const textarea = h('textarea', { class: 'cs-textarea', value: opts.value });
-  const modal = createModal({ title: opts.title, closeOnBackdrop: false });
-  const dispose = () => modal.overlay.remove();
-  modal.panel.append(
-    textarea,
-    h(
-      'div',
-      { class: 'cs-modal__actions' },
-      button('キャンセル', dispose, { variant: 'outline', size: 'dialog' }),
-      button(
-        '保存',
-        () => {
-          opts.onSave(textarea.value);
-          dispose();
-        },
-        { variant: 'primary', size: 'dialog' },
+/**
+ * Lets Esc answer the dialog in `overlay` while it is the topmost one: `onEscape` runs and the key
+ * goes no further, so the tool window (or a dialog below) stays open. Returns the function that
+ * removes the overlay (and stops listening); call it however the dialog closes.
+ */
+export function escapeClosable(overlay: HTMLElement, onEscape: () => void): () => void {
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    const open = document.querySelectorAll('.cs-modal-overlay--open, dialog[open]');
+    if (open[open.length - 1] !== overlay) return;
+    e.stopImmediatePropagation();
+    onEscape();
+  };
+  // Capture phase: runs before the tool window's own Esc handler.
+  document.addEventListener('keydown', onKeyDown, true);
+  return () => {
+    document.removeEventListener('keydown', onKeyDown, true);
+    overlay.remove();
+  };
+}
+
+/** Yes / no question in a modal; resolves true for `confirmLabel`, false for キャンセル and Esc. */
+export function confirmDialog(opts: { title: string; message: string; confirmLabel: string }): Promise<boolean> {
+  return new Promise(resolve => {
+    const modal = createModal({ title: opts.title, closeOnBackdrop: false });
+    const remove = escapeClosable(modal.overlay, () => answer(false));
+    const answer = (value: boolean) => {
+      remove();
+      resolve(value);
+    };
+    const confirm = button(opts.confirmLabel, () => answer(true), { variant: 'primary', size: 'dialog' });
+    modal.panel.append(
+      h('p', { class: 'cs-modal__message', text: opts.message }),
+      h(
+        'div',
+        { class: 'cs-modal__actions' },
+        button('キャンセル', () => answer(false), { variant: 'outline', size: 'dialog' }),
+        confirm,
       ),
-    ),
-  );
-  modal.open();
-  textarea.focus();
+    );
+    modal.open();
+    confirm.focus();
+  });
 }

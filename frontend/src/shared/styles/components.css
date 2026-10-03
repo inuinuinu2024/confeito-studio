@@ -200,6 +200,13 @@
   color: var(--color-on-surface);
 }
 
+.cs-modal__message {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-on-surface);
+  white-space: pre-wrap;
+}
+
 .cs-modal__actions {
   display: flex;
   justify-content: flex-end;

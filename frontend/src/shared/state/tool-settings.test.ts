@@ -45,11 +45,11 @@ describe('tool settings', () => {
   it('saves chosen keys right away for explicit saves', async () => {
     const a = toolSettings('a');
     a.set('prompt', 'typed');
-    a.set('defaultPrompt', 'new default');
+    a.set('order', '["x"]');
 
-    await a.save(['defaultPrompt']);
+    await a.save(['order']);
 
-    expect(api.updateToolSettings).toHaveBeenCalledWith({ a_defaultPrompt: 'new default' });
+    expect(api.updateToolSettings).toHaveBeenCalledWith({ a_order: '["x"]' });
   });
 
   it('drops unsaved changes when the settings are read again (a tool window opens)', async () => {

@@ -1,0 +1,67 @@
+/* ── Registered prompts (prompt-field.ts, prompt-library.ts) ───────────── */
+.prompt-field__actions {
+  display: flex;
+  gap: 4px;
+}
+
+.prompt-dialog-overlay .cs-modal {
+  width: min(600px, calc(100vw - 32px));
+  max-height: calc(100vh - 96px);
+}
+
+.prompt-editor__text {
+  height: 280px;
+}
+
+.prompt-library {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 80px;
+  overflow-y: auto;
+}
+
+.prompt-library__empty {
+  padding: 16px 0;
+  font-size: 13px;
+  color: var(--color-on-surface-variant);
+}
+
+.prompt-library__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 6px;
+  background-color: var(--color-surface-container-lowest);
+}
+
+.prompt-library__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.prompt-library__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+  overflow-wrap: anywhere;
+}
+
+.prompt-library__preview {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-on-surface-variant);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.prompt-library__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}

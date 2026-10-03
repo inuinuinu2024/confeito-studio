@@ -1,4 +1,4 @@
-"""Tool settings: initial values (default_prompts.json) + the user's values (user_settings.json)."""
+"""Tool settings: initial values (default_settings.json) + the user's values (user_settings.json)."""
 
 import json
 from pathlib import Path
@@ -20,7 +20,7 @@ def write(path: Path, data: object) -> None:
 
 
 def test_user_values_are_layered_over_the_initial_values(settings_dir: Path) -> None:
-    write(settings_dir / "default_prompts.json", {"a_prompt": "初期", "a_size": "1K"})
+    write(settings_dir / "default_settings.json", {"a_prompt": "初期", "a_size": "1K"})
     write(settings_dir / "user_settings.json", {"a_prompt": "ユーザー"})
 
     result = svc.load_tool_settings()
@@ -30,7 +30,7 @@ def test_user_values_are_layered_over_the_initial_values(settings_dir: Path) -> 
 
 
 def test_update_merges_keys_and_never_writes_the_initial_values(settings_dir: Path) -> None:
-    defaults = settings_dir / "default_prompts.json"
+    defaults = settings_dir / "default_settings.json"
     write(defaults, {"a_prompt": "初期"})
     before = defaults.read_text(encoding="utf-8")
     write(settings_dir / "user_settings.json", {"b_model": "x"})
@@ -45,7 +45,7 @@ def test_update_merges_keys_and_never_writes_the_initial_values(settings_dir: Pa
 
 
 def test_broken_user_file_is_moved_aside_with_a_warning(settings_dir: Path) -> None:
-    write(settings_dir / "default_prompts.json", {"a_prompt": "初期"})
+    write(settings_dir / "default_settings.json", {"a_prompt": "初期"})
     (settings_dir / "user_settings.json").write_text("{broken", encoding="utf-8")
 
     result = svc.load_tool_settings()
@@ -70,16 +70,16 @@ def test_update_does_not_overwrite_a_broken_user_file(settings_dir: Path) -> Non
 
 
 def test_broken_initial_file_is_reported_but_left_alone(settings_dir: Path) -> None:
-    (settings_dir / "default_prompts.json").write_text("not json", encoding="utf-8")
+    (settings_dir / "default_settings.json").write_text("not json", encoding="utf-8")
     write(settings_dir / "user_settings.json", {"a_prompt": "ユーザー"})
 
     result = svc.load_tool_settings()
 
     assert result.values == {"a_prompt": "ユーザー"}
     assert result.warnings == [
-        "初期設定ファイル（default_prompts.json）を読み込めませんでした。アプリの既定値を使います。"
+        "初期設定ファイル（default_settings.json）を読み込めませんでした。アプリの既定値を使います。"
     ]
-    assert (settings_dir / "default_prompts.json").read_text(encoding="utf-8") == "not json"
+    assert (settings_dir / "default_settings.json").read_text(encoding="utf-8") == "not json"
 
 
 def test_missing_files_mean_no_settings(settings_dir: Path) -> None:

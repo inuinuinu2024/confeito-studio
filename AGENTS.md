@@ -30,7 +30,7 @@
    構造を変えたら `docs/architecture/` の表（イベント一覧・API 一覧など）も更新する。
 2. **変更したら検証する。** 上の表の検証を実行し、UI に関わる変更は E2E を回してスクリーンショットを確認する。
    新しい UI 操作を作ったら `frontend/e2e/smoke.mts` にシナリオを足す。
-3. **ユーザーのデータを守る。** `archives/`・`.env`・`models/`・`settings/user_settings.json` を削除・上書きしない。テストと E2E は一時ディレクトリを使う。
+3. **ユーザーのデータを守る。** `archives/`・`.env`・`models/`・`settings/user_settings.json`・`settings/prompts.json` を削除・上書きしない。テストと E2E は一時ディレクトリを使う。
    テストや確認で実際の Gemini API を呼ばない（課金と外部送信が発生する）。
 4. **フロントエンドの決まり**
    - バックエンド呼び出しは `shared/api/` の関数経由（`fetch` を直接書かない）。
@@ -76,5 +76,6 @@
   （`ImportError: DLL load failed ... アプリケーション制御ポリシーによってこのファイルがブロックされました`）。
   `backend/.venv` は python.org 公式版（`%LOCALAPPDATA%\Programs\Python\Python313`）で作る（手順は setup/README.md）。
 - backend の import ルートは `src.app`（`uvicorn src.app.main:app`、テストも `from src.app...`）。
-- `settings/default_prompts.json` は初期設定（git 管理対象、アプリは書かない）。ユーザーが変えた値は `settings/user_settings.json`（git 管理外）。
+- `settings/default_settings.json` は初期設定（git 管理対象、アプリは書かない）。ユーザーが変えた値は `settings/user_settings.json`、
+  ユーザーが登録したプロンプトは `settings/prompts.json`（どちらも git 管理外）。
 - 未対応の課題・判断待ちの項目はリポジトリ直下の `task.md` にある。

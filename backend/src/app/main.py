@@ -15,7 +15,7 @@ from . import (
     config,  # noqa: F401  (imported first: loads .env into os.environ)
 )
 from .errors import UNEXPECTED_ERROR_MESSAGE, AppError, exception_text
-from .routers import archives, generate, health, image
+from .routers import archives, generate, health, image, prompts
 from .routers import settings as settings_router
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def create_app() -> FastAPI:
         # Returned outside the middleware stack, so the no-store header is added here too.
         return JSONResponse(status_code=500, content={"detail": detail}, headers=NO_STORE)
 
-    for module in (health, archives, image, generate, settings_router):
+    for module in (health, archives, image, generate, settings_router, prompts):
         app.include_router(module.router, prefix="/api")
     return app
 

@@ -67,6 +67,14 @@ export function postJson<T>(path: string, body: unknown, headers: Record<string,
   });
 }
 
+export function putJson<T>(path: string, body: unknown): Promise<T> {
+  return requestJson<T>(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 export function postForm<T>(path: string, form: FormData): Promise<T> {
   return requestJson<T>(path, { method: 'POST', body: form });
 }

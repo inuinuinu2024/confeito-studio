@@ -26,7 +26,7 @@ frontend/src/
     ├── document/             # DocumentManager（現在の画像と保存先フォルダ）
     ├── status-bar/
     └── tools/                # AI ツール（1 ツール 1 ファイル、大きいものは <id>/ フォルダ）。index.ts が一覧
-        ├── gemini-image/     # Gemini 画像ツールの共通部品（参照画像の一覧・プロンプト欄・送信テキスト）
+        ├── gemini-image/     # Gemini 画像ツールの共通部品（参照画像の一覧・プロンプト欄と登録したプロンプト・送信テキスト）
         └── nano-banana-pro/  # models.ts（モデルごとの対応値）, options.ts（設定項目と解決）,
                               # request.ts（API 別のリクエスト組み立て）, nano-banana-pro.ts（画面）,
                               # original.ts / original-image.ts（原画: 余白付けと元の大きさへの戻し）
@@ -80,7 +80,7 @@ frontend/src/
 ### UI 部品（`shared/ui/`）
 - `h(tag, props, ...children)`: 要素生成。`class`/`style`/`text`/`dataset` 以外の props はプロパティとして代入。
 - `form.ts`: `field`, `select`, `slider`, `switchRow`, `button`, `iconButton`, `note`, `helpIcon`。
-- `dialogs.ts`: `createModal`, `openJsonPreview`, `openTextEditDialog`。`toast.ts`: `showToast`, `showError`。
+- `dialogs.ts`: `createModal`, `openJsonPreview`, `confirmDialog`（はい/いいえ → Promise<boolean>）, `escapeClosable`（いちばん上のダイアログだけ Esc で閉じる）。`toast.ts`: `showToast`, `showError`。
 - インラインスタイルは原則使わず CSS クラスで書く。
 
 ### CSS

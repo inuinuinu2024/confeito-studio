@@ -1,12 +1,13 @@
 /**
  * Tool settings (docs/specs/app-shell.md 「設定の保存」): the initial values
- * (settings/default_prompts.json, in git) with the user's values (settings/user_settings.json) on top.
+ * (settings/default_settings.json, in git) with the user's values (settings/user_settings.json) on top.
+ * Registered prompts are kept apart (shared/api/prompts.ts).
  *
  * - Read when the app starts and every time a tool window opens (`loadSettings`); changes that were
  *   not saved yet are dropped then.
  * - `set` only changes the value in memory. The changed keys of a tool are written when the tool
  *   runs (`saveSettings(prefix)`, called by the tool runner), or right away with `ToolSettings.save`
- *   for explicit saves (tool order, default prompt). Only the changed keys are sent; the backend
+ *   for explicit saves (tool order). Only the changed keys are sent; the backend
  *   merges them into the user's settings.
  *
  * Each tool uses its own key prefix through `toolSettings(prefix)`:

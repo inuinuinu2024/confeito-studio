@@ -669,6 +669,125 @@ async function runScenarios(
     return result;
   });
 
+  await step('10b-prompts', async () => {
+    // Registered prompts per tool (docs/specs/tools/gemini-image.md 「プロンプト」): register, overwrite,
+    // use, edit and delete, saved to settings/prompts.json apart from the tool settings.
+    const win = '.tool-window';
+    const textarea = page.locator(`${win} .nbp-prompt textarea`);
+    const topModal = () => page.locator('.cs-modal-overlay--open').last();
+    const promptsFile = path.join(settingsDir, 'prompts.json');
+    const savedPrompts = () => {
+      try {
+        const data = JSON.parse(fs.readFileSync(promptsFile, 'utf-8')) as Record<
+          string,
+          { name: string; text: string }[]
+        >;
+        return Object.fromEntries(
+          Object.entries(data).map(([tool, list]) => [tool, list.map(({ name, text }) => ({ name, text }))]),
+        );
+      } catch {
+        return null;
+      }
+    };
+    const register = async (name: string) => {
+      await page.locator(`${win} button[title="このプロンプトを登録"]`).click();
+      await topModal().locator('input').fill(name);
+      await topModal().locator('button', { hasText: '登録' }).click();
+    };
+    const openLibrary = async () => {
+      await page.locator(`${win} button[title="登録したプロンプトを開く"]`).click();
+      await page.waitForFunction(() => {
+        const list = document.querySelector('.prompt-library');
+        return !!list && !list.textContent?.includes('読み込み中');
+      });
+    };
+    const libraryItems = () => topModal().locator('.prompt-library__name').allTextContents();
+
+    await clickTool(page, 'Nano Banana画像生成');
+    await page.waitForSelector(win);
+    // The field starts empty (no prompts are shipped); running without a prompt only warns.
+    const initialText = await textarea.inputValue();
+    await page.locator(`${win} .tool-window__run`).click();
+    const emptyToast = await waitForToast(page, /プロンプトを入力してください/);
+    const openAfterEmptyRun = (await page.locator(win).count()) === 1;
+
+    await textarea.fill('線画を維持して着彩して');
+    await register('着彩');
+    const registerToast = await waitForToast(page, /プロンプト「着彩」を登録しました/);
+    await textarea.fill('線画を維持して、淡い色で着彩して');
+    await page.locator(`${win} button[title="このプロンプトを登録"]`).click();
+    await topModal().locator('input').fill('着彩');
+    await withVisibleToasts(page, () => screenshot('prompt-register', '.prompt-dialog-overlay .cs-modal'));
+    await topModal().locator('button', { hasText: '登録' }).click();
+    const overwriteMessage = await topModal().locator('.cs-modal__message').textContent();
+    await screenshot('prompt-overwrite-confirm', '.cs-modal-overlay--open >> nth=-1');
+    await topModal().locator('button', { hasText: '上書き' }).click();
+    await waitForToast(page, /プロンプト「着彩」を上書きしました/);
+    await textarea.fill('表情差分を作って');
+    await register('表情差分');
+    await waitForToast(page, /プロンプト「表情差分」を登録しました/);
+    const afterRegister = savedPrompts();
+
+    // 使う replaces the field; the list closes.
+    await textarea.fill('');
+    await openLibrary();
+    const listed = await libraryItems();
+    await screenshot('prompt-library', '.prompt-dialog-overlay .cs-modal');
+    await topModal().locator('.prompt-library__item').first().locator('button', { hasText: '使う' }).click();
+    const usedText = await textarea.inputValue();
+
+    // Edit (renaming to a registered name only warns), then delete.
+    await openLibrary();
+    await topModal().locator('.prompt-library__item').nth(1).locator('button', { hasText: '編集' }).click();
+    await topModal().locator('input').fill('着彩');
+    await topModal().locator('button', { hasText: '保存' }).click();
+    const duplicateToast = await waitForToast(page, /同じ名前のプロンプト「着彩」が登録されています/);
+    await topModal().locator('input').fill('表情差分 4x4');
+    await topModal().locator('button', { hasText: '保存' }).click();
+    await waitForToast(page, /プロンプト「表情差分 4x4」を保存しました/);
+    await page.waitForFunction(() =>
+      Array.from(document.querySelectorAll('.prompt-library__name')).some(n => n.textContent === '表情差分 4x4'),
+    );
+    const afterEdit = await libraryItems();
+    await topModal().locator('.prompt-library__item').first().locator('button', { hasText: '削除' }).click();
+    const deleteMessage = await topModal().locator('.cs-modal__message').textContent();
+    await topModal().locator('button', { hasText: '削除' }).click();
+    await waitForToast(page, /プロンプト「着彩」を削除しました/);
+    await page.waitForFunction(() => document.querySelectorAll('.prompt-library__item').length === 1);
+    const afterDelete = await libraryItems();
+    // Esc closes only the list, not the tool window.
+    await page.keyboard.press('Escape');
+    await page.locator('.prompt-dialog-overlay').waitFor({ state: 'detached' });
+    const openAfterEscape = (await page.locator(win).count()) === 1;
+
+    // Running saves the field's text with the other settings (E2E has no API key, so the run fails).
+    await page.locator(`${win} .tool-window__run`).click();
+    await waitForToast(page, /Nano Banana画像生成の実行に失敗しました/);
+    const userSettings = JSON.parse(fs.readFileSync(path.join(settingsDir, 'user_settings.json'), 'utf-8'));
+    await closeToolWindow(page);
+    while ((await page.locator('.toast--error').count()) > 0) {
+      await withVisibleToasts(page, () => page.locator('.toast--error .toast__close').first().click());
+      await page.waitForTimeout(300);
+    }
+    return {
+      initialText,
+      emptyToast,
+      openAfterEmptyRun,
+      registerToast,
+      overwriteMessage,
+      afterRegister,
+      listed,
+      usedText,
+      duplicateToast,
+      afterEdit,
+      deleteMessage,
+      afterDelete,
+      openAfterEscape,
+      savedPrompt: userSettings.nanoBananaPro_prompt ?? null,
+      prompts: savedPrompts(),
+    };
+  });
+
   await step('11-tool-error', async () => {
     // E2E has no API key, so the run fails: an error toast that stays until closed, and nothing
     // is written to the archives (no error.txt, no "_error" archive).
@@ -1338,8 +1457,8 @@ async function main(): Promise<void> {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'confeito-e2e-'));
   const settingsDir = path.join(dataDir, 'settings');
   fs.mkdirSync(settingsDir, { recursive: true });
-  const promptsFile = path.join(opts.root, 'settings', 'default_prompts.json');
-  if (fs.existsSync(promptsFile)) fs.copyFileSync(promptsFile, path.join(settingsDir, 'default_prompts.json'));
+  const defaultsFile = path.join(opts.root, 'settings', 'default_settings.json');
+  if (fs.existsSync(defaultsFile)) fs.copyFileSync(defaultsFile, path.join(settingsDir, 'default_settings.json'));
 
   const apiBase = `http://127.0.0.1:${opts.backendPort}/api`;
   let backend: ChildProcess | undefined;

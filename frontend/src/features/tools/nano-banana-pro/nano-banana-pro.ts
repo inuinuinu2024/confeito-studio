@@ -20,7 +20,7 @@ import {
 } from '../../../shared/api/generation';
 import { emit } from '../../../shared/events';
 import { toolSettings } from '../../../shared/state/tool-settings';
-import type { Tool } from '../../../shared/types/tool';
+import { type Tool, ToolNotReady } from '../../../shared/types/tool';
 import { openJsonPreview } from '../../../shared/ui/dialogs';
 import { h } from '../../../shared/ui/dom';
 import { button, field, helpIcon, note, select } from '../../../shared/ui/form';
@@ -64,9 +64,6 @@ import {
 import { buildSentImage, createOriginalSection, type OriginalImage, restoreImage } from './original-image';
 import { generateContentRequest, interactionsRequest, redactImageData } from './request';
 import './nano-banana-pro.css';
-
-const DEFAULT_PROMPT =
-  'この画像を元に、形状・構造・線画をできるだけ正確に維持したまま着彩して。線や輪郭、構図は一切変更せず、色のみを追加すること。';
 
 const MODEL_NOTE = 'Gemini 3 の画像モデルは Thinking が常に有効。生成画像には SynthID 電子透かしが必ず付与される。';
 
@@ -161,7 +158,7 @@ export class NanoBananaProTool implements Tool {
       parameters.replaceChildren(...this.parameterElements(renderModelDependent), previewButton);
     };
 
-    const prompt = promptField('プロンプト', this.settings, DEFAULT_PROMPT);
+    const prompt = promptField('プロンプト', this.settings, this.settingsPrefix);
     prompt.classList.add('nbp-prompt');
     container.append(
       h(
@@ -363,8 +360,7 @@ export class NanoBananaProTool implements Tool {
       input.push(await imageInput(await buildSentImage(original.image, original.layout)));
       text += originalHeading(this.images.length + 1, original.layout.padding);
     }
-    const defaultPrompt = this.settings.get('defaultPrompt', DEFAULT_PROMPT);
-    text += `# User prompt\n${this.settings.get('prompt', defaultPrompt) || defaultPrompt}`;
+    text += `# User prompt\n${this.settings.get('prompt', '')}`;
     input.push({ type: 'text', text });
 
     const options = resolveOptions(this.read, model, api);
@@ -384,6 +380,7 @@ export class NanoBananaProTool implements Tool {
   }
 
   async execute(): Promise<string> {
+    if (!this.settings.get('prompt', '').trim()) throw new ToolNotReady('プロンプトを入力してください');
     const request = await this.buildRequest();
     const stopProgress = startProgress(s => emit('tool:progress', { message: `Generating image... (${s}s elapsed)` }));
     try {

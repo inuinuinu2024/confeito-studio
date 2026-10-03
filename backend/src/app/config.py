@@ -6,8 +6,9 @@ environment variable (the tests and the E2E harness point them at temp dirs):
 
     CONFEITO_ENV_FILE      .env loaded into os.environ at startup (default: <repo>/.env)
     CONFEITO_ARCHIVES_DIR  archive storage (default: <repo>/archives)
-    CONFEITO_SETTINGS_DIR  tool settings: default_prompts.json (initial values, in git) and
-                           user_settings.json (the user's values, not in git) (default: <repo>/settings)
+    CONFEITO_SETTINGS_DIR  tool settings: default_settings.json (initial values, in git),
+                           user_settings.json (the user's values, not in git) and prompts.json
+                           (registered prompts, not in git) (default: <repo>/settings)
     CONFEITO_MODELS_DIR    rembg model directory (default: <repo>/models)
 
 Values from the .env file (GEMINI_API_KEY, ...) are copied into ``os.environ`` without
@@ -39,12 +40,17 @@ class Settings(BaseSettings):
     @property
     def default_settings_file(self) -> Path:
         """Initial tool settings shipped with the app (in git, never written by the app)."""
-        return self.settings_dir / "default_prompts.json"
+        return self.settings_dir / "default_settings.json"
 
     @property
     def user_settings_file(self) -> Path:
         """The user's tool settings (not in git), layered over the initial ones."""
         return self.settings_dir / "user_settings.json"
+
+    @property
+    def prompts_file(self) -> Path:
+        """The prompts the user registered, per tool (not in git)."""
+        return self.settings_dir / "prompts.json"
 
 
 def read_env_file(path: Path) -> dict[str, str]:

@@ -4,6 +4,9 @@
 （なし）
 
 ## 完了タスク
+- [x] **デフォルトプロンプトを廃止し、プロンプトを複数登録できるように**: ツールごとに名前を付けて登録・使う・編集・削除（`settings/prompts.json`、`/api/prompts/{tool}`）。
+  パラメータの保存（実行時に user_settings.json）とは分け、初期設定ファイルを `default_settings.json` に改名してプロンプトを外した。
+  空のプロンプトでは実行しない（docs/specs/tools/gemini-image.md「プロンプト」）。
 - [x] **ツール名「Nano Banana」→「Nano Banana画像生成」**: 一覧・ウィンドウの見出し・トースト・結果フォルダ名。モデルの通称（Nano Banana など）は変えない（docs/specs/tools/nano-banana-pro.md）。
 - [x] **アプリ名を「ConfeitO Studio」に**: 上部バー・タブのタイトル・起動中画面・バックエンドのタイトル・ドキュメント・起動用ショートカット名（docs/specs/app-shell.md）。
 - [x] **参照画像の「キャンバス追加」ボタンを削除**: 追加はファイル選択かドラッグ＆ドロップのみ（docs/specs/tools/gemini-image.md）。
