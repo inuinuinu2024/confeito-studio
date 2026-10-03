@@ -7,6 +7,9 @@ Layout (under ``settings.archives_dir``)::
     .trash/<archive>/                deleted archives (restore_archive)
     .trash/.items/<archive>/<path>   files / sub-folders deleted from an archive (restore_archive_contents)
 
+``.trash`` is emptied when the backend starts (``empty_trash``), so deletions are only
+undoable within one app session.
+
 Tool results are written with ``save_result`` (one folder per run, plus info.json).
 The frontend addresses entries with keys of the form ``"<archive>/<relative path>"``.
 Every path is resolved through ``resolve_path`` which rejects traversal outside the
@@ -14,6 +17,7 @@ archive folder. Archive names starting with "." are reserved for these folders.
 """
 
 import json
+import logging
 import os
 import shutil
 from datetime import datetime
@@ -22,6 +26,8 @@ from typing import Any, Literal, NotRequired, TypedDict
 
 from ..config import settings
 from ..errors import AppError, BadRequestError, NotFoundError, exception_text
+
+logger = logging.getLogger(__name__)
 
 MIME_TYPES = {
     ".png": "image/png",
@@ -369,3 +375,22 @@ def restore_archive(archive_name: str) -> None:
         shutil.move(str(trash_path), str(dest_path))
     except OSError as e:
         raise ArchiveServiceError("アーカイブを元に戻せませんでした。", raw_response=exception_text(e)) from e
+
+
+def empty_trash() -> list[str]:
+    """Permanently removes everything in ``.trash`` (called on backend startup).
+
+    Entries that cannot be removed (e.g. a file locked by another program) are logged and
+    left in place; returns their names.
+    """
+    trash_dir = settings.trash_dir
+    if not trash_dir.is_dir():
+        return []
+    failed: list[str] = []
+    for entry in trash_dir.iterdir():
+        try:
+            _remove(entry)
+        except OSError as e:
+            logger.warning("Could not empty trash entry %s: %s", entry, exception_text(e))
+            failed.append(entry.name)
+    return failed

@@ -17,6 +17,20 @@ def test_health(client) -> None:
     assert client.get("/api/health").json() == {"status": "ok", "version": "0.1.0"}
 
 
+def test_startup_empties_trash(archives_dir: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from src.app.main import app
+
+    (archives_dir / ".trash" / ".items" / "a").mkdir(parents=True)
+    (archives_dir / ".trash" / ".items" / "a" / "x.png").write_bytes(b"x")
+    (archives_dir / "kept").mkdir()
+    with TestClient(app):  # entering runs the lifespan startup
+        pass
+    assert list((archives_dir / ".trash").iterdir()) == []
+    assert (archives_dir / "kept").is_dir()
+
+
 def test_every_response_is_no_store(client, monkeypatch: pytest.MonkeyPatch) -> None:
     from src.app.routers import archives
 

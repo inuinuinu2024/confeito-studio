@@ -7,6 +7,7 @@
  *                   <mode>-mode:toggle, document:loaded/redraw, canvas:bg-color
  * Drawing:          render.ts (from CanvasState in canvas-state.ts)
  * Zoom:             zoom.ts
+ * Nothing to show:  a centred message asks the user to pick an image (emptyCanvasMessage).
  * Image files dropped on the area are imported by running the image loader tool.
  */
 import './canvas.css';
@@ -19,7 +20,14 @@ import { blobToCanvas } from '../../shared/utils/image';
 import { runTool } from '../ai-panel/tool-runner';
 import { DocumentManager } from '../document/DocumentManager';
 import { importImageTool } from '../tools/image-loader';
-import { type BatchImage, contentSize, createCanvasState, isTextActive, type Side } from './canvas-state';
+import {
+  type BatchImage,
+  contentSize,
+  createCanvasState,
+  emptyCanvasMessage,
+  isTextActive,
+  type Side,
+} from './canvas-state';
 import { batchGridSize, renderSide, topImageRect } from './render';
 import { createCompareToolbar, createOverlayToolbar } from './toolbars';
 import { createZoomController } from './zoom';
@@ -56,6 +64,15 @@ export function createCanvas(): HTMLElement {
   panels.right.append(wrappers.right);
 
   const zoom = createZoomController(state, scrollArea, inner);
+
+  const emptyMessage = h('span', { class: 'canvas-empty__message' });
+  const emptyState = h(
+    'div',
+    { class: 'canvas-empty' },
+    icon('image', 48),
+    emptyMessage,
+    h('span', { class: 'canvas-empty__hint', text: 'または画像ファイルをここにドロップして読み込み' }),
+  );
 
   const compareToolbar = createCompareToolbar({
     onSlider: () => {
@@ -94,7 +111,7 @@ export function createCanvas(): HTMLElement {
   });
   setShown(overlayToolbar, false);
   const toolbar = h('div', { class: 'canvas-toolbar' }, compareToolbar.el, overlayToolbar);
-  main.append(toolbar, zoom.bar, scrollArea);
+  main.append(toolbar, zoom.bar, scrollArea, emptyState);
 
   // ── Rendering ──
   function redraw(): void {
@@ -103,6 +120,13 @@ export function createCanvas(): HTMLElement {
       if (ctx) renderSide(ctx, state, side);
     }
     updateTooltips();
+    updateEmptyState();
+  }
+
+  function updateEmptyState(): void {
+    const message = emptyCanvasMessage(state);
+    if (message !== null) emptyMessage.textContent = message;
+    setShown(emptyState, message !== null, 'flex');
   }
 
   function updateTooltips(): void {
@@ -462,6 +486,7 @@ export function createCanvas(): HTMLElement {
     setText(side, null);
     if (side === 'left') {
       state.batchImages = [];
+      state.docImage = null; // DocumentManager has no image now (Compare / Overlay must not show the old one)
       const docManager = DocumentManager.getInstance();
       docManager.setCanvas(null);
       // Nothing selected -> no save folder either, so tools never write into the previous selection.
@@ -512,6 +537,7 @@ export function createCanvas(): HTMLElement {
   });
 
   updateLayout();
+  updateEmptyState();
   return main;
 }
 

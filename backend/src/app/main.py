@@ -4,11 +4,13 @@ Run (from backend/):  uv run python -m uvicorn src.app.main:app --port 48000
 """
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from . import (
     __version__,
@@ -17,6 +19,7 @@ from . import (
 from .errors import UNEXPECTED_ERROR_MESSAGE, AppError, exception_text
 from .routers import archives, generate, health, image, local_files, prompts
 from .routers import settings as settings_router
+from .services import archive_service
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +27,19 @@ logger = logging.getLogger(__name__)
 NO_STORE = {"Cache-Control": "no-store"}
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    # Deleted items are only undoable within one session (docs/specs/archives.md 「削除と Undo」).
+    await run_in_threadpool(archive_service.empty_trash)
+    yield
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="ConfeitO Studio Backend",
         version=__version__,
         description="Archive storage, Gemini image generation proxy and image processing",
+        lifespan=lifespan,
     )
 
     # Local-only tool: accept the Vite dev server on any localhost port.

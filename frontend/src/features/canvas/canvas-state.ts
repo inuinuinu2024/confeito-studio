@@ -111,3 +111,23 @@ export function contentSize(s: CanvasState): { w: number; h: number } {
     { w: docW, h: docH },
   );
 }
+
+/**
+ * Message shown over the canvas area when nothing is displayed (docs/specs/canvas.md 「何も選択していない時」),
+ * or null when something is shown. Compare mode is empty only when neither pane shows anything.
+ */
+export function emptyCanvasMessage(s: CanvasState): string | null {
+  const { left, right } = s.sides;
+  if (s.batch) {
+    return s.batchImages.some(i => i.canvas) ? null : 'ARCHIVES から画像またはフォルダを選択してください';
+  }
+  if (s.overlay) {
+    return left.image || left.underdrawing || s.docImage
+      ? null
+      : 'ARCHIVES から重ね合わせる画像（U: 下絵 / T: 上絵）を選択してください';
+  }
+  const shown = s.compare
+    ? left.image || left.text || right.image || right.text || s.docImage
+    : left.image || left.text;
+  return shown ? null : 'ARCHIVES から画像を選択してください';
+}

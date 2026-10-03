@@ -167,6 +167,20 @@ def test_restore_contents_replaces_newer_file_and_reports_missing(archives_dir: 
         svc.restore_archive_contents("a", ["../b/x.png"])
 
 
+def test_empty_trash_removes_deleted_archives_and_items(archives_dir: Path) -> None:
+    assert svc.empty_trash() == []  # no .trash yet
+    svc.save_archive("a", [("x.png", b"1")])
+    svc.save_archive("b", [("sub/y.png", b"2"), ("keep.png", b"3")])
+    svc.delete_archive("a")
+    svc.delete_archive_contents("b", ["sub"])
+
+    assert svc.empty_trash() == []
+    assert list((archives_dir / ".trash").iterdir()) == []
+    assert (archives_dir / "b" / "keep.png").read_bytes() == b"3"
+    with pytest.raises(svc.ArchiveNotFoundError):
+        svc.restore_archive("a")
+
+
 def test_split_archive_path() -> None:
     assert svc.split_archive_path("root/sub/file.png") == ("root", "sub/file.png")
     assert svc.split_archive_path("\\root\\sub\\") == ("root", "sub")

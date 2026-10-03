@@ -226,6 +226,10 @@ async function canvasState(page: Page) {
           visible: visible(o),
           text: (o.textContent ?? '').slice(0, 300),
         })),
+        // Message shown while nothing is displayed (null when hidden).
+        emptyMessage: visible(document.querySelector('.canvas-empty'))
+          ? (document.querySelector('.canvas-empty__message')?.textContent ?? null)
+          : null,
       };
     })
     .then(s => ({
@@ -605,13 +609,61 @@ async function runScenarios(
   });
 
   await step('06-zoom', async () => {
+    // Canvas position inside the visible scroll area (px from its top-left corner).
+    const canvasBox = () =>
+      page.$eval('.canvas-split', area => {
+        const a = area.getBoundingClientRect();
+        const r = area.querySelector('.canvas-split__inner')!.getBoundingClientRect();
+        return {
+          left: Math.round(r.left - a.left),
+          top: Math.round(r.top - a.top),
+          right: Math.round(a.left + area.clientWidth - r.right),
+          bottom: Math.round(a.top + area.clientHeight - r.bottom),
+        };
+      });
+    const dragCanvas = async (dx: number, dy: number) => {
+      const area = (await page.locator('.canvas-split').boundingBox())!;
+      const x = area.x + area.width / 2;
+      const y = area.y + area.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + dx, y + dy, { steps: 5 });
+      await page.mouse.up();
+    };
+
     await page.locator('.canvas-zoom-bar button[title="Zoom In"]').click();
     const zoomIn = await page.locator('.canvas-zoom-bar__label').textContent();
     await page.locator('.canvas-zoom-bar button[title="Fit to Screen"]').click();
     const fit = await page.locator('.canvas-zoom-bar__label').textContent();
+    await page.waitForTimeout(100);
+    const fitBox = await canvasBox();
+
+    // Dragging moves the canvas even when it fits; it stops with 64px of an edge on screen.
+    await dragCanvas(-150, 80);
+    const draggedBox = await canvasBox();
+    await dragCanvas(-3000, -3000);
+    const draggedFarBox = await canvasBox();
+    await screenshot('canvas-dragged', '.canvas-area');
+
+    await page.locator('.canvas-zoom-bar button[title="Fit Width"]').click();
+    const fitWidth = await page.locator('.canvas-zoom-bar__label').textContent();
+    await page.waitForTimeout(100);
+    const fitWidthBox = await canvasBox();
+    await screenshot('zoom-fit-width', '.canvas-area');
     await page.locator('.canvas-zoom-bar button').last().click();
     const reset = await page.locator('.canvas-zoom-bar__label').textContent();
-    return { zoomIn, fit, reset };
+    await page.waitForTimeout(100);
+    return {
+      zoomIn,
+      fit,
+      fitBox,
+      draggedBox,
+      draggedFarBox,
+      fitWidth,
+      fitWidthBox,
+      reset,
+      resetBox: await canvasBox(),
+    };
   });
 
   await step('07-overlay-mode', async () => {
@@ -962,6 +1014,9 @@ async function runScenarios(
     const deleteToast = await waitForToast(page, /削除/);
     await page.waitForTimeout(500);
     const afterDelete = await archiveTree(page);
+    // The selection is gone: the canvas asks for an image again.
+    const emptyAfterDelete = (await canvasState(page)).emptyMessage;
+    await screenshot('canvas-empty', '.canvas-area');
     await page.locator('body').click({ position: { x: 5, y: 5 } });
     await page.keyboard.press('Control+z');
     await page.waitForFunction(
@@ -969,7 +1024,7 @@ async function runScenarios(
         Array.from(document.querySelectorAll(`${panel} .layer-item__name`)).some(e => e.textContent === 'e2e-panels'),
       LEFT_PANEL,
     );
-    return { deleteToast, afterDelete, afterUndo: await archiveTree(page) };
+    return { deleteToast, afterDelete, emptyAfterDelete, afterUndo: await archiveTree(page) };
   });
 
   await step('15-dialogs', async () => {
@@ -1012,7 +1067,14 @@ async function runScenarios(
     await (await childItem(page, 'e2e-panels', 'sub')).click({ modifiers: ['Control'] });
     await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="アーカイブ削除"]`).click();
     const deleteToast = await waitForToast(page, /ファイルを削除/);
-    await page.waitForTimeout(500);
+    // The tree refreshes by itself (no refresh button click): the deleted rows disappear.
+    await page.waitForFunction(
+      panel =>
+        !Array.from(document.querySelectorAll(`${panel} .layer-item__name`)).some(e => e.textContent === 'log.txt'),
+      LEFT_PANEL,
+      { timeout: 5000 },
+    );
+    const treeAfterDelete = await archiveTree(page);
     const contents = async () =>
       page
         .evaluate(async apiBase => {
@@ -1032,7 +1094,7 @@ async function runScenarios(
       apiBase,
       { polling: 250, timeout: 10000 },
     );
-    return { deleteToast, afterDelete, afterUndo: await contents() };
+    return { deleteToast, afterDelete, treeAfterDelete, afterUndo: await contents() };
   });
 
   await step('18-batch-selection', async () => {

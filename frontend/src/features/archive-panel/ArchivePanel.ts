@@ -377,7 +377,8 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
         'success',
       );
       emit(events.cleared);
-      await reload();
+      // Same as the refresh button: drop cached folder contents so deleted files disappear.
+      emit('archives:changed');
     } catch (err) {
       console.error('Failed to delete cache', err);
       showError('削除に失敗しました', err);

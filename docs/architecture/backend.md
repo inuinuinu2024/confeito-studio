@@ -54,7 +54,7 @@ backend/src/app/
 | 環境変数 | 既定値 | 用途 |
 |---|---|---|
 | `CONFEITO_ENV_FILE` | `<repo>/.env` | 起動時に os.environ へ読み込む（既存の環境変数が優先） |
-| `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブ保存先（ゴミ箱 `.trash/` を含む） |
+| `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブ保存先（ゴミ箱 `.trash/` を含む。`.trash/` は起動時に `main.py` の lifespan が `archive_service.empty_trash` で空にする） |
 | `CONFEITO_SETTINGS_DIR` | `<repo>/settings` | `default_settings.json`（初期設定）、`user_settings.json`（ユーザー設定）、`prompts.json`（登録したプロンプト） |
 | `GEMINI_API_KEY` | （.env） | Gemini API キー。リクエストの `X-API-Key` ヘッダーが優先 |
 | `CONFEITO_PROJECT_DIR` | `<repo>` | 画像読み込みのファイル選択ダイアログを、フォルダの指定がない時に開く場所 |

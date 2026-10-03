@@ -117,7 +117,6 @@ function drawOverlay(ctx: CanvasRenderingContext2D, s: CanvasState, side: Side):
   const me = s.sides[side];
   const cx = s.drawW / 2;
   const cy = s.drawH / 2;
-  let drawn = false;
 
   // U: explicit underdrawing, else (when there is no T) the left image / document.
   const under = me.underdrawing || (!me.image ? s.sides.left.image || s.docImage : null);
@@ -125,7 +124,6 @@ function drawOverlay(ctx: CanvasRenderingContext2D, s: CanvasState, side: Side):
     const color = s.tint ? TINT_COLORS[s.tint] : undefined;
     const source = color ? tinted(under, color) : under;
     ctx.drawImage(source, cx - source.width / 2, cy - source.height / 2);
-    drawn = true;
   }
 
   const top = topImageRect(s, side);
@@ -133,7 +131,6 @@ function drawOverlay(ctx: CanvasRenderingContext2D, s: CanvasState, side: Side):
     ctx.globalAlpha = s.topOpacity / 100;
     ctx.drawImage(me.image, top.x, top.y);
     ctx.globalAlpha = 1;
-    drawn = true;
     if (me.topSelected) {
       const unit = 1 / (s.zoom / 100);
       ctx.strokeStyle = '#0078d4';
@@ -142,14 +139,6 @@ function drawOverlay(ctx: CanvasRenderingContext2D, s: CanvasState, side: Side):
       ctx.strokeRect(top.x, top.y, top.w, top.h);
       ctx.setLineDash([]);
     }
-  }
-
-  if (!drawn) {
-    ctx.fillStyle = '#c4c7c8';
-    ctx.font = '500 14px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('ARCHIVESから重ね合わせる画像（U: 下絵 / T: 上絵）を選択してください', cx, cy);
   }
 }
 
@@ -170,7 +159,8 @@ export function renderSide(ctx: CanvasRenderingContext2D, s: CanvasState, side: 
   }
   // Normal mode never draws the document image: only the ARCHIVES selection is shown.
   const skipDoc = (!s.overlay && !s.compare) || !!image || text;
-  const hasContent = (!!s.docImage && !skipDoc) || !!image || text || s.overlay || s.batch;
+  const overlayContent = s.overlay && !!(me.underdrawing || me.image || s.sides.left.image || s.docImage);
+  const hasContent = (!!s.docImage && !skipDoc) || !!image || text || overlayContent || s.batch;
 
   if (s.batch) {
     drawBatchGrid(ctx, s.batchImages, docX, docY);
