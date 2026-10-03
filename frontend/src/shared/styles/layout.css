@@ -1,6 +1,6 @@
 /* ============================================================
    ConfeitO Studio — App shell grid (app.ts)
-   Columns: mode toolbar | ARCHIVES | canvas | AI panel
+   Columns: mode toolbar | ARCHIVES | canvas | AI panel (hidden in Parallel / Overlay mode)
    Rows:    top bar | workspace | status bar
    Feature styles live next to each feature (features/<name>/<name>.css).
    ============================================================ */
@@ -12,4 +12,13 @@
   height: 100vh;
   gap: var(--panel-gap);
   background-color: var(--color-outline-variant);
+}
+
+/* Parallel / Overlay mode: no right sidebar (tools do not run), the canvas takes its width */
+.manga-grid--no-tools {
+  grid-template-columns: var(--left-toolbar-width) var(--left-sidebar-width) 1fr;
+}
+
+.manga-grid--no-tools > .ai-panel {
+  display: none;
 }

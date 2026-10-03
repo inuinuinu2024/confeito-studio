@@ -2,27 +2,22 @@
  * Mutable state of the canvas area. Owned by Canvas.ts and passed to the pure-ish
  * renderer (render.ts) and the zoom controller (zoom.ts).
  *
- * "left"/"right" are the two panes: the left pane shows the image selected in the left
- * ARCHIVES panel; the right pane is only visible in Parallel mode.
+ * "left"/"right" are the two panes: the left pane is the only one outside Parallel mode.
+ * Normal mode shows the ARCHIVES selection; Parallel / Overlay mode show the layers chosen with the
+ * ARCHIVES checkbox columns (L / R, U / T) and keep tracking the selection without showing it.
  */
 
-import type { SelectionSummary } from '../../shared/events';
+import type { SelectionSummary, ViewLayer } from '../../shared/events';
 
 export type Side = 'left' | 'right';
 
-export interface SideState {
-  /** Image selected in the ARCHIVES panel of this side (T in Overlay mode). */
+/** What the ARCHIVES panel has selected (shown in Normal mode). */
+export interface SelectionState {
   image: HTMLCanvasElement | null;
-  /** A text file (json/txt/md) is shown in this side's text overlay instead of an image. */
+  /** A text file (json/txt/md) is selected: shown in the text overlay instead of an image. */
   text: boolean;
-  /** A folder or several entries are selected on this side: nothing is shown, the empty message says so. */
+  /** A folder or several entries are selected: nothing is shown, the empty message says so. */
   summary: SelectionSummary | null;
-  /** Overlay mode underdrawing (U). */
-  underdrawing: HTMLCanvasElement | null;
-  /** Overlay mode: offset of the top image (T) dragged by the user, in canvas pixels. */
-  topOffset: { x: number; y: number };
-  /** Overlay mode: T is selected (double click) and can be moved with drag / arrow keys. */
-  topSelected: boolean;
 }
 
 export interface BatchImage {
@@ -59,19 +54,19 @@ export interface CanvasState {
   tint: string | null;
   /** Opacity of T in percent. */
   topOpacity: number;
+  /**
+   * Images chosen with the ARCHIVES checkboxes: Overlay mode's underdrawing (U) and top image (T),
+   * Parallel mode's left (L) and right (R) pane.
+   */
+  layers: Record<ViewLayer, HTMLCanvasElement | null>;
+  /** Offset of T moved by the user, in canvas pixels (U and T are otherwise centred). */
+  topOffset: { x: number; y: number };
+  /** T is selected (double click) and can be moved with drag / arrow keys. */
+  topSelected: boolean;
 
-  sides: Record<Side, SideState>;
+  selection: SelectionState;
   batchImages: BatchImage[];
 }
-
-const emptySide = (): SideState => ({
-  image: null,
-  text: false,
-  summary: null,
-  underdrawing: null,
-  topOffset: { x: 0, y: 0 },
-  topSelected: false,
-});
 
 export function createCanvasState(): CanvasState {
   return {
@@ -91,22 +86,27 @@ export function createCanvasState(): CanvasState {
     bgColor: 'checkerboard',
     tint: 'blue',
     topOpacity: 50,
-    sides: { left: emptySide(), right: emptySide() },
+    layers: { under: null, top: null, left: null, right: null },
+    topOffset: { x: 0, y: 0 },
+    topSelected: false,
+    selection: { image: null, text: false, summary: null },
     batchImages: [],
   };
 }
 
-/** The zoom bar is hidden in Batch mode and while the panes show only text. */
+/** Parallel or Overlay mode: the layers are shown instead of the ARCHIVES selection. */
+export const isComparing = (s: CanvasState): boolean => s.parallel || s.overlay;
+
+/** The zoom bar is hidden in Batch mode and while a text file is shown (Normal mode only). */
 export function isZoomBarShown(s: CanvasState): boolean {
   if (s.batch) return false;
-  const { left, right } = s.sides;
-  if (!s.parallel) return !left.text;
-  return !!(left.image || right.image) || !(left.text || right.text);
+  return isComparing(s) || !s.selection.text;
 }
 
 /**
  * Canvas size for the current mode: the selected image, or the bounding box of everything shown.
  * Parallel mode: both panes' images (actual pixel ratio, each centred in the box).
+ * Overlay mode: U and T (centred; the part of a moved T outside the box is not drawn).
  */
 export function contentSize(s: CanvasState): { w: number; h: number } {
   const docW = s.docImage?.width ?? 0;
@@ -117,47 +117,42 @@ export function contentSize(s: CanvasState): { w: number; h: number } {
       initial,
     );
   if (s.batch) return { w: s.baseW, h: s.baseH };
-  if (s.parallel) return boundingBox([s.sides.left.image, s.sides.right.image], { w: 0, h: 0 });
-  if (!s.overlay) {
-    const image = s.sides.left.image;
-    return image ? { w: image.width, h: image.height } : { w: docW, h: docH };
-  }
-  return boundingBox([s.sides.left.image, s.sides.right.image, s.sides.left.underdrawing, s.sides.right.underdrawing], {
-    w: docW,
-    h: docH,
-  });
+  if (s.parallel) return boundingBox([s.layers.left, s.layers.right], { w: 0, h: 0 });
+  if (s.overlay) return boundingBox([s.layers.under, s.layers.top], { w: 0, h: 0 });
+  const image = s.selection.image;
+  return image ? { w: image.width, h: image.height } : { w: docW, h: docH };
 }
 
-const summaryMessage = (summary: SelectionSummary, mode: 'normal' | 'parallel') =>
+const summaryMessage = (summary: SelectionSummary) =>
   summary.kind === 'folder'
     ? `フォルダ「${summary.name ?? ''}」を選択中です。表示する画像を選択してください`
-    : `${summary.count} 件を選択中です。${mode === 'normal' ? 'Normal モードでは' : '各ペインには'} 1 件ずつ表示します`;
+    : `${summary.count} 件を選択中です。Normal モードでは 1 件ずつ表示します`;
 
 /**
  * Message shown over the canvas area when nothing is displayed (docs/specs/canvas.md 「表示ルール」),
  * or null when something is shown. Parallel mode words it per pane instead (emptyPaneMessage).
  */
 export function emptyCanvasMessage(s: CanvasState): string | null {
-  const { left } = s.sides;
+  const { selection } = s;
   if (s.parallel) return null;
   if (s.batch) {
     return s.batchImages.some(i => i.canvas) ? null : 'ARCHIVES から画像またはフォルダを選択してください';
   }
   if (s.overlay) {
-    return left.image || left.underdrawing || s.docImage
+    return s.layers.under || s.layers.top
       ? null
-      : 'ARCHIVES から重ね合わせる画像（U: 下絵 / T: 上絵）を選択してください';
+      : 'ARCHIVES の U / T 列で重ね合わせる画像（U: 下絵 / T: 上絵）を選択してください';
   }
-  if (left.image || left.text) return null;
-  return left.summary ? summaryMessage(left.summary, 'normal') : 'ARCHIVES から画像を選択してください';
+  if (selection.image || selection.text) return null;
+  return selection.summary ? summaryMessage(selection.summary) : 'ARCHIVES から画像を選択してください';
 }
 
-/** Parallel mode: message in a pane that shows nothing (its own ARCHIVES selection only), or null. */
+/** Parallel mode: message in a pane without an image (L / R not chosen), or null. */
 export function emptyPaneMessage(s: CanvasState, side: Side): string | null {
-  const me = s.sides[side];
-  if (!s.parallel || me.image || me.text) return null;
-  if (me.summary) return summaryMessage(me.summary, 'parallel');
-  return `${side === 'left' ? '左' : '右'}の ARCHIVES から画像を選択してください`;
+  if (!s.parallel || s.layers[side]) return null;
+  return side === 'left'
+    ? 'ARCHIVES の L 列で左に表示する画像を選択してください'
+    : 'ARCHIVES の R 列で右に表示する画像を選択してください';
 }
 
 /** Slider view: clip-path of the front pane, which keeps the part before the divider at `pct` percent. */

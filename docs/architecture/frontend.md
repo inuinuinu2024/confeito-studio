@@ -40,19 +40,16 @@ frontend/src/
 
 | イベント | 送信元 → 受信先 | 意味 |
 |---|---|---|
-| `archive:item-selected(:right)` | ArchivePanel → Canvas | ファイルを選択（テキストは文字表示） |
-| `archive:selection-cleared(:right)` | ArchivePanel → Canvas | 選択解除（キャンバスを空に） |
-| `archive:selection-summary(:right)` | ArchivePanel → Canvas | フォルダ・複数選択（Batch 以外。画像を出さず、案内文で選択内容を示す） |
+| `archive:item-selected` | ArchivePanel → Canvas | ファイルを選択（テキストは文字表示）。Parallel / Overlay 中は記録だけ |
+| `archive:selection-cleared` | ArchivePanel → Canvas | 選択解除（キャンバスを空に） |
+| `archive:selection-summary` | ArchivePanel → Canvas | フォルダ・複数選択（Batch 以外。画像を出さず、案内文で選択内容を示す） |
 | `archive:batch-selected` | ArchivePanel → Canvas | Batch モードでの選択（グリッド表示する画像の一覧） |
-| `archives:changed` | ツール/削除処理 → ArchivePanel | 一覧を再取得。`autoSelectKey` があれば展開して選択 |
+| `archives:changed` | ツール/削除処理 → ArchivePanel, Canvas | 一覧を再取得。`autoSelectKey` があれば展開して選択。Canvas は L/R・U/T を読み直す |
 | `<mode>-mode:toggle` | view-mode.ts → 各機能 | 表示モードの ON/OFF（normal/parallel/overlay/batch） |
-| `overlay:underdrawing-selected(:right)` | ArchivePanel → ArchivePanel, Canvas | Overlay の下絵(U) 選択 |
-| `overlay-mode:changed` | ArchivePanel → ArchivePanel | U チェックボックスの再同期 |
+| `view:layer-selected` | ArchivePanel → Canvas, ArchivePanel / Canvas → ArchivePanel | チェック列での Parallel の L / R、Overlay の U（下絵）/ T（上絵）の選択・解除。読めない・削除された時は Canvas が `key: null` を送りチェックを外させる |
 | `document:loaded` / `document:redraw` | DocumentManager → Canvas | 現在画像の変更 / 再描画要求 |
 | `tool:start` / `tool:progress` / `tool:end` | tool-runner, ツール → StatusBar | 実行状況 |
 | `canvas:bg-color`, `settings:updated`, `history:changed` | 各ダイアログ, history | 背景色 / API キー保存 / Undo スタック変化 |
-
-`:right` 付きは Parallel モードで AI パネルの代わりに表示される 2 つ目の ARCHIVES パネル由来。
 
 ### 状態の持ち場所
 - **表示モード**: `shared/state/view-mode.ts` が唯一の正。変更は `setViewMode()` / `toggleViewMode()` のみ。

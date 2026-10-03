@@ -1,12 +1,13 @@
 /**
- * ArchivePanel — the ARCHIVES tree (left sidebar; a second instance replaces the AI panel in
- * Parallel mode and emits the `:right` variants of its events).
+ * ArchivePanel — the ARCHIVES tree (left sidebar).
  *
  * Selecting a file emits `archive:item-selected` (the canvas shows it); a folder or several entries
  * emit `archive:selection-summary` (the canvas shows no image), or `archive:batch-selected` in
  * Batch mode. Every selection also updates DocumentManager's current archive folder, which tools save into.
- * Folder expansion state is shared by both instances and reset on app start; reloading the tree
- * keeps the selection by key (docs/specs/archives.md 「選択」).
+ * In Parallel / Overlay mode the image rows get two checkbox columns (L / R, U / T) choosing what the
+ * canvas compares (`view:layer-selected`); clicking rows does not change them.
+ * Folder expansion state is reset on app start; reloading the tree keeps the selection by key
+ * (docs/specs/archives.md 「選択」).
  */
 import './archive-panel.css';
 import {
@@ -18,8 +19,8 @@ import {
   restoreArchiveContents,
 } from '../../shared/api/archives';
 import { TEXT_FILE_PATTERN } from '../../shared/config';
-import { emit, on } from '../../shared/events';
-import { isViewMode } from '../../shared/state/view-mode';
+import { emit, on, type ViewLayer } from '../../shared/events';
+import { getViewMode, isViewMode, type ViewMode } from '../../shared/state/view-mode';
 import type { ArchiveEntry } from '../../shared/types/archive';
 import { h, icon } from '../../shared/ui/dom';
 import { createResizer } from '../../shared/ui/resizer';
@@ -42,68 +43,64 @@ import {
   type TreeRow,
 } from './archive-tree';
 
-/** Shared by the left and right panels; not persisted. */
-const collapseState: CollapseState = {};
-
-export interface SelectionState {
-  selected: number[];
-  last: number | null;
+/** A checkbox column of the comparison modes. */
+interface LayerColumn {
+  layer: ViewLayer;
+  label: string;
+  /** Column header tooltip / checkbox tooltip. */
+  title: string;
+  check: string;
 }
 
-export interface ArchivePanelOptions {
-  side?: 'left' | 'right';
-  /** Selection to start with (the parallel panel copies the left panel's selection). */
-  initialState?: SelectionState;
-}
+/** The two checkbox columns of each comparison mode; `exclusive`: one image cannot be in both. */
+const MODE_COLUMNS: Partial<Record<ViewMode, { columns: [LayerColumn, LayerColumn]; exclusive: boolean }>> = {
+  parallel: {
+    columns: [
+      { layer: 'left', label: 'L', title: '左に表示 (Left)', check: '左 (L) に表示' },
+      { layer: 'right', label: 'R', title: '右に表示 (Right)', check: '右 (R) に表示' },
+    ],
+    exclusive: false,
+  },
+  overlay: {
+    columns: [
+      { layer: 'under', label: 'U', title: '下絵 (Underdrawing)', check: '下絵 (U) にする' },
+      { layer: 'top', label: 'T', title: '上絵 (Top)', check: '上絵 (T) にする' },
+    ],
+    exclusive: true,
+  },
+};
 
-export interface ArchivePanel {
-  el: HTMLElement;
-  getSelectionState(): SelectionState;
-  /** Unsubscribes every listener (the parallel-mode panel is recreated each time). */
-  destroy(): void;
-}
-
-export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePanel {
-  const isRight = options.side === 'right';
-  const events = {
-    selected: isRight ? 'archive:item-selected:right' : 'archive:item-selected',
-    cleared: isRight ? 'archive:selection-cleared:right' : 'archive:selection-cleared',
-    summary: isRight ? 'archive:selection-summary:right' : 'archive:selection-summary',
-    underdrawing: isRight ? 'overlay:underdrawing-selected:right' : 'overlay:underdrawing-selected',
-  } as const;
-  const disposers: (() => void)[] = [];
+export function createArchivePanel(): HTMLElement {
   const docManager = () => DocumentManager.getInstance();
-  /** Only the left panel chooses where tools save (the right one just picks what the right pane shows). */
-  const setSaveFolder = (folder: string) => {
-    if (!isRight) docManager().setCurrentArchiveFolder(folder);
-  };
+  /** Folder expansion; not persisted. */
+  const collapseState: CollapseState = {};
 
   // ── State ──
   let rows: TreeRow[] = [];
   let rowElements: HTMLElement[] = [];
-  const selected = new Set<number>(options.initialState?.selected ?? []);
-  let lastSelected: number | null = options.initialState?.last ?? null;
+  const selected = new Set<number>();
+  let lastSelected: number | null = null;
   let hasLoaded = false;
   const contentsCache: Record<string, ArchiveEntry[]> = {};
-  let underdrawingKey: string | null = null;
+  /** Keys of the images chosen with the checkbox columns (Parallel L / R, Overlay U / T). */
+  const layerKeys: Record<ViewLayer, string | null> = { under: null, top: null, left: null, right: null };
 
   // ── DOM ──
-  const aside = h('aside', { class: isRight ? 'layer-panel layer-panel--right' : 'layer-panel' });
+  const aside = h('aside', { class: 'layer-panel' });
   const refreshIcon = icon('refresh', 16);
   const refreshBtn = h('button', { class: 'layer-panel__action-btn', title: 'ARCHIVESを更新' }, refreshIcon);
   const deleteBtn = h('button', { class: 'layer-panel__action-btn', title: 'アーカイブ削除' }, icon('delete', 16));
+  const columnLabels = [0, 1].map(() => h('div', { class: 'layer-column-header__label' }));
   const columnHeader = h(
     'div',
-    { class: 'overlay-column-header' },
-    h('div', { class: 'overlay-column-header__spacer' }),
-    h('div', { class: 'overlay-column-header__label', text: 'U', title: '下絵 (Underdrawing)' }),
+    { class: 'layer-column-header' },
+    h('div', { class: 'layer-column-header__spacer' }),
+    ...columnLabels,
   );
   const list = h('div', { class: 'layer-cache__list' });
 
   aside.append(
-    isRight
-      ? createResizer(aside, '--right-sidebar-width', 'left', 'ai-panel__resizer')
-      : createResizer(aside, '--left-sidebar-width', 'right', 'layer-panel__resizer'),
+    createResizer(aside, '--left-sidebar-width', 'right', 'layer-panel__resizer'),
     h(
       'div',
       { class: 'layer-cache__header' },
@@ -114,47 +111,72 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
     list,
   );
 
-  const listen: typeof on = (name, handler) => {
-    const off = on(name, handler);
-    disposers.push(off);
-    return off;
-  };
+  // ── Parallel / Overlay mode: the two checkbox columns ──
+  const currentColumns = () => MODE_COLUMNS[getViewMode()];
 
-  // ── Overlay (U = underdrawing) checkboxes ──
-  const syncOverlayUI = () => {
-    const overlay = isViewMode('overlay');
-    columnHeader.classList.toggle('overlay-column-header--visible', overlay);
-    for (const box of list.querySelectorAll<HTMLElement>('.layer-item__ut-boxes')) {
-      box.style.display = overlay ? 'flex' : 'none';
-      box.firstElementChild?.classList.toggle('layer-item__ut-cb--checked-u', box.dataset.key === underdrawingKey);
+  const syncLayerUI = () => {
+    const mode = currentColumns();
+    columnHeader.classList.toggle('layer-column-header--visible', !!mode);
+    mode?.columns.forEach((column, i) => {
+      columnLabels[i].textContent = column.label;
+      columnLabels[i].title = column.title;
+    });
+    for (const boxes of list.querySelectorAll<HTMLElement>('.layer-item__layer-boxes')) {
+      boxes.style.display = mode ? 'flex' : 'none';
+      boxes.querySelectorAll<HTMLElement>('.layer-item__layer-cb').forEach((box, i) => {
+        const column = mode?.columns[i];
+        box.title = column?.check ?? '';
+        box.classList.toggle(
+          'layer-item__layer-cb--checked',
+          !!column && boxes.dataset.key === layerKeys[column.layer],
+        );
+      });
     }
   };
 
-  const selectUnderdrawing = (key: string | null, name: string | null) =>
-    emit(events.underdrawing, { id: key ? `cache_${key}` : null, cacheKey: key, name });
+  const selectLayer = (layer: ViewLayer, key: string | null, name: string | null) =>
+    emit('view:layer-selected', { layer, key, name });
 
-  const underdrawingBox = (key: string, name: string) => {
-    const checkbox = h('div', { class: 'layer-item__ut-cb', title: '下絵 (U) として選択' });
-    checkbox.addEventListener('click', e => {
-      e.stopPropagation();
-      if (underdrawingKey === key) selectUnderdrawing(null, null);
-      else selectUnderdrawing(key, name);
-    });
-    return h('div', { class: 'layer-item__ut-boxes', dataset: { key } }, checkbox);
+  /** Checks or unchecks this image in column `index` of the current mode. */
+  const toggleLayer = (index: number, key: string, name: string) => {
+    const mode = currentColumns();
+    if (!mode) return;
+    const { layer } = mode.columns[index];
+    if (layerKeys[layer] === key) return selectLayer(layer, null, null);
+    // Overlay: the same image cannot be both U and T (the other column is cleared).
+    const other = mode.columns[1 - index].layer;
+    if (mode.exclusive && layerKeys[other] === key) selectLayer(other, null, null);
+    selectLayer(layer, key, name);
   };
 
-  listen(events.underdrawing, detail => {
-    underdrawingKey = detail.cacheKey;
-    emit('overlay-mode:changed');
-    emit('document:redraw');
+  const layerBoxes = (key: string, name: string) => {
+    const box = (index: number) =>
+      h('div', {
+        class: 'layer-item__layer-cb',
+        onclick: (e: MouseEvent) => {
+          e.stopPropagation(); // not a row click
+          toggleLayer(index, key, name);
+        },
+      });
+    return h('div', { class: 'layer-item__layer-boxes', dataset: { key } }, box(0), box(1));
+  };
+
+  on('view:layer-selected', ({ layer, key }) => {
+    layerKeys[layer] = key;
+    syncLayerUI();
   });
-  listen('overlay-mode:changed', syncOverlayUI);
-  listen('overlay-mode:toggle', ({ enabled }) => {
-    syncOverlayUI();
-    // Entering Overlay mode uses the selected image as the underdrawing.
-    if (enabled && !underdrawingKey && selected.size > 0 && lastSelected !== null) {
-      const row = rows[lastSelected];
-      if (row && !row.isGroup) selectUnderdrawing(row.item.key, displayName(row));
+  // The layers are chosen anew each time a comparison mode starts (and forgotten when it ends).
+  on('parallel-mode:toggle', () => {
+    layerKeys.left = layerKeys.right = null;
+    syncLayerUI();
+  });
+  on('overlay-mode:toggle', ({ enabled }) => {
+    layerKeys.under = layerKeys.top = null;
+    syncLayerUI();
+    // Overlay mode starts with the selected image (exactly one image file) as U.
+    const row = selected.size === 1 ? rows[[...selected][0]] : undefined;
+    if (enabled && row && !row.isGroup && !TEXT_FILE_PATTERN.test(row.item.name)) {
+      selectLayer('under', row.item.key, displayName(row));
     }
   });
 
@@ -173,7 +195,7 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
   /** Publishes the current selection to the canvas / DocumentManager. */
   const publishSelection = async () => {
     if (selected.size === 0) {
-      emit(events.cleared);
+      emit('archive:selection-cleared');
       return;
     }
     if (selected.size > 1) {
@@ -181,29 +203,29 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
       const firstFile = selectedRows.find(r => !r.isGroup);
       // The first file's parent folder; only folders selected -> the first folder.
       const folder = firstFile ? folderOf(firstFile.item) : selectedRows[0].item.key;
-      if (folder) setSaveFolder(folder);
+      if (folder) docManager().setCurrentArchiveFolder(folder);
       // Batch mode shows the selected files (folders ignored) in tree order.
       if (isViewMode('batch')) publishBatch(selectedFiles(rows, selected));
-      else emit(events.summary, { kind: 'multiple', count: selected.size });
+      else emit('archive:selection-summary', { kind: 'multiple', count: selected.size });
       return;
     }
     const row = rows[[...selected][0]];
     if (row.isGroup) {
-      setSaveFolder(row.item.key);
+      docManager().setCurrentArchiveFolder(row.item.key);
       if (isViewMode('batch')) await publishFolderBatch(row.item.key);
-      else emit(events.summary, { kind: 'folder', name: displayName(row), count: 1 });
+      else emit('archive:selection-summary', { kind: 'folder', name: displayName(row), count: 1 });
       return;
     }
     const folder = folderOf(row.item);
-    if (folder) setSaveFolder(folder);
+    if (folder) docManager().setCurrentArchiveFolder(folder);
     if (isViewMode('batch')) publishBatch([row.item]);
-    else emit(events.selected, { key: row.item.key, name: row.item.name });
+    else emit('archive:item-selected', { key: row.item.key, name: row.item.name });
   };
 
   /** Batch mode grid of image files; text files are skipped and an empty list keeps the current view. */
   const publishBatch = (files: ArchiveEntry[]) => {
     const images = withoutTextFiles(files).map(e => ({ key: e.key, name: e.name }));
-    if (images.length && !isRight) emit('archive:batch-selected', { items: images });
+    if (images.length) emit('archive:batch-selected', { items: images });
   };
 
   const publishFolderBatch = async (folderKey: string) => {
@@ -275,7 +297,7 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
     typeIcon.className = 'material-symbols-outlined layer-item__icon layer-item__type-icon layer-item__icon--type';
     const name = displayName(row);
     el.append(typeIcon, h('span', { class: 'layer-item__name', text: name, title: name }));
-    if (!row.isGroup && !isText) el.append(underdrawingBox(row.item.key, name));
+    if (!row.isGroup && !isText) el.append(layerBoxes(row.item.key, name));
     el.addEventListener('click', e => onRowClick(i, e));
     return el;
   };
@@ -288,7 +310,6 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
    */
   async function reload(autoSelectKey?: string, forceRefresh = false): Promise<boolean> {
     if (forceRefresh) for (const key of Object.keys(contentsCache)) delete contentsCache[key];
-    // The parallel panel keeps its initial selection (indices from the left panel) on the first load.
     const keepSelection = !autoSelectKey && hasLoaded;
     const previousRows = rows;
     hasLoaded = true;
@@ -333,10 +354,12 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
       rowElements = rows.map(renderRow);
       list.replaceChildren(...rowElements);
       applySelectionStyles();
-      syncOverlayUI();
+      syncLayerUI();
 
       if (autoSelected) {
-        if (!autoSelected.isGroup) emit(events.selected, { key: autoSelected.item.key, name: autoSelected.item.name });
+        if (!autoSelected.isGroup) {
+          emit('archive:item-selected', { key: autoSelected.item.key, name: autoSelected.item.name });
+        }
         for (const i of selected) rowElements[i]?.scrollIntoView({ block: 'nearest' });
       }
       if (selectionChanged) await publishSelection();
@@ -347,12 +370,6 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
   }
 
   // ── Header actions ──
-  const updateDeleteButton = () => {
-    deleteBtn.disabled = isViewMode('parallel');
-  };
-  listen('parallel-mode:toggle', updateDeleteButton);
-  updateDeleteButton();
-
   deleteBtn.addEventListener('click', async () => {
     if (selected.size === 0) {
       showToast('削除するアーカイブを選択してください', 'warning');
@@ -399,7 +416,7 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
             : `${fileCount}件のファイルを削除しました。`,
         'success',
       );
-      emit(events.cleared);
+      emit('archive:selection-cleared');
       // Same as the refresh button: drop cached folder contents so deleted files disappear.
       emit('archives:changed');
     } catch (err) {
@@ -426,18 +443,14 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
     }
   });
 
-  listen('archives:changed', detail => void reload(detail?.autoSelectKey, true));
+  on('archives:changed', detail => void reload(detail?.autoSelectKey, true));
   // Back from Batch mode: show the current selection the Normal way (Batch only drew a grid).
-  listen('batch-mode:toggle', ({ enabled }) => {
-    if (!enabled && !isRight) void publishSelection();
+  on('batch-mode:toggle', ({ enabled }) => {
+    if (!enabled) void publishSelection();
   });
   void reload();
 
-  return {
-    el: aside,
-    getSelectionState: () => ({ selected: [...selected], last: lastSelected }),
-    destroy: () => disposers.forEach(off => off()),
-  };
+  return aside;
 }
 
 /** Folder that tools should save into for a selected file: its parent folder, else its archive. */

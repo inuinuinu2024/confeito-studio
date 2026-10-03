@@ -61,6 +61,20 @@
   border-color: var(--color-on-surface);
 }
 
+/* "No tint": the original colours */
+.canvas-toolbar__swatch--none {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-color: var(--color-outline-variant);
+  color: var(--color-on-surface-variant);
+}
+
+.canvas-toolbar__swatch--none.canvas-toolbar__swatch--active {
+  border-color: var(--color-on-surface);
+  color: var(--color-on-surface);
+}
+
 .canvas-toolbar input.canvas-toolbar__opacity {
   width: 100px;
   margin-left: 4px;

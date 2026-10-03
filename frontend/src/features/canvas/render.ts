@@ -2,9 +2,9 @@
  * Draws one pane of the canvas area from CanvasState.
  *
  *   Normal    left pane: the selected archive image (or text overlay), centered.
- *   Parallel  each pane: its own side's image only, centered in the bounding box of both.
- *   Overlay  U (underdrawing, optionally tinted) + T (selected image, translucent, movable).
- *   Batch    2-column grid of the images under the selected folder.
+ *   Parallel  each pane: its own layer (L / R) only, centered in the bounding box of both.
+ *   Overlay   left pane only: U (underdrawing, optionally tinted) + T (top image, translucent, movable).
+ *   Batch     2-column grid of the images under the selected folder.
  */
 import type { BatchImage, CanvasState, Side } from './canvas-state';
 
@@ -38,8 +38,13 @@ function checkerboard(ctx: CanvasRenderingContext2D): CanvasPattern | string {
   return ctx.createPattern(tile, 'repeat') || '#FFFFFF';
 }
 
+/** Last tinted copy of each source (redraws while T is dragged must not recompute it). */
+const tintCache = new WeakMap<HTMLCanvasElement, { color: string; canvas: HTMLCanvasElement }>();
+
 /** Grayscale copy of `source` screened with `color`, keeping the source alpha. */
 export function tinted(source: HTMLCanvasElement, color: string): HTMLCanvasElement {
+  const cached = tintCache.get(source);
+  if (cached?.color === color) return cached.canvas;
   const canvas = document.createElement('canvas');
   canvas.width = source.width;
   canvas.height = source.height;
@@ -53,18 +58,20 @@ export function tinted(source: HTMLCanvasElement, color: string): HTMLCanvasElem
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.globalCompositeOperation = 'destination-in';
   ctx.drawImage(source, 0, 0);
+  tintCache.set(source, { color, canvas });
   return canvas;
 }
 
-/** Rectangle of this side's top image (T) in canvas pixels, or null. */
-export function topImageRect(s: CanvasState, side: Side): { x: number; y: number; w: number; h: number } | null {
-  const { image, topOffset } = s.sides[side];
-  if (!image) return null;
+/** Rectangle of the Overlay mode top image (T) in canvas pixels, or null. */
+export function topImageRect(s: CanvasState): { x: number; y: number; w: number; h: number } | null {
+  const { topOffset } = s;
+  const { top } = s.layers;
+  if (!top) return null;
   return {
-    x: topOffset.x + s.drawW / 2 - image.width / 2,
-    y: topOffset.y + s.drawH / 2 - image.height / 2,
-    w: image.width,
-    h: image.height,
+    x: topOffset.x + s.drawW / 2 - top.width / 2,
+    y: topOffset.y + s.drawH / 2 - top.height / 2,
+    w: top.width,
+    h: top.height,
   };
 }
 
@@ -113,30 +120,27 @@ function drawBatchGrid(ctx: CanvasRenderingContext2D, images: BatchImage[], orig
   }
 }
 
-function drawOverlay(ctx: CanvasRenderingContext2D, s: CanvasState, side: Side): void {
-  const me = s.sides[side];
-  const cx = s.drawW / 2;
-  const cy = s.drawH / 2;
-
-  // U: explicit underdrawing, else (when there is no T) the left image / document.
-  const under = me.underdrawing || (!me.image ? s.sides.left.image || s.docImage : null);
+/** U (optionally tinted) centred, T over it (translucent, centred + the user's offset). */
+function drawOverlay(ctx: CanvasRenderingContext2D, s: CanvasState): void {
+  const { under, top } = s.layers;
   if (under) {
     const color = s.tint ? TINT_COLORS[s.tint] : undefined;
     const source = color ? tinted(under, color) : under;
-    ctx.drawImage(source, cx - source.width / 2, cy - source.height / 2);
+    ctx.drawImage(source, s.drawW / 2 - source.width / 2, s.drawH / 2 - source.height / 2);
   }
 
-  const top = topImageRect(s, side);
-  if (top && me.image) {
+  const rect = topImageRect(s);
+  if (rect && top) {
     ctx.globalAlpha = s.topOpacity / 100;
-    ctx.drawImage(me.image, top.x, top.y);
+    ctx.drawImage(top, rect.x, rect.y);
     ctx.globalAlpha = 1;
-    if (me.topSelected) {
-      const unit = 1 / (s.zoom / 100);
+    if (s.topSelected) {
+      // One screen pixel in canvas pixels (the canvas element is scaled by the zoom).
+      const unit = s.drawW / (ctx.canvas.clientWidth || s.drawW);
       ctx.strokeStyle = '#0078d4';
       ctx.lineWidth = 2 * unit;
       ctx.setLineDash([5 * unit, 5 * unit]);
-      ctx.strokeRect(top.x, top.y, top.w, top.h);
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
       ctx.setLineDash([]);
     }
   }
@@ -154,7 +158,6 @@ export function renderSide(ctx: CanvasRenderingContext2D, s: CanvasState, side: 
   const cy = s.drawH / 2;
   const docX = cx - s.baseW / 2;
   const docY = cy - s.baseH / 2;
-  const me = s.sides[side];
 
   if (s.batch) {
     drawBatchGrid(ctx, s.batchImages, docX, docY);
@@ -162,14 +165,15 @@ export function renderSide(ctx: CanvasRenderingContext2D, s: CanvasState, side: 
   }
 
   if (s.overlay) {
-    if (me.underdrawing || me.image || s.sides.left.image || s.docImage)
-      fillBackground(ctx, s, docX, docY, s.baseW, s.baseH);
-    drawOverlay(ctx, s, side);
+    if (side !== 'left') return; // the right pane is hidden
+    // The canvas is the bounding box of U and T: the background fills all of it.
+    if (s.layers.under || s.layers.top) fillBackground(ctx, s, 0, 0, s.drawW, s.drawH);
+    drawOverlay(ctx, s);
     return;
   }
 
-  // Normal / Parallel: only this pane's own selection (never the document image or the other pane's).
-  const image = me.image;
+  // Parallel: this pane's layer only (never the other pane's); Normal: the ARCHIVES selection.
+  const image = s.parallel ? s.layers[side] : side === 'left' ? s.selection.image : null;
   if (!image) return;
   const x = cx - image.width / 2;
   const y = cy - image.height / 2;

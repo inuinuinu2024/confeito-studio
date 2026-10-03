@@ -117,8 +117,7 @@ async function launchBrowser(headed: boolean): Promise<Browser> {
 
 // ── Page helpers ──────────────────────────────────────────────────────
 
-const LEFT_PANEL = 'aside.layer-panel:not(.layer-panel--right)';
-const RIGHT_PANEL = 'aside.layer-panel--right';
+const LEFT_PANEL = 'aside.layer-panel';
 const LEFT_VIEWPORT = '.canvas-split__pane--left .canvas-split__viewport';
 
 /** Masks timestamps so observations are comparable across runs. */
@@ -146,6 +145,34 @@ function archiveItem(page: Page, name: string | RegExp, panel = LEFT_PANEL) {
       has: page.locator('.layer-item__name', { hasText: name }),
     })
     .first();
+}
+
+/** Checkbox column 0 / 1 of an image row (Parallel L / R, Overlay U / T). */
+function layerBox(page: Page, name: string, column: 0 | 1) {
+  return archiveItem(page, name).locator('.layer-item__layer-cb').nth(column);
+}
+
+/** Names of the rows checked in each checkbox column, and the column labels. */
+async function layerColumns(page: Page) {
+  return page.evaluate(panel => {
+    const checked = (column: number) =>
+      Array.from(document.querySelectorAll(`${panel} .layer-item`))
+        .filter(row =>
+          row.querySelectorAll('.layer-item__layer-cb')[column]?.classList.contains('layer-item__layer-cb--checked'),
+        )
+        .map(row => row.querySelector('.layer-item__name')?.textContent ?? '');
+    const header = document.querySelector<HTMLElement>(`${panel} .layer-column-header`);
+    return {
+      header:
+        header && header.getClientRects().length
+          ? Array.from(header.querySelectorAll('.layer-column-header__label')).map(l => l.textContent)
+          : null,
+      visibleBoxes: Array.from(document.querySelectorAll<HTMLElement>(`${panel} .layer-item__layer-boxes`)).filter(
+        b => b.getClientRects().length > 0,
+      ).length,
+      columns: [checked(0), checked(1)],
+    };
+  }, LEFT_PANEL);
 }
 
 /** Row `child` directly under the top-level archive `parent` (the archive must be expanded). */
@@ -583,6 +610,10 @@ async function runScenarios(
     await screenshot('boot');
     return {
       menus: await page.$$eval('.topbar__nav-item', els => els.map(e => e.textContent)),
+      // Mode buttons top to bottom, with the divider between Batch and Parallel.
+      toolbarItems: await page.$$eval('.left-toolbar > *', els =>
+        els.map(e => e.getAttribute('title') ?? (e.classList.contains('left-toolbar__divider') ? '---' : '?')),
+      ),
       modes: await page.$$eval('.left-toolbar__btn', els =>
         els.map(e => [e.getAttribute('title'), e.classList.contains('left-toolbar__btn--active')]),
       ),
@@ -812,9 +843,8 @@ async function runScenarios(
   await step('07-overlay-mode', async () => {
     await setMode(page, 'Overlay');
     const state = {
-      columnHeaderVisible: await page.locator(`${LEFT_PANEL} .overlay-column-header`).isVisible(),
-      utBoxes: await page.locator(`${LEFT_PANEL} .layer-item__ut-boxes:visible`).count(),
-      checkedU: await page.locator(`${LEFT_PANEL} .layer-item__ut-cb--checked-u`).count(),
+      layers: await layerColumns(page),
+      aiPanelVisible: await page.locator('aside.ai-panel').isVisible(),
       canvas: await canvasState(page),
     };
     await screenshot('overlay-mode');
@@ -828,18 +858,20 @@ async function runScenarios(
   });
 
   await step('08-parallel-mode', async () => {
+    // The right sidebar closes; L / R start empty (the selection is not shown) and are chosen with the checkboxes.
     await setMode(page, 'Parallel');
-    await page.waitForSelector(RIGHT_PANEL);
     await page.waitForTimeout(500);
     const state = {
-      aiPanelPresent: await page.locator('aside.ai-panel').count(),
-      rightArchives: await archiveTree(page, RIGHT_PANEL),
+      aiPanelVisible: await page.locator('aside.ai-panel').isVisible(),
+      archivesPanels: await page.locator('aside.layer-panel').count(),
+      layers: await layerColumns(page),
+      panes: await parallelState(page),
       canvas: await canvasState(page),
     };
     await screenshot('parallel-mode-start');
     await setMode(page, 'Normal');
-    await page.waitForSelector('aside.ai-panel');
-    return { ...state, aiPanelRestored: await page.locator('aside.ai-panel').count() };
+    await page.waitForSelector('aside.ai-panel', { state: 'visible' });
+    return { ...state, aiPanelRestored: await page.locator('aside.ai-panel').isVisible() };
   });
 
   await step('09-tool-windows', async () => {
@@ -1140,6 +1172,8 @@ async function runScenarios(
 
   await step('13-batch-mode', async () => {
     await setMode(page, 'Batch');
+    // Batch mode opens with a notice that it is being reworked.
+    const notice = await waitForToast(page, /Batch モードは現在修正中です/);
     await archiveItem(page, /^sub$/).click();
     await page.waitForFunction(() =>
       Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === 1660),
@@ -1148,7 +1182,7 @@ async function runScenarios(
     const canvas = await canvasState(page);
     await screenshot('batch-mode');
     await setMode(page, 'Normal');
-    return { canvas };
+    return { notice, canvas };
   });
 
   await step('13b-normal-after-modes', async () => {
@@ -1171,21 +1205,20 @@ async function runScenarios(
     await collapseFolder(page, /e2e-image$/);
     const keptOnOtherFolder = (await canvasState(page)).canvases[0];
 
-    // Parallel with a larger image on the right, then back: the canvas is the left image's size again.
+    // Parallel with a larger image as R, then back: the canvas is the selected image's size again.
     await expandFolder(page, /e2e-image$/);
     await setMode(page, 'Parallel');
-    await page.waitForSelector(RIGHT_PANEL);
-    await archiveItem(page, 'e2e-image.png', RIGHT_PANEL).click();
+    await layerBox(page, 'e2e-image.png', 1).click();
     await waitForCanvasWidth(page, 640);
     await page.waitForTimeout(300);
     const parallelSize = (await canvasState(page)).canvases.map(c => `${c.w}x${c.h}`);
     await setMode(page, 'Normal');
-    await page.waitForSelector('aside.ai-panel');
+    await page.waitForSelector('aside.ai-panel', { state: 'visible' });
     await waitForCanvasWidth(page, 150);
     await page.waitForTimeout(300);
     const afterParallel = await canvasState(page);
     await screenshot('normal-after-parallel', '.canvas-area');
-    // Selecting in the right ARCHIVES did not move the save folder: コマ結合 still targets the left selection.
+    // Checking L / R did not move the save folder: コマ結合 still targets the selection.
     const mergeCardAfterParallel = await toolCard(page, 'コマ結合');
 
     // Collapsing the folder of the shown image empties the canvas.
@@ -1223,20 +1256,33 @@ async function runScenarios(
         { timeout: 10000 },
       );
 
-    // Left: the 640x480 image; right: the 150x200 panel (actual pixel ratio, both centred in the 640x480 box).
+    const waitForPaneNotice = (side: 'left' | 'right', shown: boolean) =>
+      page.waitForFunction(
+        ({ side, shown }) =>
+          (getComputedStyle(document.querySelector(`.canvas-split__pane--${side} .canvas-split__pane-empty`)!)
+            .display !==
+            'none') ===
+          shown,
+        { side, shown },
+        { timeout: 10000 },
+      );
+
+    // L: the 640x480 image; R: the 150x200 panel (actual pixel ratio, both centred in the 640x480 box).
+    // Both start empty even with an image selected (the selection is not shown in Parallel mode).
     await archiveItem(page, 'e2e-image.png').click();
     await waitForCanvasWidth(page, 640);
     await setMode(page, 'Parallel');
-    await page.waitForSelector(RIGHT_PANEL);
-    await waitForRightTitle('640 x 480px'); // the right pane starts with the left selection
+    await waitForPaneNotice('left', true);
     await page.waitForTimeout(300);
-    const started = await parallelState(page);
-    await expandFolder(page, 'e2e-panels', RIGHT_PANEL);
-    await expandFolder(page, /^sub$/, RIGHT_PANEL);
-    await archiveItem(page, '01.png', RIGHT_PANEL).click();
+    const started = { ...(await parallelState(page)), layers: await layerColumns(page) };
+    await screenshot('parallel-empty', '.canvas-area');
+    await layerBox(page, 'e2e-image.png', 0).click();
+    await waitForPaneNotice('left', false);
+    await expandFolder(page, /^sub$/);
+    await layerBox(page, '01.png', 1).click();
     await waitForRightTitle('150 x 200px');
     await page.waitForTimeout(300);
-    const sideBySide = await parallelState(page);
+    const sideBySide = { ...(await parallelState(page)), layers: await layerColumns(page) };
     await screenshot('parallel-side-by-side', '.canvas-area');
 
     // Dragging moves both images the same way; the panes and the boundary between them stay.
@@ -1247,29 +1293,23 @@ async function runScenarios(
     await page.locator('.canvas-zoom-bar button[title="Zoom 100%"]').click();
     await page.waitForTimeout(200);
 
-    // Deselecting the right image: a notice in the right pane, never the left image.
-    await archiveItem(page, '01.png', RIGHT_PANEL).click();
-    await page.waitForFunction(
-      () =>
-        getComputedStyle(document.querySelector('.canvas-split__pane--right .canvas-split__pane-empty')!).display !==
-        'none',
-    );
+    // Unchecking R: a notice in the right pane, never the left image.
+    await layerBox(page, '01.png', 1).click();
+    await waitForPaneNotice('right', true);
     const rightEmpty = { ...(await parallelState(page)), rightPixels: (await canvasState(page)).canvases[1]?.pixels };
     await screenshot('parallel-right-empty', '.canvas-area');
 
-    // A text file on the right: only that pane shows text; the zoom bar stays for the left image.
-    await archiveItem(page, 'notes.txt', RIGHT_PANEL).click();
-    await page.waitForFunction(
-      () =>
-        document.querySelector<HTMLElement>('.canvas-split__pane--right .canvas-text-overlay')?.style.display ===
-        'block',
-    );
-    await page.waitForTimeout(200);
-    const rightText = await parallelState(page);
-    await screenshot('parallel-right-text', '.canvas-area');
+    // Row clicks (a text file, an image) change neither the panes nor L / R; the same image can be both L and R.
+    await archiveItem(page, 'notes.txt').click();
+    await archiveItem(page, '02.png').click();
+    await page.waitForTimeout(300);
+    const afterRowClicks = { ...(await parallelState(page)), layers: await layerColumns(page) };
+    await layerBox(page, 'e2e-image.png', 1).click();
+    await waitForRightTitle('640 x 480px');
+    const sameImage = await layerColumns(page);
 
     // Slider: the panes are stacked; the divider (fixed to the screen) clips the front one.
-    await archiveItem(page, '01.png', RIGHT_PANEL).click();
+    await layerBox(page, '01.png', 1).click();
     await waitForRightTitle('150 x 200px');
     await toggles.nth(0).click();
     await page.waitForTimeout(300);
@@ -1292,25 +1332,161 @@ async function runScenarios(
     const flipped = await parallelState(page);
     await screenshot('parallel-slider-flip', '.canvas-area');
 
-    // Leave the trees as the next step expects (panel folder collapsed, nothing selected on the left).
-    await collapseFolder(page, /^sub$/, RIGHT_PANEL);
+    // Deleting is allowed: R (01.png, in the deleted archive) is dropped; Ctrl+Z restores the archive.
+    const deleteEnabled = await page
+      .locator(`${LEFT_PANEL} .layer-panel__action-btn[title="アーカイブ削除"]`)
+      .isEnabled();
+    await archiveItem(page, 'e2e-panels').click();
+    await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="アーカイブ削除"]`).click();
+    await waitForToast(page, /削除/);
+    await waitForPaneNotice('right', true);
+    await page.waitForTimeout(500);
+    const afterDelete = { ...(await parallelState(page)), layers: await layerColumns(page) };
+    await page.locator('body').click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press('Control+z');
+    await page.waitForFunction(
+      panel =>
+        Array.from(document.querySelectorAll(`${panel} .layer-item__name`)).some(e => e.textContent === 'e2e-panels'),
+      LEFT_PANEL,
+    );
+
+    // Back in Normal mode: the selection is shown again (nothing selected after the delete).
     await setMode(page, 'Normal');
-    await page.waitForSelector('aside.ai-panel');
+    await page.waitForSelector('aside.ai-panel', { state: 'visible' });
     await page.waitForTimeout(300);
-    const normal = await parallelState(page);
-    await archiveItem(page, 'e2e-image.png').click();
+    const normal = { ...(await parallelState(page)), layers: await layerColumns(page) };
     await waitForEmptyMessage(page, /^ARCHIVES から画像を選択してください$/);
+    // Leave the tree as the next step expects (panel folder collapsed).
+    await expandFolder(page, 'e2e-panels');
+    await collapseFolder(page, /^sub$/).catch(() => undefined);
     return {
       started,
       sideBySide,
       dragged,
       rightEmpty,
-      rightText,
+      afterRowClicks,
+      sameImage,
       slider,
       sliderMoved,
       sliderDragged,
       transposed,
       flipped,
+      deleteEnabled,
+      afterDelete,
+      normal,
+    };
+  });
+
+  await step('13d-overlay-layers', async () => {
+    // U / T are chosen with the ARCHIVES checkboxes only (docs/specs/canvas.md 「Overlay モード」).
+    const box = (name: string, layer: 'under' | 'top') => layerBox(page, name, layer === 'under' ? 0 : 1);
+    const checked = async () => {
+      const [u, t] = (await layerColumns(page)).columns;
+      return { u, t };
+    };
+    const summary = async () => {
+      const c = await canvasState(page);
+      return {
+        size: c.canvases.filter(x => x.visible).map(x => `${x.w}x${x.h}`),
+        pixels: c.canvases[0]?.pixels,
+        emptyMessage: c.emptyMessage,
+        emptyHintVisible: await page.locator('.canvas-empty__hint').isVisible(),
+        textVisible: c.textOverlays.some(o => o.visible),
+        zoomLabel: c.zoomLabel,
+        checked: await checked(),
+      };
+    };
+    /** Whether the canvas swallows an arrow key (it only does while T is selected). */
+    const arrowPrevented = () =>
+      page.evaluate(() => {
+        const ev = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
+        document.body.dispatchEvent(ev);
+        return ev.defaultPrevented;
+      });
+
+    // Entering with one image selected: it becomes U, T is empty, the right sidebar closes.
+    await archiveItem(page, 'e2e-image.png').click();
+    await waitForCanvasWidth(page, 640);
+    await setMode(page, 'Overlay');
+    await page.waitForTimeout(300);
+    const started = { ...(await summary()), aiPanelVisible: await page.locator('aside.ai-panel').isVisible() };
+    await screenshot('overlay-start');
+
+    // T: the 150x200 panel, centred over U.
+    await expandFolder(page, /^sub$/);
+    await box('01.png', 'top').click();
+    await page.waitForFunction(() => document.querySelectorAll('.layer-item__layer-cb--checked').length === 2);
+    await page.waitForTimeout(300);
+    const withTop = await summary();
+    await screenshot('overlay-u-t', '.canvas-area');
+
+    // Clicking rows (a text file, another image) changes neither U / T nor the canvas.
+    await archiveItem(page, 'notes.txt').click();
+    await page.waitForTimeout(300);
+    const afterTextClick = await summary();
+    await archiveItem(page, '02.png').click();
+    await page.waitForTimeout(300);
+    const afterImageClick = await summary();
+
+    // Double click selects T; arrow keys move it (Shift = 10px) and are only taken while T is selected.
+    const arrowFreeBefore = await arrowPrevented();
+    const canvasBox = (await page.locator('.canvas-split__pane--left canvas').boundingBox())!;
+    await page.mouse.dblclick(canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height / 2);
+    await page.waitForTimeout(150);
+    for (let i = 0; i < 6; i++) await page.keyboard.press('Shift+ArrowRight'); // 60px
+    await page.waitForTimeout(150);
+    const moved = await summary();
+    const arrowTakenWhileSelected = await arrowPrevented();
+    await screenshot('overlay-t-moved', '.canvas-area');
+    await page.mouse.click(canvasBox.x + 4, canvasBox.y + 4); // outside T: deselects it
+    await page.waitForTimeout(150);
+    const arrowFreeAfter = await arrowPrevented();
+
+    // U on the T row: the same image cannot be both, so T is cleared.
+    await box('01.png', 'under').click();
+    await waitForCanvasWidth(page, 150);
+    await page.waitForTimeout(300);
+    const underOnTopRow = await summary();
+
+    // Dropping an image file imports nothing in Overlay mode.
+    const archivesBefore = (await archiveTree(page)).length;
+    await dropTestImage(page, 'overlay-drop.png', 120, 90);
+    const dropToast = await waitForToast(page, /Overlay モードでは画像を取り込めません/);
+    await page.waitForTimeout(500);
+    const archivesAfterDrop = (await archiveTree(page)).length;
+
+    // Unchecking U leaves nothing: the canvas asks for U / T (no drop hint).
+    await box('01.png', 'under').click();
+    await waitForEmptyMessage(page, /U \/ T 列/);
+    const nothing = await summary();
+    await screenshot('overlay-empty', '.canvas-area');
+
+    // Back in Normal mode: the current selection (02.png) is shown and the tools come back.
+    await setMode(page, 'Normal');
+    await page.waitForSelector('aside.ai-panel', { state: 'visible' });
+    await page.waitForTimeout(300);
+    const normal = { ...(await summary()), aiPanelVisible: await page.locator('aside.ai-panel').isVisible() };
+
+    // Leave the tree as the next step expects (nothing selected, panel folder collapsed).
+    await archiveItem(page, '02.png').click();
+    await waitForEmptyMessage(page, /^ARCHIVES から画像を選択してください$/);
+    await collapseFolder(page, /^sub$/);
+    return {
+      started,
+      withTop,
+      rowClicksKeepCanvas:
+        JSON.stringify(afterTextClick.pixels) === JSON.stringify(withTop.pixels) &&
+        JSON.stringify(afterImageClick.pixels) === JSON.stringify(withTop.pixels),
+      afterTextClick,
+      afterImageClick,
+      moved: { ...moved, changed: JSON.stringify(moved.pixels) !== JSON.stringify(withTop.pixels) },
+      arrowFreeBefore,
+      arrowTakenWhileSelected,
+      arrowFreeAfter,
+      underOnTopRow,
+      dropToast,
+      dropImportedNothing: archivesBefore === archivesAfterDrop,
+      nothing,
       normal,
     };
   });
@@ -1939,8 +2115,9 @@ async function runScenarios(
     await archiveItem(page, 'e2e-image.png').click();
     await openNanoBananaWithoutOriginal(page);
     await closeToolWindow(page);
-    await setMode(page, 'Overlay'); // (Parallel mode shows a second ARCHIVES panel instead of the tools)
-    const overlayMode = await openAndRead();
+    // (Parallel mode shows a second ARCHIVES panel instead of the tools, Overlay mode hides them.)
+    await setMode(page, 'Batch');
+    const batchMode = await openAndRead();
     await setMode(page, 'Normal');
 
     // Reference images filling the model's limit (14): adding the 原画 would drop one, so it is not added.
@@ -1971,7 +2148,7 @@ async function runScenarios(
       await page.locator(`${win} .ref-list .ref-card .ref-card__remove`).first().click();
     }
     await closeToolWindow(page);
-    return { selected, afterRemove, nothingSelected, overlayMode, referencesFull };
+    return { selected, afterRemove, nothingSelected, batchMode, referencesFull };
   });
 
   await step('19g-image-loader', async () => {

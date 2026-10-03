@@ -6,8 +6,6 @@
  *   grep "emit('archives:changed'"   finds every producer,
  *   grep "on('archives:changed'"     finds every consumer,
  * and payloads are type-checked.
- *
- * Events suffixed with `:right` come from the second ARCHIVES panel shown in Parallel mode.
  */
 
 /** An archive entry chosen in the ARCHIVES panel. */
@@ -34,9 +32,16 @@ export interface SelectionSummary {
   count: number;
 }
 
-export interface UnderdrawingSelection {
-  id: string | null;
-  cacheKey: string | null;
+/**
+ * An image the comparison modes show, chosen with the ARCHIVES checkbox columns: Overlay mode's
+ * underdrawing (U) and top image (T), Parallel mode's left (L) and right (R) pane.
+ */
+export type ViewLayer = 'under' | 'top' | 'left' | 'right';
+
+/** A layer set to an archive image, or cleared (`key: null`). */
+export interface ViewLayerSelection {
+  layer: ViewLayer;
+  key: string | null;
   name: string | null;
 }
 
@@ -54,24 +59,20 @@ export interface AppEventMap {
 
   // ── ARCHIVES panel → Canvas ──
   'archive:item-selected': ArchiveSelection;
-  'archive:item-selected:right': ArchiveSelection;
   'archive:selection-cleared': undefined;
-  'archive:selection-cleared:right': undefined;
   /** A folder or several entries are selected (not Batch mode): the pane shows no image. */
   'archive:selection-summary': SelectionSummary;
-  'archive:selection-summary:right': SelectionSummary;
   /** Batch mode: images to show as a grid (a folder's images, or the selected files in tree order). */
   'archive:batch-selected': { items: ArchiveSelection[] };
   /** Files changed on disk → panels reload and optionally select `autoSelectKey`. */
   'archives:changed': { autoSelectKey?: string } | undefined;
 
-  // ── Overlay mode ──
-  'overlay:underdrawing-selected': UnderdrawingSelection;
-  'overlay:underdrawing-selected:right': UnderdrawingSelection;
-  /** Overlay mode or the U selection changed → panels re-sync their checkboxes. */
-  'overlay-mode:changed': undefined;
-  'overlay:top-opacity': { opacity: number };
-  'overlay:underdrawing-color': { color: string | null };
+  // ── Overlay / Parallel mode ──
+  /**
+   * U / T or L / R chosen with the ARCHIVES checkboxes; the canvas emits `key: null` when the image
+   * cannot be loaded or was deleted, so the checkbox is cleared too.
+   */
+  'view:layer-selected': ViewLayerSelection;
 
   // ── Tool execution → StatusBar ──
   'tool:start': { toolName: string };

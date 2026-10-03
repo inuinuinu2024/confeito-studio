@@ -21,6 +21,8 @@ function toggleSwitch(onClick: () => void): ToggleSwitch {
 const label = (text: string) => h('span', { class: 'canvas-toolbar__label', text });
 const spacer = () => h('div', { class: 'canvas-toolbar__spacer' });
 
+const TINT_NAMES: Record<string, string> = { blue: '青', green: '緑', red: '赤', gray: '灰' };
+
 export interface ParallelToolbar {
   el: HTMLDivElement;
   slider: ToggleSwitch;
@@ -57,20 +59,34 @@ export function createOverlayToolbar(handlers: {
   onResetPosition: () => void;
 }): HTMLDivElement {
   let tint = handlers.initialTint;
+  const choose = (id: string | null) => {
+    tint = id;
+    render();
+    handlers.onTint(tint);
+  };
   const swatches = Object.entries(TINT_COLORS).map(([id, hex]) =>
     h('div', {
       class: 'canvas-toolbar__swatch',
       style: { backgroundColor: hex },
-      onclick: () => {
-        tint = tint === id ? null : id; // clicking the active colour shows the original colours
-        render();
-        handlers.onTint(tint);
-      },
+      title: TINT_NAMES[id] ?? id,
+      onclick: () => choose(tint === id ? null : id), // clicking the active colour shows the original colours
       dataset: { tint: id },
     }),
   );
+  const none = h(
+    'div',
+    {
+      class: 'canvas-toolbar__swatch canvas-toolbar__swatch--none',
+      title: 'ティントなし（元の色）',
+      onclick: () => choose(null),
+      dataset: { tint: '' },
+    },
+    icon('block', 14),
+  );
   const render = () =>
-    swatches.forEach(s => s.classList.toggle('canvas-toolbar__swatch--active', s.dataset.tint === tint));
+    [...swatches, none].forEach(s =>
+      s.classList.toggle('canvas-toolbar__swatch--active', s.dataset.tint === (tint ?? '')),
+    );
   render();
 
   const opacityLabel = h('span', { class: 'canvas-toolbar__label canvas-toolbar__opacity-value', text: '50%' });
@@ -84,16 +100,16 @@ export function createOverlayToolbar(handlers: {
   return h(
     'div',
     { class: 'canvas-toolbar__group' },
-    label('Underdrawing'),
-    h('div', { class: 'canvas-toolbar__swatches' }, ...swatches),
+    label('Underdrawing (U)'),
+    h('div', { class: 'canvas-toolbar__swatches' }, ...swatches, none),
     spacer(),
-    label('Top'),
+    label('Top (T)'),
     opacity,
     opacityLabel,
     h(
       'div',
       { class: 'canvas-toolbar__reset', title: '上絵の位置をリセット', onclick: handlers.onResetPosition },
-      icon('home', 18),
+      icon('restart_alt', 18),
     ),
   );
 }

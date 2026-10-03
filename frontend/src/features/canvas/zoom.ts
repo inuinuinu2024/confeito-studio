@@ -44,7 +44,12 @@ export interface ZoomPane {
   inner: HTMLElement;
 }
 
-export function createZoomController(state: CanvasState, panes: Record<Side, ZoomPane>): ZoomController {
+/** `onApply` runs after the displayed size changed (drawings that depend on the screen scale redraw). */
+export function createZoomController(
+  state: CanvasState,
+  panes: Record<Side, ZoomPane>,
+  onApply?: () => void,
+): ZoomController {
   const slider = h('input', { type: 'range', min: String(MIN_ZOOM), max: String(MAX_ZOOM), value: '100' });
   const label = h('span', { class: 'canvas-zoom-bar__label', text: '100%' });
   // The left pane is always shown: sizes and scroll positions are computed on it.
@@ -114,6 +119,7 @@ export function createZoomController(state: CanvasState, panes: Record<Side, Zoo
     scrollArea.scrollLeft = inner.offsetLeft + contentX * ratio - cx;
     scrollArea.scrollTop = inner.offsetTop + contentY * ratio - cy;
     syncScroll(scrollArea);
+    onApply?.();
   }
 
   function relayout(change: () => void): void {

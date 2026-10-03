@@ -9,10 +9,6 @@
   background: var(--color-surface-container-low);
 }
 
-.layer-panel--right {
-  grid-column: 4 / 5;
-}
-
 .layer-panel__resizer {
   position: absolute;
   top: 0;
@@ -179,8 +175,8 @@
   white-space: nowrap;
 }
 
-/* Overlay mode: underdrawing (U) checkbox column */
-.layer-item__ut-boxes {
+/* Parallel / Overlay mode: the two checkbox columns (L / R, U / T) */
+.layer-item__layer-boxes {
   display: none;
   align-items: center;
   flex-shrink: 0;
@@ -189,7 +185,7 @@
   margin-right: 2px;
 }
 
-.layer-item__ut-cb {
+.layer-item__layer-cb {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -197,49 +193,50 @@
   width: 16px;
   height: 16px;
   border: 1.5px solid var(--color-outline);
-  border-radius: 50%;
+  border-radius: 3px;
   background-color: transparent;
   cursor: pointer;
   user-select: none;
   transition: all 0.15s ease;
 }
 
-.layer-item__ut-cb:hover {
+.layer-item__layer-cb:hover {
   border-color: var(--color-on-surface-variant);
   background-color: var(--color-surface-container-highest);
 }
 
-.layer-item__ut-cb--checked-u {
+.layer-item__layer-cb--checked {
   background-color: var(--color-on-surface) !important;
   border-color: var(--color-on-surface) !important;
 }
 
-.layer-item__ut-cb--checked-u::after {
+.layer-item__layer-cb--checked::after {
   content: '';
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: 1px;
   background: var(--color-surface-container-low);
 }
 
-.overlay-column-header {
+.layer-column-header {
   display: none;
   align-items: center;
   flex-shrink: 0;
-  padding: 4px 8px;
+  /* Right: the list's 4px padding + the row's 8px, so the labels sit above the checkboxes */
+  padding: 4px 12px 4px 8px;
   border-bottom: 1px solid var(--color-outline-variant);
   background: var(--color-surface-container);
 }
 
-.overlay-column-header--visible {
+.layer-column-header--visible {
   display: flex;
 }
 
-.overlay-column-header__spacer {
+.layer-column-header__spacer {
   flex: 1;
 }
 
-.overlay-column-header__label {
+.layer-column-header__label {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -247,7 +244,7 @@
   width: 16px;
   height: 16px;
   margin-right: 2px;
-  border-radius: 50%;
+  border-radius: 3px;
   background-color: var(--color-on-surface-variant);
   color: var(--color-surface-container-low);
   font-family: var(--font-label);
