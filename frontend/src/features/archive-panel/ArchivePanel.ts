@@ -2,10 +2,11 @@
  * ArchivePanel — the ARCHIVES tree (left sidebar; a second instance replaces the AI panel in
  * Compare mode and emits the `:right` variants of its events).
  *
- * Selecting a file emits `archive:item-selected` (the canvas shows it); selecting a folder in
- * Batch mode emits `archive:batch-selected`. Every selection also updates
- * DocumentManager's current archive folder, which tools save into.
- * Folder expansion state is shared by both instances and reset on app start.
+ * Selecting a file emits `archive:item-selected` (the canvas shows it); a folder or several entries
+ * emit `archive:selection-summary` (the canvas shows no image), or `archive:batch-selected` in
+ * Batch mode. Every selection also updates DocumentManager's current archive folder, which tools save into.
+ * Folder expansion state is shared by both instances and reset on app start; reloading the tree
+ * keeps the selection by key (docs/specs/archives.md 「選択」).
  */
 import './archive-panel.css';
 import {
@@ -35,6 +36,7 @@ import {
   imagesUnder,
   isCollapsed,
   planDeletion,
+  remapSelection,
   selectedFiles,
   withoutTextFiles,
   type TreeRow,
@@ -66,6 +68,7 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
   const events = {
     selected: isRight ? 'archive:item-selected:right' : 'archive:item-selected',
     cleared: isRight ? 'archive:selection-cleared:right' : 'archive:selection-cleared',
+    summary: isRight ? 'archive:selection-summary:right' : 'archive:selection-summary',
     underdrawing: isRight ? 'overlay:underdrawing-selected:right' : 'overlay:underdrawing-selected',
   } as const;
   const disposers: (() => void)[] = [];
@@ -170,17 +173,21 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
       return;
     }
     if (selected.size > 1) {
-      const firstFile = [...selected].map(i => rows[i]).find(r => !r.isGroup);
-      const folder = firstFile && folderOf(firstFile.item);
+      const selectedRows = [...selected].map(i => rows[i]);
+      const firstFile = selectedRows.find(r => !r.isGroup);
+      // The first file's parent folder; only folders selected -> the first folder.
+      const folder = firstFile ? folderOf(firstFile.item) : selectedRows[0].item.key;
       if (folder) docManager().setCurrentArchiveFolder(folder);
       // Batch mode shows the selected files (folders ignored) in tree order.
       if (isViewMode('batch')) publishBatch(selectedFiles(rows, selected));
+      else emit(events.summary, { kind: 'multiple', count: selected.size });
       return;
     }
     const row = rows[[...selected][0]];
     if (row.isGroup) {
       docManager().setCurrentArchiveFolder(row.item.key);
       if (isViewMode('batch')) await publishFolderBatch(row.item.key);
+      else emit(events.summary, { kind: 'folder', name: displayName(row), count: 1 });
       return;
     }
     const folder = folderOf(row.item);
@@ -269,15 +276,19 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
     return el;
   };
 
-  /** Reloads the tree from the backend; `autoSelectKey` expands to and selects that entry. */
-  async function reload(autoSelectKey?: string, forceRefresh = false): Promise<void> {
+  /**
+   * Reloads the tree from the backend; `autoSelectKey` expands to and selects that entry.
+   * Otherwise the selection is kept by key: entries no longer shown (deleted, or hidden by collapsing
+   * a folder) are deselected, and the canvas is updated when that changed the selection.
+   * Resolves true when the selection changed (and was published).
+   */
+  async function reload(autoSelectKey?: string, forceRefresh = false): Promise<boolean> {
     if (forceRefresh) for (const key of Object.keys(contentsCache)) delete contentsCache[key];
-    // The compare panel keeps its initial selection on the first load only.
-    if (!autoSelectKey && (!options.initialState || hasLoaded)) {
-      selected.clear();
-      lastSelected = null;
-    }
+    // The compare panel keeps its initial selection (indices from the left panel) on the first load.
+    const keepSelection = !autoSelectKey && hasLoaded;
+    const previousRows = rows;
     hasLoaded = true;
+    let selectionChanged = false;
 
     const targetRoot = autoSelectKey?.split('/')[0];
     if (autoSelectKey) {
@@ -307,6 +318,12 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
           lastSelected = index;
           autoSelected = rows[index];
         }
+      } else if (keepSelection) {
+        const kept = remapSelection(previousRows, selected, lastSelected, rows);
+        selected.clear();
+        for (const i of kept.selected) selected.add(i);
+        lastSelected = kept.last;
+        selectionChanged = kept.changed;
       }
 
       rowElements = rows.map(renderRow);
@@ -318,9 +335,11 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
         if (!autoSelected.isGroup) emit(events.selected, { key: autoSelected.item.key, name: autoSelected.item.name });
         for (const i of selected) rowElements[i]?.scrollIntoView({ block: 'nearest' });
       }
+      if (selectionChanged) await publishSelection();
     } catch (err) {
       console.error('Failed to load archives', err);
     }
+    return selectionChanged;
   }
 
   // ── Header actions ──
@@ -390,9 +409,9 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
     refreshBtn.disabled = true;
     refreshIcon.classList.add('is-spinning');
     try {
-      const previousKey = selected.size > 0 && lastSelected !== null ? rows[lastSelected]?.item.key : undefined;
-      await reload(previousKey, true);
-      if (previousKey && !rows.some(r => r.item.key === previousKey)) emit(events.cleared);
+      // Entries that still exist stay selected and are shown again (their files may have changed).
+      const changed = await reload(undefined, true);
+      if (!changed && selected.size > 0) await publishSelection();
       showToast('ARCHIVESを最新の状態に更新しました', 'success');
     } catch (err) {
       console.error('Failed to refresh archives', err);
@@ -404,6 +423,10 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
   });
 
   listen('archives:changed', detail => void reload(detail?.autoSelectKey, true));
+  // Back from Batch mode: show the current selection the Normal way (Batch only drew a grid).
+  listen('batch-mode:toggle', ({ enabled }) => {
+    if (!enabled && !isRight) void publishSelection();
+  });
   void reload();
 
   return {

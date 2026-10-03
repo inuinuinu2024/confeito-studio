@@ -3,7 +3,7 @@
  * text overlay each, the zoom bar, and the floating Compare / Overlay toolbars.
  *
  * Inputs (events):  archive:item-selected(:right), archive:selection-cleared(:right),
- *                   archive:batch-selected, overlay:underdrawing-selected(:right),
+ *                   archive:selection-summary(:right), archive:batch-selected, overlay:underdrawing-selected(:right),
  *                   <mode>-mode:toggle, document:loaded/redraw, canvas:bg-color
  * Drawing:          render.ts (from CanvasState in canvas-state.ts)
  * Zoom:             zoom.ts
@@ -13,9 +13,9 @@
 import './canvas.css';
 import { fetchArchiveKey } from '../../shared/api/archives';
 import { IMAGE_FILE_PATTERN, TEXT_FILE_PATTERN } from '../../shared/config';
-import { emit, on } from '../../shared/events';
+import { emit, on, type SelectionSummary } from '../../shared/events';
 import { h, icon, setShown } from '../../shared/ui/dom';
-import { showToast } from '../../shared/ui/toast';
+import { showError, showToast } from '../../shared/ui/toast';
 import { blobToCanvas } from '../../shared/utils/image';
 import { runTool } from '../ai-panel/tool-runner';
 import { DocumentManager } from '../document/DocumentManager';
@@ -405,8 +405,9 @@ export function createCanvas(): HTMLElement {
       state.sides.right.image = state.sides.left.image;
       const ctx = canvases.right?.getContext('2d');
       if (ctx) renderSide(ctx, state, 'right');
-    } else if (state.slider) {
-      resetSliderOptions();
+    } else {
+      if (state.slider) resetSliderOptions();
+      updateDrawSize(false); // back to the left image's own size
     }
     updateLayout();
     redraw();
@@ -426,7 +427,10 @@ export function createCanvas(): HTMLElement {
 
   on('batch-mode:toggle', ({ enabled }) => {
     state.batch = enabled;
-    if (!enabled) state.batchImages = [];
+    if (!enabled) {
+      state.batchImages = [];
+      updateDrawSize(false); // leave the grid size (ArchivePanel re-publishes its selection)
+    }
     updateLayout();
     redraw();
   });
@@ -451,12 +455,22 @@ export function createCanvas(): HTMLElement {
   });
 
   // ── ARCHIVES selection ──
+  // Selections can change while a file loads: only the latest request of each side is shown.
+  const selectionRequest: Record<Side, number> = { left: 0, right: 0 };
+
   const showSelection = async (side: Side, key: string, name: string) => {
+    const request = ++selectionRequest[side];
+    const isLatest = () => request === selectionRequest[side];
     const blob = await fetchArchiveKey(key);
-    if (!blob) return;
+    if (!isLatest()) return;
+    if (!blob) return loadFailed(side, name);
     if (isTextBlob(name, blob)) {
-      setText(side, await blob.text());
+      const text = await blob.text();
+      if (!isLatest()) return;
+      setText(side, text);
       state.sides[side].image = null;
+      state.sides[side].summary = null;
+      if (side === 'left') clearDocument(); // tools have no image while a text file is shown
       if (!canvases.left) initializeCanvases(800, 600);
       if (side === 'left') ensureSliderValid();
       updateDrawSize(true);
@@ -464,16 +478,14 @@ export function createCanvas(): HTMLElement {
       redraw();
       return;
     }
-    setText(side, null);
     const image = await blobToCanvas(blob);
-    if (!image) return;
+    if (!isLatest()) return;
+    if (!image) return loadFailed(side, name);
+    setText(side, null);
     state.sides[side].image = image;
-    if (side === 'left') {
-      const docManager = DocumentManager.getInstance();
-      docManager.setCanvas(image, name, key); // emits document:loaded synchronously
-      const archive = key.split('/');
-      if (archive.length > 1) docManager.setCurrentArchiveFolder(archive[0]);
-    }
+    state.sides[side].summary = null;
+    // The save folder was already set by ArchivePanel (the file's parent folder).
+    if (side === 'left') DocumentManager.getInstance().setCanvas(image, name, key); // emits document:loaded synchronously
     if (!canvases.left) initializeCanvases(image.width, image.height);
     updateDrawSize(false);
     zoom.resetTo100();
@@ -481,27 +493,45 @@ export function createCanvas(): HTMLElement {
     redraw();
   };
 
-  const clearSelection = (side: Side) => {
+  /** DocumentManager has no image now (tools see nothing; Compare / Overlay must not show the old one). */
+  const clearDocument = () => {
+    state.docImage = null;
+    DocumentManager.getInstance().setCanvas(null);
+  };
+
+  /** Shows nothing on this side; `summary` (a folder / several entries selected) words the empty message. */
+  const showNothing = (side: Side, summary: SelectionSummary | null) => {
+    selectionRequest[side]++;
     state.sides[side].image = null;
+    state.sides[side].summary = summary;
     setText(side, null);
-    if (side === 'left') {
-      state.batchImages = [];
-      state.docImage = null; // DocumentManager has no image now (Compare / Overlay must not show the old one)
-      const docManager = DocumentManager.getInstance();
-      docManager.setCanvas(null);
-      // Nothing selected -> no save folder either, so tools never write into the previous selection.
-      docManager.setCurrentArchiveFolder(null);
-    }
+    if (side === 'left') clearDocument();
     updateDrawSize(true);
     updateLayout();
     redraw();
     if (side === 'left') ensureSliderValid();
   };
 
+  const loadFailed = (side: Side, name: string) => {
+    showError(`「${name}」を読み込めませんでした`);
+    showNothing(side, null);
+  };
+
+  const clearSelection = (side: Side) => {
+    if (side === 'left') {
+      state.batchImages = [];
+      // Nothing selected -> no save folder either, so tools never write into the previous selection.
+      DocumentManager.getInstance().setCurrentArchiveFolder(null);
+    }
+    showNothing(side, null);
+  };
+
   on('archive:item-selected', ({ key, name }) => void showSelection('left', key, name));
   on('archive:item-selected:right', ({ key, name }) => void showSelection('right', key, name));
   on('archive:selection-cleared', () => clearSelection('left'));
   on('archive:selection-cleared:right', () => clearSelection('right'));
+  on('archive:selection-summary', summary => showNothing('left', summary));
+  on('archive:selection-summary:right', summary => showNothing('right', summary));
 
   // Selections can change while images load (Ctrl+click): only the latest request is shown.
   let batchRequest = 0;

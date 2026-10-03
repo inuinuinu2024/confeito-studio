@@ -10,6 +10,7 @@ import {
   selectedFiles,
   withoutTextFiles,
   planDeletion,
+  remapSelection,
 } from './archive-tree';
 
 const folder = (key: string, folderId: string | null = null): ArchiveEntry => ({
@@ -111,5 +112,29 @@ describe('selectedFiles / withoutTextFiles (Batch mode)', () => {
 
   it('removes text files', () => {
     expect(withoutTextFiles(selectedFiles(rows, new Set([4, 1]))).map(e => e.key)).toEqual(['a/x.png']);
+  });
+});
+
+describe('remapSelection (tree reloaded)', () => {
+  const expanded = buildTreeRows(entries, { a: false, 'a/sub': false });
+  // expanded: a, a/x.png, a/sub, a/sub/01.png, a/log.txt, b
+  const subCollapsed = buildTreeRows(entries, { a: false });
+  // subCollapsed: a, a/x.png, a/sub, a/log.txt, b
+
+  it('keeps the selection by key when the rows move', () => {
+    expect(remapSelection(expanded, [4, 1], 4, subCollapsed)).toEqual({ selected: [3, 1], last: 3, changed: false });
+  });
+
+  it('drops entries hidden by collapsing a folder', () => {
+    expect(remapSelection(expanded, [3], 3, subCollapsed)).toEqual({ selected: [], last: null, changed: true });
+    expect(remapSelection(expanded, [1, 3], 3, subCollapsed)).toEqual({ selected: [1], last: null, changed: true });
+  });
+
+  it('keeps a collapsed folder selected', () => {
+    expect(remapSelection(expanded, [2], 2, subCollapsed)).toEqual({ selected: [2], last: 2, changed: false });
+  });
+
+  it('reports no change for an empty selection', () => {
+    expect(remapSelection(expanded, [], null, subCollapsed)).toEqual({ selected: [], last: null, changed: false });
   });
 });

@@ -25,6 +25,15 @@ export interface DocumentLoadedDetail {
   height: number;
 }
 
+/** A selection that is not one file: a folder, or several entries (the canvas shows a message instead). */
+export interface SelectionSummary {
+  kind: 'folder' | 'multiple';
+  /** Folder name (kind "folder"). */
+  name?: string;
+  /** Number of selected rows. */
+  count: number;
+}
+
 export interface UnderdrawingSelection {
   id: string | null;
   cacheKey: string | null;
@@ -48,6 +57,9 @@ export interface AppEventMap {
   'archive:item-selected:right': ArchiveSelection;
   'archive:selection-cleared': undefined;
   'archive:selection-cleared:right': undefined;
+  /** A folder or several entries are selected (not Batch mode): the pane shows no image. */
+  'archive:selection-summary': SelectionSummary;
+  'archive:selection-summary:right': SelectionSummary;
   /** Batch mode: images to show as a grid (a folder's images, or the selected files in tree order). */
   'archive:batch-selected': { items: ArchiveSelection[] };
   /** Files changed on disk → panels reload and optionally select `autoSelectKey`. */

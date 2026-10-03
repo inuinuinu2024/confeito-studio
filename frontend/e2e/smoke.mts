@@ -166,6 +166,55 @@ async function childItem(page: Page, parent: string, child: string, panel = LEFT
   return page.locator(`${panel} .layer-item`).nth(index);
 }
 
+async function collapseFolder(page: Page, name: string | RegExp, panel = LEFT_PANEL): Promise<void> {
+  const chevron = archiveItem(page, name, panel).locator('.layer-item__icon--chevron');
+  if ((await chevron.textContent()) === 'expand_more') {
+    await chevron.click();
+    await page.waitForFunction(
+      ({ panel, source }) =>
+        Array.from(document.querySelectorAll(`${panel} .layer-item`)).some(
+          el =>
+            new RegExp(source).test(el.querySelector('.layer-item__name')?.textContent ?? '') &&
+            el.querySelector('.layer-item__icon--chevron')?.textContent === 'chevron_right',
+        ),
+      { panel, source: typeof name === 'string' ? name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : name.source },
+    );
+  }
+}
+
+/** Waits until the canvas shows its empty message, and returns it (timestamps masked). */
+async function waitForEmptyMessage(page: Page, pattern: RegExp): Promise<string> {
+  await page.waitForFunction(
+    source => {
+      const empty = document.querySelector<HTMLElement>('.canvas-empty');
+      const text = document.querySelector('.canvas-empty__message')?.textContent ?? '';
+      return !!empty && empty.getClientRects().length > 0 && new RegExp(source).test(text);
+    },
+    pattern.source,
+    { timeout: 10000 },
+  );
+  return maskTimestamps((await page.locator('.canvas-empty__message').textContent()) ?? '');
+}
+
+/** The card of a tool's window (what it will process), closing the window afterwards. */
+async function toolCard(page: Page, toolName: string): Promise<string> {
+  await clickTool(page, toolName);
+  await page.waitForSelector('.tool-window .cs-card');
+  await page.waitForTimeout(300);
+  const card = maskTimestamps(await page.locator('.tool-window .cs-card').first().innerText());
+  await closeToolWindow(page);
+  return card;
+}
+
+const waitForCanvasWidth = (page: Page, width: number) =>
+  page.waitForFunction(
+    width =>
+      !document.querySelector<HTMLElement>('.canvas-empty')?.getClientRects().length &&
+      Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === width),
+    width,
+    { timeout: 10000 },
+  );
+
 async function expandFolder(page: Page, name: string | RegExp, panel = LEFT_PANEL): Promise<void> {
   const row = archiveItem(page, name, panel);
   const chevron = row.locator('.layer-item__icon--chevron');
@@ -608,6 +657,53 @@ async function runScenarios(
     return { toast, archives: await archiveTree(page) };
   });
 
+  await step('05c-normal-selection', async () => {
+    // Normal mode shows only a single selected file; a folder or several entries clear the canvas
+    // and the tools have no image (docs/specs/canvas.md 「表示ルール」).
+    await archiveItem(page, /e2e-image$/).click();
+    const folder = await waitForEmptyMessage(page, /フォルダ「/);
+    await screenshot('normal-folder-selected', '.canvas-area');
+    const folderRemoveBg = await toolCard(page, '背景除去');
+    const folderMerge = await toolCard(page, 'コマ結合');
+
+    await archiveItem(page, 'e2e-image.png').click();
+    await waitForCanvasWidth(page, 640);
+    await archiveItem(page, 'notes.txt').click({ modifiers: ['Control'] });
+    const multiple = await waitForEmptyMessage(page, /件を選択中/);
+    // Ctrl+click back to one file shows that file.
+    await archiveItem(page, 'notes.txt').click({ modifiers: ['Control'] });
+    await waitForCanvasWidth(page, 640);
+    const backToOne = await canvasState(page);
+
+    // A text file: shown as text, and the tools have no image.
+    await archiveItem(page, 'notes.txt').click();
+    await page.waitForFunction(() =>
+      Array.from(document.querySelectorAll<HTMLElement>('.canvas-text-overlay')).some(o => o.style.display === 'block'),
+    );
+    const textRemoveBg = await toolCard(page, '背景除去');
+
+    // Collapsing the parent folder hides (deselects) the image: the canvas empties.
+    await archiveItem(page, 'e2e-image.png').click();
+    await waitForCanvasWidth(page, 640);
+    await collapseFolder(page, /e2e-image$/);
+    const collapsed = await waitForEmptyMessage(page, /^ARCHIVES から画像を選択してください$/);
+    const treeCollapsed = await archiveTree(page);
+    await expandFolder(page, /e2e-image$/);
+    await archiveItem(page, 'e2e-image.png').click();
+    await waitForCanvasWidth(page, 640);
+    await page.waitForTimeout(300);
+    return {
+      folder,
+      folderRemoveBg,
+      folderMerge,
+      multiple,
+      backToOne: { emptyMessage: backToOne.emptyMessage, size: backToOne.canvases.map(c => `${c.w}x${c.h}`) },
+      textRemoveBg,
+      collapsed,
+      treeCollapsed: treeCollapsed.map(r => ({ ...r, name: maskTimestamps(r.name) })),
+    };
+  });
+
   await step('06-zoom', async () => {
     // Canvas position inside the visible scroll area (px from its top-left corner).
     const canvasBox = () =>
@@ -1006,6 +1102,59 @@ async function runScenarios(
     await screenshot('batch-mode');
     await setMode(page, 'Normal');
     return { canvas };
+  });
+
+  await step('13b-normal-after-modes', async () => {
+    // Back from Batch: the selected folder is shown the Normal way (no image, not the old grid).
+    const afterBatch = await waitForEmptyMessage(page, /フォルダ「sub」/);
+    await screenshot('normal-after-batch', '.canvas-area');
+
+    // Expanding a folder keeps the selection.
+    await expandFolder(page, /^sub$/);
+    const keptOnExpand = (await archiveTree(page)).filter(r => r.state.includes('active')).map(r => r.name);
+
+    // A panel of a コマ分割 folder: コマ結合 targets that folder.
+    await (await childItem(page, 'e2e-panels', 'sub')).click(); // deselect the folder
+    await archiveItem(page, '01.png').click();
+    await waitForCanvasWidth(page, 150);
+    const mergeCard = await toolCard(page, 'コマ結合');
+
+    // Expanding / collapsing another folder keeps the image.
+    await expandFolder(page, /e2e-image$/);
+    await collapseFolder(page, /e2e-image$/);
+    const keptOnOtherFolder = (await canvasState(page)).canvases[0];
+
+    // Compare with a larger image on the right, then back: the canvas is the left image's size again.
+    await expandFolder(page, /e2e-image$/);
+    await setMode(page, 'Compare');
+    await page.waitForSelector(RIGHT_PANEL);
+    await archiveItem(page, 'e2e-image.png', RIGHT_PANEL).click();
+    await waitForCanvasWidth(page, 640);
+    await page.waitForTimeout(300);
+    const compareSize = (await canvasState(page)).canvases.map(c => `${c.w}x${c.h}`);
+    await setMode(page, 'Normal');
+    await page.waitForSelector('aside.ai-panel');
+    await waitForCanvasWidth(page, 150);
+    await page.waitForTimeout(300);
+    const afterCompare = await canvasState(page);
+    await screenshot('normal-after-compare', '.canvas-area');
+
+    // Collapsing the folder of the shown image empties the canvas.
+    await collapseFolder(page, /^sub$/);
+    const collapsed = await waitForEmptyMessage(page, /^ARCHIVES から画像を選択してください$/);
+    return {
+      afterBatch,
+      keptOnExpand,
+      mergeCard,
+      keptOnOtherFolder: { size: `${keptOnOtherFolder.w}x${keptOnOtherFolder.h}`, title: keptOnOtherFolder.title },
+      compareSize,
+      afterCompare: {
+        size: afterCompare.canvases.map(c => `${c.w}x${c.h}`),
+        zoom: afterCompare.zoomLabel,
+        emptyMessage: afterCompare.emptyMessage,
+      },
+      collapsed,
+    };
   });
 
   await step('14-delete-and-undo', async () => {

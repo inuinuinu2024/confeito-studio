@@ -42,6 +42,7 @@ frontend/src/
 |---|---|---|
 | `archive:item-selected(:right)` | ArchivePanel → Canvas | ファイルを選択（テキストは文字表示） |
 | `archive:selection-cleared(:right)` | ArchivePanel → Canvas | 選択解除（キャンバスを空に） |
+| `archive:selection-summary(:right)` | ArchivePanel → Canvas | フォルダ・複数選択（Batch 以外。画像を出さず、案内文で選択内容を示す） |
 | `archive:batch-selected` | ArchivePanel → Canvas | Batch モードでの選択（グリッド表示する画像の一覧） |
 | `archives:changed` | ツール/削除処理 → ArchivePanel | 一覧を再取得。`autoSelectKey` があれば展開して選択 |
 | `<mode>-mode:toggle` | view-mode.ts → 各機能 | 表示モードの ON/OFF（normal/compare/overlay/batch） |

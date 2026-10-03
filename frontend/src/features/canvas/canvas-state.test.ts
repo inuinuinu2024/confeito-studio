@@ -19,6 +19,24 @@ describe('emptyCanvasMessage', () => {
     expect(emptyCanvasMessage(stateWith(s => (s.docImage = image())))).not.toBeNull();
   });
 
+  it('names the folder or the count when Normal mode has no single file selected', () => {
+    expect(emptyCanvasMessage(stateWith(s => (s.sides.left.summary = { kind: 'folder', name: 'sub', count: 1 })))).toBe(
+      'フォルダ「sub」を選択中です。表示する画像を選択してください',
+    );
+    expect(emptyCanvasMessage(stateWith(s => (s.sides.left.summary = { kind: 'multiple', count: 3 })))).toBe(
+      '3 件を選択中です。Normal モードでは 1 件ずつ表示します',
+    );
+    // Compare mode keeps its own message.
+    expect(
+      emptyCanvasMessage(
+        stateWith(s => {
+          s.compare = true;
+          s.sides.left.summary = { kind: 'multiple', count: 2 };
+        }),
+      ),
+    ).toBe('ARCHIVES から画像を選択してください');
+  });
+
   it('is empty in Compare mode only when neither pane shows anything', () => {
     expect(emptyCanvasMessage(stateWith(s => (s.compare = true)))).toBe('ARCHIVES から画像を選択してください');
     expect(

@@ -6,6 +6,8 @@
  * ARCHIVES panel; the right pane is only visible in Compare mode.
  */
 
+import type { SelectionSummary } from '../../shared/events';
+
 export type Side = 'left' | 'right';
 
 export interface SideState {
@@ -13,6 +15,8 @@ export interface SideState {
   image: HTMLCanvasElement | null;
   /** A text file (json/txt/md) is shown in this side's text overlay instead of an image. */
   text: boolean;
+  /** A folder or several entries are selected on this side: nothing is shown, the empty message says so. */
+  summary: SelectionSummary | null;
   /** Overlay mode underdrawing (U). */
   underdrawing: HTMLCanvasElement | null;
   /** Overlay mode: offset of the top image (T) dragged by the user, in canvas pixels. */
@@ -63,6 +67,7 @@ export interface CanvasState {
 const emptySide = (): SideState => ({
   image: null,
   text: false,
+  summary: null,
   underdrawing: null,
   topOffset: { x: 0, y: 0 },
   topSelected: false,
@@ -129,5 +134,11 @@ export function emptyCanvasMessage(s: CanvasState): string | null {
   const shown = s.compare
     ? left.image || left.text || right.image || right.text || s.docImage
     : left.image || left.text;
-  return shown ? null : 'ARCHIVES から画像を選択してください';
+  if (shown) return null;
+  if (!s.compare && left.summary) {
+    return left.summary.kind === 'folder'
+      ? `フォルダ「${left.summary.name ?? ''}」を選択中です。表示する画像を選択してください`
+      : `${left.summary.count} 件を選択中です。Normal モードでは 1 件ずつ表示します`;
+  }
+  return 'ARCHIVES から画像を選択してください';
 }

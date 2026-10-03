@@ -122,3 +122,27 @@ export function withoutTextFiles(entries: ArchiveEntry[]): ArchiveEntry[] {
 export function imagesUnder(entries: ArchiveEntry[], folderKey: string): ArchiveEntry[] {
   return entries.filter(e => e.type !== 'folder' && (e.folderId === folderKey || e.key.startsWith(`${folderKey}/`)));
 }
+
+/**
+ * The selection after the tree was rebuilt, matched by key: entries no longer shown (deleted, or
+ * hidden in a collapsed folder) drop out. `last` is kept only while its entry is still selected.
+ */
+export function remapSelection(
+  oldRows: TreeRow[],
+  selected: Iterable<number>,
+  last: number | null,
+  newRows: TreeRow[],
+): { selected: number[]; last: number | null; changed: boolean } {
+  const indexOf = (i: number | null) => {
+    const key = i === null ? undefined : oldRows[i]?.item.key;
+    return key === undefined ? -1 : newRows.findIndex(r => r.item.key === key);
+  };
+  const before = [...selected];
+  const after = before.map(indexOf).filter(i => i !== -1);
+  const lastIndex = indexOf(last);
+  return {
+    selected: after,
+    last: after.includes(lastIndex) ? lastIndex : null,
+    changed: after.length !== before.length,
+  };
+}
