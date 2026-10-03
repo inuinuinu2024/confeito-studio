@@ -371,8 +371,8 @@ export function createCanvas(): HTMLElement {
     const file = e.dataTransfer?.files?.[0];
     if (!file) return;
     if (isComparing(state)) {
-      const mode = state.parallel ? 'Parallel' : 'Overlay';
-      showToast(`${mode} モードでは画像を取り込めません。Normal モードに戻してからドロップしてください`, 'warning');
+      const view = state.parallel ? 'Parallel View' : 'Overlay View';
+      showToast(`${view} では画像を取り込めません。Normal モードに戻してからドロップしてください`, 'warning');
       return;
     }
     if (file.type.startsWith('image/') || IMAGE_FILE_PATTERN.test(file.name)) await runTool(importImageTool(file));

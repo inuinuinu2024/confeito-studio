@@ -34,11 +34,10 @@
   color: var(--color-primary);
 }
 
-/* Between Normal / Batch and the comparison modes (Parallel / Overlay) */
+/* Thin line between the groups: Normal / Batch, the comparison views (Parallel / Overlay), the managers */
 .left-toolbar__divider {
   flex-shrink: 0;
   width: 28px;
-  height: 2px;
-  border-radius: 1px;
+  height: 1px;
   background: var(--color-outline);
 }

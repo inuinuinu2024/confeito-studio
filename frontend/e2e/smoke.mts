@@ -573,8 +573,15 @@ async function parallelState(page: Page) {
   });
 }
 
-async function setMode(page: Page, mode: 'Normal' | 'Parallel' | 'Overlay' | 'Batch'): Promise<void> {
-  await page.locator(`.left-toolbar__btn[title="${mode} Mode"]`).click();
+const MODE_BUTTONS = {
+  Normal: 'Normal Mode',
+  Batch: 'Batch Mode',
+  Parallel: 'Parallel View',
+  Overlay: 'Overlay View',
+} as const;
+
+async function setMode(page: Page, mode: keyof typeof MODE_BUTTONS): Promise<void> {
+  await page.locator(`.left-toolbar__btn[title="${MODE_BUTTONS[mode]}"]`).click();
   await page.waitForTimeout(300);
 }
 
@@ -610,7 +617,7 @@ async function runScenarios(
     await screenshot('boot');
     return {
       topbarActions: await page.$$eval('.topbar__action-btn', els => els.map(e => e.getAttribute('title'))),
-      // Mode buttons top to bottom, with the divider between Batch and Parallel.
+      // Buttons top to bottom, with dividers between Batch and Parallel and before the managers.
       toolbarItems: await page.$$eval('.left-toolbar > *', els =>
         els.map(e => e.getAttribute('title') ?? (e.classList.contains('left-toolbar__divider') ? '---' : '?')),
       ),
@@ -623,6 +630,18 @@ async function runScenarios(
       archives: await archiveTree(page),
       canvas: await canvasState(page),
     };
+  });
+
+  await step('01b-managers', async () => {
+    // The managers below the modes are not implemented yet: each shows a "開発中" toast and changes nothing else.
+    for (const title of ['Prompt Manager', 'Character Manager', 'Object Manager', 'Style Manager']) {
+      await page.locator(`.left-toolbar__btn[title="${title}"]`).click();
+    }
+    const toasts = await toastStack(page);
+    const activeModes = await page.$$eval('.left-toolbar__btn--active', els => els.map(e => e.getAttribute('title')));
+    // Let the toasts hide so they do not leak into the next steps' observations.
+    await page.waitForFunction(() => !document.querySelector('.toast--mock'), undefined, { timeout: 10000 });
+    return { toasts, activeModes };
   });
 
   await step('02-tool-order', async () => {
@@ -1451,7 +1470,7 @@ async function runScenarios(
     // Dropping an image file imports nothing in Overlay mode.
     const archivesBefore = (await archiveTree(page)).length;
     await dropTestImage(page, 'overlay-drop.png', 120, 90);
-    const dropToast = await waitForToast(page, /Overlay モードでは画像を取り込めません/);
+    const dropToast = await waitForToast(page, /Overlay View では画像を取り込めません/);
     await page.waitForTimeout(500);
     const archivesAfterDrop = (await archiveTree(page)).length;
 

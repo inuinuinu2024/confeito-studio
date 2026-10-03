@@ -80,7 +80,7 @@ function createApiPage(): { element: HTMLElement; refresh: () => Promise<void> }
     h('h2', { class: 'settings-window__page-title', text: 'API' }),
     section(
       'Gemini API Key',
-      'Gemini を使うツール（コマ分割・Nano Banana画像生成）で使います。プロジェクトの .env に保存します。',
+      'Gemini を使うツールで使います。',
       h('div', { class: 'settings-window__row' }, input, saveButton),
       status,
     ),
@@ -124,16 +124,15 @@ function createDisplayPage(): { element: HTMLElement; refresh: () => void } {
 export function createSettingsWindow(): SettingsWindow {
   const apiPage = createApiPage();
   const displayPage = createDisplayPage();
-  const pages: { id: SettingsPage; label: string; icon: string; element: HTMLElement }[] = [
-    { id: 'api', label: 'API', icon: 'key', element: apiPage.element },
-    { id: 'display', label: '表示', icon: 'palette', element: displayPage.element },
+  const pages: { id: SettingsPage; label: string; element: HTMLElement }[] = [
+    { id: 'api', label: 'API', element: apiPage.element },
+    { id: 'display', label: '表示', element: displayPage.element },
   ];
 
   const navItems = pages.map(page =>
     h(
       'button',
       { class: 'settings-window__nav-item', onclick: () => showPage(page.id) },
-      icon(page.icon, 18),
       h('span', { text: page.label }),
     ),
   );
