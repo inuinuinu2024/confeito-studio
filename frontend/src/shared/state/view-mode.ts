@@ -1,24 +1,28 @@
 /**
- * View mode store: exactly one of normal / parallel / overlay / batch is active.
+ * View mode store: exactly one of normal / parallel / overlay / batch / prompt (Prompt Manager) is active.
  *
  * `setViewMode()` is the only way to change it. Listeners receive the per-mode
  * `<mode>-mode:toggle` events, always emitted in MODE_ORDER: the target mode is
  * switched on and every other active mode switched off. Read the current mode
  * with `getViewMode()` / `isViewMode()` instead of keeping local copies.
+ * A mode can register a leave guard (e.g. unsaved changes) that the mode buttons wait for.
  */
 import { emit } from '../events';
 
-export type ViewMode = 'normal' | 'parallel' | 'overlay' | 'batch';
+export type ViewMode = 'normal' | 'parallel' | 'overlay' | 'batch' | 'prompt';
 
-const MODE_ORDER: ViewMode[] = ['normal', 'parallel', 'overlay', 'batch'];
+const MODE_ORDER: ViewMode[] = ['normal', 'parallel', 'overlay', 'batch', 'prompt'];
 const TOGGLE_EVENT = {
   normal: 'normal-mode:toggle',
   parallel: 'parallel-mode:toggle',
   overlay: 'overlay-mode:toggle',
   batch: 'batch-mode:toggle',
+  prompt: 'prompt-mode:toggle',
 } as const;
 
 let current: ViewMode = 'normal';
+/** Asked before leaving a mode; resolves false to stay. */
+const leaveGuards: Partial<Record<ViewMode, () => Promise<boolean>>> = {};
 
 export function getViewMode(): ViewMode {
   return current;
@@ -38,7 +42,15 @@ export function setViewMode(mode: ViewMode): void {
   }
 }
 
-/** Clicking the active mode's button returns to normal mode. */
-export function toggleViewMode(mode: ViewMode): void {
-  setViewMode(current === mode && mode !== 'normal' ? 'normal' : mode);
+export function setLeaveGuard(mode: ViewMode, guard: () => Promise<boolean>): void {
+  leaveGuards[mode] = guard;
+}
+
+/** Clicking the active mode's button returns to normal mode. Waits for the current mode's leave guard. */
+export async function toggleViewMode(mode: ViewMode): Promise<void> {
+  const next = current === mode && mode !== 'normal' ? 'normal' : mode;
+  if (next === current) return;
+  const guard = leaveGuards[current];
+  if (guard && !(await guard())) return;
+  setViewMode(next);
 }

@@ -20,11 +20,11 @@
 | `archives/` | ユーザーの作業データ（アーカイブ = フォルダ）。`.trash/` はゴミ箱（削除したアーカイブと `.items/` に削除したファイル。バックエンド起動時に空にする） | 除外（**消さないこと**） |
 | `settings/default_settings.json` | 各ツールの設定の初期値（フラットな文字列マップ。アプリは書かない） | 管理対象 |
 | `settings/user_settings.json` | ユーザーが変えた設定値（初期値の上に重ねる。壊れていたら `user_settings.broken-*.json` に退避） | 除外（**消さないこと**） |
-| `settings/prompts.json` | ユーザーが登録したプロンプト（ツールごと。壊れていたら `prompts.broken-*.json` に退避） | 除外（**消さないこと**） |
+| `assets/prompts/prompts.json` | ユーザーが登録したプロンプト（全ツール共通。壊れていたら `prompts.broken-*.json` に退避） | 除外（**消さないこと**） |
 | `.env` | `GEMINI_API_KEY` | 除外（秘密情報） |
 | `models/` | rembg モデル（isnet-anime.onnx） | 除外 |
 
-バックエンドの各パスは `CONFEITO_ARCHIVES_DIR` / `CONFEITO_SETTINGS_DIR` / `CONFEITO_ENV_FILE` で差し替え可能（テストと E2E が一時ディレクトリを使うため）。
+バックエンドの各パスは `CONFEITO_ARCHIVES_DIR` / `CONFEITO_SETTINGS_DIR` / `CONFEITO_ASSETS_DIR` / `CONFEITO_ENV_FILE` で差し替え可能（テストと E2E が一時ディレクトリを使うため）。
 
 ## 技術選定理由
 - **Vite 5**: 高速な開発体験とビルドのため。

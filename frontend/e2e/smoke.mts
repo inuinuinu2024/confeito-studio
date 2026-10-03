@@ -595,6 +595,8 @@ async function runScenarios(
   obs: Record<string, unknown>,
 ): Promise<void> {
   let shot = 0;
+  /** The registered prompts (CONFEITO_ASSETS_DIR is <dataDir>/assets). */
+  const promptsFile = path.join(path.dirname(settingsDir), 'assets', 'prompts', 'prompts.json');
   const screenshot = async (name: string, selector?: string) => {
     shot += 1;
     const file = path.join(out, `${String(shot).padStart(2, '0')}-${name}.png`);
@@ -633,8 +635,8 @@ async function runScenarios(
   });
 
   await step('01b-managers', async () => {
-    // The managers below the modes are not implemented yet: each shows a "開発中" toast and changes nothing else.
-    for (const title of ['Prompt Manager', 'Character Manager', 'Object Manager', 'Style Manager']) {
+    // The managers after Prompt Manager are not implemented yet: each shows a "開発中" toast and changes nothing else.
+    for (const title of ['Character Manager', 'Object Manager', 'Style Manager']) {
       await page.locator(`.left-toolbar__btn[title="${title}"]`).click();
     }
     const toasts = await toastStack(page);
@@ -984,38 +986,32 @@ async function runScenarios(
   });
 
   await step('10b-prompts', async () => {
-    // Registered prompts per tool (docs/specs/tools/gemini-image.md 「プロンプト」): register, overwrite,
-    // use, edit and delete, saved to settings/prompts.json apart from the tool settings.
+    // Registered prompts from a tool (docs/specs/tools/gemini-image.md 「プロンプト」): register (with a
+    // category; a registered name is overwritten after a confirmation) and pick (category filter, search, 使う).
+    // They are shared by every tool and saved to assets/prompts/prompts.json apart from the tool settings.
     const win = '.tool-window';
     const textarea = page.locator(`${win} .nbp-prompt textarea`);
     const topModal = () => page.locator('.cs-modal-overlay--open').last();
-    const promptsFile = path.join(settingsDir, 'prompts.json');
-    const savedPrompts = () => {
-      try {
-        const data = JSON.parse(fs.readFileSync(promptsFile, 'utf-8')) as Record<
-          string,
-          { name: string; text: string }[]
-        >;
-        return Object.fromEntries(
-          Object.entries(data).map(([tool, list]) => [tool, list.map(({ name, text }) => ({ name, text }))]),
-        );
-      } catch {
-        return null;
-      }
-    };
-    const register = async (name: string) => {
+    const register = async (name: string, category: string) => {
       await page.locator(`${win} button[title="このプロンプトを登録"]`).click();
-      await topModal().locator('input').fill(name);
+      await topModal().locator('input').first().fill(name);
+      await topModal().locator('.cs-suggest input').fill(category);
       await topModal().locator('button', { hasText: '登録' }).click();
     };
-    const openLibrary = async () => {
+    const openPicker = async () => {
       await page.locator(`${win} button[title="登録したプロンプトを開く"]`).click();
       await page.waitForFunction(() => {
         const list = document.querySelector('.prompt-library');
         return !!list && !list.textContent?.includes('読み込み中');
       });
     };
-    const libraryItems = () => topModal().locator('.prompt-library__name').allTextContents();
+    const pickerItems = () =>
+      page.$$eval('.cs-modal-overlay--open .prompt-library__item', els =>
+        els.map(e => [
+          e.querySelector('.prompt-library__name')?.textContent,
+          e.querySelector('.prompt-library__category')?.textContent,
+        ]),
+      );
 
     await clickTool(page, 'Nano Banana画像生成');
     await page.waitForSelector(win);
@@ -1025,12 +1021,23 @@ async function runScenarios(
     const emptyToast = await waitForToast(page, /プロンプトを入力してください/);
     const openAfterEmptyRun = (await page.locator(win).count()) === 1;
 
+    // An empty picker.
+    await openPicker();
+    const emptyPicker = await topModal().locator('.prompt-library').textContent();
+    await page.keyboard.press('Escape');
+    await page.locator('.prompt-dialog-overlay').waitFor({ state: 'detached' });
+
     await textarea.fill('線画を維持して着彩して');
-    await register('着彩');
+    await register('着彩', '塗り');
     const registerToast = await waitForToast(page, /プロンプト「着彩」を登録しました/);
     await textarea.fill('線画を維持して、淡い色で着彩して');
     await page.locator(`${win} button[title="このプロンプトを登録"]`).click();
-    await topModal().locator('input').fill('着彩');
+    await topModal().locator('input').first().fill('着彩');
+    await topModal().locator('.cs-suggest input').fill('塗り');
+    await page.waitForFunction(() => document.querySelectorAll('.cs-modal-overlay--open datalist option').length > 0);
+    const categorySuggestions = await topModal()
+      .locator('datalist option')
+      .evaluateAll(els => els.map(e => (e as HTMLOptionElement).value));
     await withVisibleToasts(page, () => screenshot('prompt-register', '.prompt-dialog-overlay .cs-modal'));
     await topModal().locator('button', { hasText: '登録' }).click();
     const overwriteMessage = await topModal().locator('.cs-modal__message').textContent();
@@ -1038,38 +1045,37 @@ async function runScenarios(
     await topModal().locator('button', { hasText: '上書き' }).click();
     await waitForToast(page, /プロンプト「着彩」を上書きしました/);
     await textarea.fill('表情差分を作って');
-    await register('表情差分');
+    await register('表情差分', '');
     await waitForToast(page, /プロンプト「表情差分」を登録しました/);
-    const afterRegister = savedPrompts();
+    await textarea.fill('夕焼けの空にして');
+    await register('夕焼け', '背景');
+    await waitForToast(page, /プロンプト「夕焼け」を登録しました/);
+    const afterRegister = JSON.parse(fs.readFileSync(promptsFile, 'utf-8')) as {
+      categories: string[];
+      prompts: { name: string; category: string; text: string }[];
+    };
 
-    // 使う replaces the field; the list closes.
+    // Picker: すべて in category order (未分類 last), a category filter, a search; 使う replaces the field.
     await textarea.fill('');
-    await openLibrary();
-    const listed = await libraryItems();
-    await screenshot('prompt-library', '.prompt-dialog-overlay .cs-modal');
+    await openPicker();
+    const listed = await pickerItems();
+    const categoryOptions = await topModal().locator('.prompt-library__category-select option').allTextContents();
+    await screenshot('prompt-picker', '.prompt-dialog-overlay .cs-modal');
+    await topModal().locator('.prompt-library__category-select').selectOption({ label: '背景' });
+    const filtered = await pickerItems();
+    await topModal().locator('.prompt-library__category-select').selectOption({ label: 'すべて' });
+    await topModal().locator('input[type="search"]').fill('淡い');
+    const searched = await pickerItems();
+    await topModal().locator('input[type="search"]').fill('存在しない');
+    const noMatch = await topModal().locator('.prompt-library').textContent();
+    await topModal().locator('input[type="search"]').fill('');
+    const hasEditButtons = (await topModal().locator('button', { hasText: '編集' }).count()) > 0;
     await topModal().locator('.prompt-library__item').first().locator('button', { hasText: '使う' }).click();
+    const useToast = await waitForToast(page, /プロンプト「着彩」を読み込みました/);
     const usedText = await textarea.inputValue();
 
-    // Edit (renaming to a registered name only warns), then delete.
-    await openLibrary();
-    await topModal().locator('.prompt-library__item').nth(1).locator('button', { hasText: '編集' }).click();
-    await topModal().locator('input').fill('着彩');
-    await topModal().locator('button', { hasText: '保存' }).click();
-    const duplicateToast = await waitForToast(page, /同じ名前のプロンプト「着彩」が登録されています/);
-    await topModal().locator('input').fill('表情差分 4x4');
-    await topModal().locator('button', { hasText: '保存' }).click();
-    await waitForToast(page, /プロンプト「表情差分 4x4」を保存しました/);
-    await page.waitForFunction(() =>
-      Array.from(document.querySelectorAll('.prompt-library__name')).some(n => n.textContent === '表情差分 4x4'),
-    );
-    const afterEdit = await libraryItems();
-    await topModal().locator('.prompt-library__item').first().locator('button', { hasText: '削除' }).click();
-    const deleteMessage = await topModal().locator('.cs-modal__message').textContent();
-    await topModal().locator('button', { hasText: '削除' }).click();
-    await waitForToast(page, /プロンプト「着彩」を削除しました/);
-    await page.waitForFunction(() => document.querySelectorAll('.prompt-library__item').length === 1);
-    const afterDelete = await libraryItems();
-    // Esc closes only the list, not the tool window.
+    // Esc closes only the picker, not the tool window.
+    await openPicker();
     await page.keyboard.press('Escape');
     await page.locator('.prompt-dialog-overlay').waitFor({ state: 'detached' });
     const openAfterEscape = (await page.locator(win).count()) === 1;
@@ -1087,18 +1093,239 @@ async function runScenarios(
       initialText,
       emptyToast,
       openAfterEmptyRun,
+      emptyPicker,
       registerToast,
+      categorySuggestions,
       overwriteMessage,
-      afterRegister,
+      afterRegister: afterRegister.prompts.map(p => [p.name, p.category, p.text]),
+      categories: afterRegister.categories,
       listed,
+      categoryOptions,
+      filtered,
+      searched,
+      noMatch,
+      hasEditButtons,
+      useToast,
       usedText,
-      duplicateToast,
-      afterEdit,
-      deleteMessage,
-      afterDelete,
       openAfterEscape,
       savedPrompt: userSettings.nanoBananaPro_prompt ?? null,
-      prompts: savedPrompts(),
+      oldSettingsFile: fs.existsSync(path.join(settingsDir, 'prompts.json')),
+    };
+  });
+
+  await step('10c-prompt-manager', async () => {
+    // Prompt Manager (docs/specs/prompt-manager.md): a view mode with categories in the ARCHIVES column
+    // and list | editor in the canvas column. Starts with 塗り: 着彩 / 背景: 夕焼け / 未分類: 表情差分 (10b).
+    const topModal = () => page.locator('.cs-modal-overlay--open').last();
+    const exact = (text: string) => new RegExp(`^${text}$`);
+    const categoryRow = (label: string) =>
+      page.locator('.pm-category').filter({ has: page.locator('.pm-category__name', { hasText: exact(label) }) });
+    const promptRow = (name: string) =>
+      page.locator('.pm-prompt').filter({ has: page.locator('.pm-prompt__name', { hasText: exact(name) }) });
+    const editor = {
+      name: page.locator('.pm-editor input').first(),
+      category: page.locator('.pm-editor .cs-suggest input'),
+      text: page.locator('.pm-editor textarea'),
+    };
+    const editorButton = (label: string) => page.locator('.pm-editor__actions button', { hasText: label });
+    const view = () =>
+      page.evaluate(() => {
+        const shown = (sel: string) => {
+          const el = document.querySelector(sel);
+          return !!el && (el as HTMLElement).getClientRects().length > 0;
+        };
+        const row = (e: Element) => {
+          if (e.classList.contains('pm-list__group')) return `## ${e.textContent}`;
+          if (!e.classList.contains('pm-prompt')) return `(${e.textContent})`;
+          const marks = `${e.classList.contains('pm-prompt--active') ? '>' : ''}${e.classList.contains('pm-prompt--sortable') ? '⋮' : ''}`;
+          return `${marks}${e.querySelector('.pm-prompt__name')?.textContent}`;
+        };
+        return {
+          categories: Array.from(document.querySelectorAll('.pm-category')).map(e => [
+            e.querySelector('.pm-category__name')?.textContent,
+            e.querySelector('.pm-category__count')?.textContent,
+            e.classList.contains('pm-category--active'),
+          ]),
+          list: Array.from(document.querySelectorAll('.pm-list__group, .pm-prompt, .pm-list__empty')).map(row),
+          editor: shown('.pm-editor__form')
+            ? {
+                title: document.querySelector('.pm-editor__title')?.textContent,
+                dirty: shown('.pm-editor__dirty'),
+                buttons: Array.from(document.querySelectorAll<HTMLElement>('.pm-editor__actions button'))
+                  .filter(b => b.getClientRects().length > 0)
+                  .map(b => b.textContent),
+              }
+            : document.querySelector('.pm-editor__empty')?.textContent,
+          archivesShown: shown('.layer-panel'),
+          canvasShown: shown('.canvas-area'),
+          aiPanelShown: shown('.ai-panel'),
+          activeModes: Array.from(document.querySelectorAll('.left-toolbar__btn--active')).map(e =>
+            e.getAttribute('title'),
+          ),
+        };
+      });
+    const saved = () =>
+      JSON.parse(fs.readFileSync(promptsFile, 'utf-8')) as {
+        categories: string[];
+        prompts: { name: string; category: string; text: string }[];
+      };
+    const savedOrder = () => {
+      const data = saved();
+      return { categories: data.categories, prompts: data.prompts.map(p => `${p.category || '-'}/${p.name}`) };
+    };
+    /** Waits until the file has the order (drops are saved after the rows move). */
+    const waitForSavedOrder = async (check: (order: ReturnType<typeof savedOrder>) => boolean) => {
+      for (let i = 0; i < 50 && !check(savedOrder()); i++) await page.waitForTimeout(100);
+      return savedOrder();
+    };
+
+    await page.locator('.left-toolbar__btn[title="Prompt Manager"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('.pm-prompt').length === 3);
+    const opened = await view();
+    await screenshot('prompt-manager');
+
+    // Open a prompt, edit it; switching to another prompt asks: キャンセル stays, 破棄 drops the change.
+    await promptRow('着彩').click();
+    await editor.text.fill('線画を維持して、濃い色で着彩して');
+    const dirty = await view();
+    await promptRow('夕焼け').click();
+    const leaveMessage = await topModal().locator('.cs-modal__message').textContent();
+    const leaveButtons = await topModal().locator('button').allTextContents();
+    await screenshot('prompt-manager-unsaved', '.cs-modal-overlay--open >> nth=-1');
+    await topModal().locator('button', { hasText: 'キャンセル' }).click();
+    const afterCancel = await editor.text.inputValue();
+    // Ctrl+S saves while typing.
+    await editor.text.press('Control+s');
+    const ctrlSToast = await waitForToast(page, /プロンプト「着彩」を保存しました/);
+    const savedText = saved().prompts.find(p => p.name === '着彩')?.text;
+
+    // A duplicate name only warns; leaving the change with 破棄.
+    await promptRow('夕焼け').click();
+    await editor.name.fill('着彩');
+    await editorButton('保存').click();
+    const duplicateToast = await waitForToast(page, /同じ名前のプロンプト「着彩」が登録されています/);
+    await promptRow('表情差分').click();
+    await topModal().locator('button', { hasText: '破棄' }).click();
+    const afterDiscard = await view();
+
+    // New prompt in the selected category; it goes to the end of the category.
+    await categoryRow('塗り').click();
+    await page.locator('.pm-list button', { hasText: '+ 新規' }).click();
+    const newEditor = { view: await view(), category: await editor.category.inputValue() };
+    await editor.name.fill('ベタ塗り');
+    await editor.text.fill('フラットな色で塗って');
+    await editorButton('保存').click();
+    const createToast = await waitForToast(page, /プロンプト「ベタ塗り」を作成しました/);
+    // Duplicate goes right after the original.
+    await editorButton('複製').click();
+    const duplicateCopyToast = await waitForToast(page, /プロンプト「ベタ塗り のコピー」を作成しました/);
+    const afterCreate = { view: await view(), saved: savedOrder() };
+    await screenshot('prompt-manager-editor');
+
+    // Reorder within the category: drag the copy above 着彩.
+    await promptRow('ベタ塗り のコピー').dragTo(promptRow('着彩'), { targetPosition: { x: 20, y: 4 } });
+    const afterReorder = await waitForSavedOrder(o => o.prompts[0] === '塗り/ベタ塗り のコピー');
+    // Drop a prompt on another category: it moves to that category's end (the editor follows).
+    await promptRow('ベタ塗り のコピー').dragTo(categoryRow('背景'));
+    await waitForToast(page, /プロンプト「ベタ塗り のコピー」を「背景」に移しました/);
+    const afterMove = { view: await view(), saved: savedOrder(), editorCategory: await editor.category.inputValue() };
+    // Reorder categories: drag 背景 above 塗り.
+    await categoryRow('背景').dragTo(categoryRow('塗り'), { targetPosition: { x: 20, y: 4 } });
+    const afterCategoryOrder = await waitForSavedOrder(o => o.categories[0] === '背景');
+    await page.waitForFunction(() => document.querySelectorAll('.pm-category__name')[1]?.textContent === '背景');
+
+    // Rename a category in place, then into an existing one (merge after a confirmation).
+    await categoryRow('塗り').dblclick();
+    await page.locator('.pm-category__input').fill('着色');
+    await page.locator('.pm-category__input').press('Enter');
+    await waitForToast(page, /カテゴリー「塗り」を「着色」に変更しました/);
+    await categoryRow('背景').dblclick();
+    await page.locator('.pm-category__input').fill('着色');
+    await page.locator('.pm-category__input').press('Enter');
+    const mergeMessage = await topModal().locator('.cs-modal__message').textContent();
+    await topModal().locator('button', { hasText: 'まとめる' }).click();
+    await waitForToast(page, /カテゴリー「背景」を「着色」に変更しました/);
+    const afterRename = { view: await view(), saved: savedOrder() };
+
+    // Search within すべて (no drag handles).
+    await categoryRow('すべて').click();
+    await page.locator('.pm-list__search').fill('フラット');
+    const searched = await view();
+    await page.locator('.pm-list__search').fill('');
+
+    // Delete.
+    await promptRow('ベタ塗り のコピー').click();
+    await editorButton('削除').click();
+    const deleteMessage = await topModal().locator('.cs-modal__message').textContent();
+    await topModal().locator('button', { hasText: '削除' }).click();
+    await waitForToast(page, /プロンプト「ベタ塗り のコピー」を削除しました/);
+
+    // Export (browser download), then import the same file: every name conflicts → スキップ / 名前を変えて追加.
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('.pm-sidebar__action-btn[title="エクスポート"]').click(),
+    ]);
+    const exportPath = path.join(path.dirname(settingsDir), 'exported-prompts.json');
+    await download.saveAs(exportPath);
+    const exported = JSON.parse(fs.readFileSync(exportPath, 'utf-8'));
+    const importFile = async () => {
+      const [chooser] = await Promise.all([
+        page.waitForEvent('filechooser'),
+        page.locator('.pm-sidebar__action-btn[title="インポート"]').click(),
+      ]);
+      await chooser.setFiles(exportPath);
+    };
+    await importFile();
+    const conflictMessage = await topModal().locator('.cs-modal__message').textContent();
+    const conflictButtons = await topModal().locator('button').allTextContents();
+    await screenshot('prompt-import-conflict', '.cs-modal-overlay--open >> nth=-1');
+    await topModal().locator('button', { hasText: 'スキップ' }).click();
+    const skipToast = await waitForToast(page, /追加 0 件・上書き 0 件・スキップ 4 件/);
+    await importFile();
+    await topModal().locator('button', { hasText: '名前を変えて追加' }).click();
+    const renameToast = await waitForToast(page, /追加 4 件・上書き 0 件・スキップ 0 件/);
+    await page.waitForFunction(() => document.querySelectorAll('.pm-prompt').length === 8);
+    const afterImport = { view: await view(), saved: savedOrder() };
+    await screenshot('prompt-manager-after-import');
+
+    // Leaving with unsaved changes asks too; back in Normal mode the canvas and the AI panel return.
+    await promptRow('着彩').click();
+    await editor.text.fill('変更中');
+    await page.locator('.left-toolbar__btn[title="Normal Mode"]').click();
+    const leaveModeMessage = await topModal().locator('.cs-modal__message').textContent();
+    await topModal().locator('button', { hasText: '破棄' }).click();
+    await page.waitForTimeout(300);
+    const afterLeave = await view();
+    await page.waitForFunction(() => !document.querySelector('.toast'), undefined, { timeout: 15000 });
+    return {
+      opened,
+      dirty,
+      leaveMessage,
+      leaveButtons,
+      afterCancel,
+      ctrlSToast,
+      savedText,
+      duplicateToast,
+      afterDiscard,
+      newEditor,
+      createToast,
+      duplicateCopyToast,
+      afterCreate,
+      afterReorder,
+      afterMove,
+      afterCategoryOrder,
+      mergeMessage,
+      afterRename,
+      searched,
+      deleteMessage,
+      exported: { format: exported.format, categories: exported.categories, count: exported.prompts.length },
+      conflictMessage,
+      conflictButtons,
+      skipToast,
+      renameToast,
+      afterImport,
+      leaveModeMessage,
+      afterLeave,
     };
   });
 
@@ -2517,6 +2744,7 @@ async function main(): Promise<void> {
       {
         CONFEITO_ARCHIVES_DIR: path.join(dataDir, 'archives'),
         CONFEITO_SETTINGS_DIR: settingsDir,
+        CONFEITO_ASSETS_DIR: path.join(dataDir, 'assets'),
         CONFEITO_ENV_FILE: path.join(dataDir, '.env'),
         GEMINI_API_KEY: '',
         PYTHONUTF8: '1',

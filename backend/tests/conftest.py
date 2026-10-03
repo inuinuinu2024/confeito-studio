@@ -22,6 +22,7 @@ from src.app.config import settings  # noqa: E402
 def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(settings, "archives_dir", tmp_path / "archives")
     monkeypatch.setattr(settings, "settings_dir", tmp_path / "settings")
+    monkeypatch.setattr(settings, "assets_dir", tmp_path / "assets")
     monkeypatch.setattr(settings, "env_file", tmp_path / ".env")
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     (tmp_path / "archives").mkdir()

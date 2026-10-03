@@ -1,6 +1,6 @@
 /** Modal dialogs (styles: shared/styles/components.css). */
 import { h } from './dom';
-import { button } from './form';
+import { button, type ButtonVariant } from './form';
 import { showToast } from './toast';
 
 export interface Modal {
@@ -92,26 +92,51 @@ export function escapeClosable(overlay: HTMLElement, onEscape: () => void): () =
   };
 }
 
-/** Yes / no question in a modal; resolves true for `confirmLabel`, false for キャンセル and Esc. */
-export function confirmDialog(opts: { title: string; message: string; confirmLabel: string }): Promise<boolean> {
+export interface DialogChoice<T extends string> {
+  value: T;
+  label: string;
+  variant?: ButtonVariant;
+}
+
+/**
+ * A question with several answers in a modal: resolves the chosen value, or null for キャンセル and Esc.
+ * The buttons are キャンセル then the choices; the last choice has the focus.
+ */
+export function choiceDialog<T extends string>(opts: {
+  title: string;
+  message: string;
+  choices: DialogChoice<T>[];
+}): Promise<T | null> {
   return new Promise(resolve => {
     const modal = createModal({ title: opts.title, closeOnBackdrop: false });
-    const remove = escapeClosable(modal.overlay, () => answer(false));
-    const answer = (value: boolean) => {
+    const remove = escapeClosable(modal.overlay, () => answer(null));
+    const answer = (value: T | null) => {
       remove();
       resolve(value);
     };
-    const confirm = button(opts.confirmLabel, () => answer(true), { variant: 'primary', size: 'dialog' });
+    const buttons = opts.choices.map(c =>
+      button(c.label, () => answer(c.value), { variant: c.variant ?? 'default', size: 'dialog' }),
+    );
     modal.panel.append(
       h('p', { class: 'cs-modal__message', text: opts.message }),
       h(
         'div',
         { class: 'cs-modal__actions' },
-        button('キャンセル', () => answer(false), { variant: 'outline', size: 'dialog' }),
-        confirm,
+        button('キャンセル', () => answer(null), { variant: 'outline', size: 'dialog' }),
+        ...buttons,
       ),
     );
     modal.open();
-    confirm.focus();
+    buttons[buttons.length - 1]?.focus();
   });
+}
+
+/** Yes / no question in a modal; resolves true for `confirmLabel`, false for キャンセル and Esc. */
+export async function confirmDialog(opts: { title: string; message: string; confirmLabel: string }): Promise<boolean> {
+  const choice = await choiceDialog({
+    title: opts.title,
+    message: opts.message,
+    choices: [{ value: 'ok', label: opts.confirmLabel, variant: 'primary' }],
+  });
+  return choice === 'ok';
 }

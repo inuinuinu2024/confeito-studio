@@ -14,7 +14,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import (
     __version__,
-    config,  # noqa: F401  (imported first: loads .env into os.environ)
+    config,  # imported first: loads .env into os.environ
 )
 from .errors import UNEXPECTED_ERROR_MESSAGE, AppError, exception_text
 from .routers import archives, generate, health, image, local_files, prompts
@@ -31,6 +31,8 @@ NO_STORE = {"Cache-Control": "no-store"}
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # Deleted items are only undoable within one session (docs/specs/archives.md 「削除と Undo」).
     await run_in_threadpool(archive_service.empty_trash)
+    # Where the registered prompts are kept (docs/specs/prompt-manager.md 「保存先」), there from the start.
+    config.settings.prompts_file.parent.mkdir(parents=True, exist_ok=True)
     yield
 
 

@@ -6,9 +6,10 @@ environment variable (the tests and the E2E harness point them at temp dirs):
 
     CONFEITO_ENV_FILE      .env loaded into os.environ at startup (default: <repo>/.env)
     CONFEITO_ARCHIVES_DIR  archive storage (default: <repo>/archives)
-    CONFEITO_SETTINGS_DIR  tool settings: default_settings.json (initial values, in git),
-                           user_settings.json (the user's values, not in git) and prompts.json
-                           (registered prompts, not in git) (default: <repo>/settings)
+    CONFEITO_SETTINGS_DIR  tool settings: default_settings.json (initial values, in git) and
+                           user_settings.json (the user's values, not in git) (default: <repo>/settings)
+    CONFEITO_ASSETS_DIR    the user's assets, not in git: prompts/prompts.json (registered prompts)
+                           (default: <repo>/assets)
     CONFEITO_MODELS_DIR    rembg model directory (default: <repo>/models)
     CONFEITO_PROJECT_DIR   where 画像読み込み's file dialog opens when no folder is set (default: <repo>)
 
@@ -32,6 +33,7 @@ class Settings(BaseSettings):
     env_file: Path = PROJECT_ROOT / ".env"
     archives_dir: Path = PROJECT_ROOT / "archives"
     settings_dir: Path = PROJECT_ROOT / "settings"
+    assets_dir: Path = PROJECT_ROOT / "assets"
     models_dir: Path = PROJECT_ROOT / "models"
     project_dir: Path = PROJECT_ROOT
 
@@ -51,8 +53,8 @@ class Settings(BaseSettings):
 
     @property
     def prompts_file(self) -> Path:
-        """The prompts the user registered, per tool (not in git)."""
-        return self.settings_dir / "prompts.json"
+        """The prompts the user registered, shared by every tool (not in git)."""
+        return self.assets_dir / "prompts" / "prompts.json"
 
 
 def read_env_file(path: Path) -> dict[str, str]:

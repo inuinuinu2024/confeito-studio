@@ -181,7 +181,7 @@ export class NanoBananaProTool implements Tool {
       parameters.replaceChildren(...this.parameterElements(renderModelDependent), previewButton);
     };
 
-    const prompt = promptField('プロンプト', this.settings, this.settingsPrefix);
+    const prompt = promptField('プロンプト', this.settings);
     prompt.classList.add('nbp-prompt');
     container.append(
       h(

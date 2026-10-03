@@ -128,28 +128,57 @@ def test_tool_settings_roundtrip(client, data_dir: Path) -> None:
     assert not (data_dir / "settings" / "default_settings.json").exists()
 
 
-def test_prompts_roundtrip(client) -> None:
-    assert client.get("/api/prompts/nanoBananaPro").json() == {"prompts": [], "warnings": []}
+def test_startup_creates_the_prompts_folder(data_dir: Path) -> None:
+    from fastapi.testclient import TestClient
 
-    res = client.post("/api/prompts/nanoBananaPro", json={"name": " 着彩 ", "text": "着彩して"})
+    from src.app.main import app
+
+    with TestClient(app):
+        assert (data_dir / "assets" / "prompts").is_dir()
+
+
+def test_prompts_roundtrip(client, data_dir: Path) -> None:
+    empty = {"categories": [], "prompts": [], "warnings": []}
+    assert client.get("/api/prompts").json() == empty
+
+    res = client.post("/api/prompts", json={"name": " 着彩 ", "category": "塗り", "text": "着彩して"})
     assert res.status_code == 200
     prompt = res.json()["prompt"]
-    assert prompt["name"] == "着彩" and prompt["text"] == "着彩して"
+    assert (prompt["name"], prompt["category"], prompt["text"]) == ("着彩", "塗り", "着彩して")
+    assert (data_dir / "assets" / "prompts" / "prompts.json").exists()
 
-    duplicate = client.post("/api/prompts/nanoBananaPro", json={"name": "着彩", "text": "別"})
+    duplicate = client.post("/api/prompts", json={"name": "着彩", "text": "別"})
     assert duplicate.status_code == 400
     assert duplicate.json() == {"detail": "同じ名前のプロンプト「着彩」が登録されています。"}
 
-    res = client.put(f"/api/prompts/nanoBananaPro/{prompt['id']}", json={"name": "着彩2", "text": "塗って"})
-    assert res.json() == {"prompt": {"id": prompt["id"], "name": "着彩2", "text": "塗って"}, "warnings": []}
-    assert client.get("/api/prompts/nanoBananaPro").json()["prompts"] == [res.json()["prompt"]]
+    res = client.put(f"/api/prompts/{prompt['id']}", json={"name": "着彩2", "category": "塗り", "text": "塗って"})
+    updated = {"id": prompt["id"], "name": "着彩2", "category": "塗り", "text": "塗って"}
+    assert res.json() == {"prompt": updated, "warnings": []}
+    assert client.get("/api/prompts").json() == {"categories": ["塗り"], "prompts": [updated], "warnings": []}
     # Kept apart from the tool settings.
     assert client.get("/api/settings/tools").json() == {"values": {}, "warnings": []}
 
-    assert client.delete(f"/api/prompts/nanoBananaPro/{prompt['id']}").json() == {"warnings": []}
-    assert client.delete(f"/api/prompts/nanoBananaPro/{prompt['id']}").status_code == 404
-    assert client.get("/api/prompts/nanoBananaPro").json() == {"prompts": [], "warnings": []}
-    assert client.get("/api/prompts/bad-name").status_code == 400
+    copy = client.post(f"/api/prompts/{prompt['id']}/duplicate").json()["prompt"]
+    assert copy["name"] == "着彩2 のコピー"
+    moved = client.put(f"/api/prompts/{copy['id']}/category", json={"category": "背景"}).json()["prompt"]
+    assert moved["category"] == "背景"
+    assert client.put("/api/prompts/categories/order", json={"categories": ["背景", "塗り"]}).status_code == 200
+    assert client.post("/api/prompts/categories/rename", json={"old": "背景", "new": "空"}).status_code == 200
+    assert client.put("/api/prompts/order", json={"category": "空", "ids": [copy["id"]]}).status_code == 200
+    assert client.put("/api/prompts/order", json={"category": "空", "ids": []}).status_code == 409
+    listed = client.get("/api/prompts").json()
+    assert listed["categories"] == ["空", "塗り"]
+    assert [p["name"] for p in listed["prompts"]] == ["着彩2 のコピー", "着彩2"]
+
+    imported = client.post(
+        "/api/prompts/import",
+        json={"prompts": [{"name": "着彩2", "text": "x"}, {"name": "新", "text": "y"}], "on_conflict": "rename"},
+    ).json()
+    assert imported == {"added": 2, "overwritten": 0, "skipped": 0, "invalid": 0, "warnings": []}
+    assert client.post("/api/prompts/import", json={"prompts": [], "on_conflict": "bad"}).status_code == 422
+
+    assert client.delete(f"/api/prompts/{prompt['id']}").json() == {"warnings": []}
+    assert client.delete(f"/api/prompts/{prompt['id']}").status_code == 404
 
 
 def test_save_gemini_key_preserves_other_env_lines(client, data_dir: Path) -> None:

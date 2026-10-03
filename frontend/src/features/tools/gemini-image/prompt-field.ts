@@ -1,14 +1,14 @@
 /**
  * Prompt textarea with buttons to register its text and to read a registered prompt (prompt-library.ts).
  * The text is the setting `<prefix>_prompt` (saved with the other settings when the tool runs);
- * registered prompts are kept apart, per tool (`tool` = the tool's settingsPrefix).
+ * registered prompts are kept apart and shared by every tool (docs/specs/prompt-manager.md).
  */
 import type { ToolSettings } from '../../../shared/state/tool-settings';
 import { h } from '../../../shared/ui/dom';
 import { iconButton } from '../../../shared/ui/form';
-import { openPromptLibrary, openRegisterDialog } from './prompt-library';
+import { openPromptPicker, openRegisterDialog } from './prompt-library';
 
-export function promptField(label: string, settings: ToolSettings, tool: string): HTMLElement {
+export function promptField(label: string, settings: ToolSettings): HTMLElement {
   const textarea = h('textarea', {
     class: 'cs-textarea',
     value: settings.get('prompt', ''),
@@ -30,8 +30,8 @@ export function promptField(label: string, settings: ToolSettings, tool: string)
       h(
         'div',
         { class: 'prompt-field__actions' },
-        iconButton('bookmark_add', 'このプロンプトを登録', () => openRegisterDialog(tool, textarea.value)),
-        iconButton('library_books', '登録したプロンプトを開く', () => openPromptLibrary(tool, usePrompt)),
+        iconButton('bookmark_add', 'このプロンプトを登録', () => openRegisterDialog(textarea.value)),
+        iconButton('library_books', '登録したプロンプトを開く', () => openPromptPicker(usePrompt)),
       ),
     ),
     textarea,

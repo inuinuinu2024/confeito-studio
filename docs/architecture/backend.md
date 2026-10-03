@@ -19,7 +19,7 @@ backend/src/app/
 │   ├── image_service.py     # rembg 背景除去（初回呼び出し時に import）
 │   ├── secret_store.py      # Gemini API キーの保存・読み出し（今は .env。Web 版では利用者ごとの暗号化保存に差し替える）
 │   ├── settings_service.py  # ツール設定(JSON)
-│   ├── prompt_service.py    # 登録したプロンプト（ツールごと、settings/prompts.json）
+│   ├── prompt_service.py    # 登録したプロンプト（全ツール共通、assets/prompts/prompts.json）
 │   ├── file_dialog_service.py # バックエンドの PC のファイル選択ダイアログ（tkinter。画像読み込み）
 │   ├── json_file.py         # settings/ の JSON の読み書き（壊れたファイルの退避・一時ファイル経由の書き込み）
 │   └── system_service.py    # シャットダウン
@@ -56,7 +56,8 @@ backend/src/app/
 |---|---|---|
 | `CONFEITO_ENV_FILE` | `<repo>/.env` | 起動時に os.environ へ読み込む（既存の環境変数が優先。`GEMINI_API_KEY` は読み込まず secret_store が毎回ファイルから読む） |
 | `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブ保存先（ゴミ箱 `.trash/` を含む。`.trash/` は起動時に `main.py` の lifespan が `archive_service.empty_trash` で空にする） |
-| `CONFEITO_SETTINGS_DIR` | `<repo>/settings` | `default_settings.json`（初期設定）、`user_settings.json`（ユーザー設定）、`prompts.json`（登録したプロンプト） |
+| `CONFEITO_SETTINGS_DIR` | `<repo>/settings` | `default_settings.json`（初期設定）、`user_settings.json`（ユーザー設定） |
+| `CONFEITO_ASSETS_DIR` | `<repo>/assets` | `prompts/prompts.json`（登録したプロンプト） |
 | `GEMINI_API_KEY` | （.env） | Gemini API キー（`services/secret_store.py` だけが読み書きする）。優先順: リクエストの `X-API-Key` ヘッダー → .env → 環境変数。アプリは環境変数を書き換えない |
 | `CONFEITO_PROJECT_DIR` | `<repo>` | 画像読み込みのファイル選択ダイアログを、フォルダの指定がない時に開く場所 |
 | `CONFEITO_MODELS_DIR` | `<repo>/models` | rembg モデルの場所。起動時に `U2NET_HOME` の既定値にする（.env に書く必要はない） |
@@ -87,8 +88,13 @@ backend/src/app/
 | POST | `/local-files/pick-image` | `{initial_dir}`（空欄ならプロジェクトのフォルダ）でファイル選択ダイアログを開く。選んだ画像そのもの（名前は `X-File-Name`、URL エンコード）、キャンセルは 204、ダイアログが開いていれば 400 |
 | GET/POST | `/settings/gemini` | API キーの有無 / 保存（secret_store。今は .env。空のキーは 400） |
 | GET/POST | `/settings/tools` | ツール設定の取得（初期設定 + ユーザー設定、`{values, warnings}`）/ ユーザー設定への追加・更新（`{values}` を重ねる） |
-| GET/POST | `/prompts/{tool}` | 登録したプロンプトの一覧（`{prompts, warnings}`）/ 登録（`{name, text}` → `{prompt, warnings}`。同名は 400） |
-| PUT/DELETE | `/prompts/{tool}/{id}` | 登録したプロンプトの更新（`{name, text}` → `{prompt, warnings}`）/ 削除（`{warnings}`）。ない id は 404 |
+| GET/POST | `/prompts` | 登録したプロンプトの一覧（`{categories, prompts, warnings}`）/ 作成（`{name, category, text}` → `{prompt, warnings}`。同名は 400） |
+| PUT/DELETE | `/prompts/{id}` | 更新（`{name, category, text}` → `{prompt, warnings}`）/ 削除（`{warnings}`）。ない id は 404 |
+| POST | `/prompts/{id}/duplicate` | 元の直後に「<名前> のコピー」を作る（`{prompt, warnings}`） |
+| PUT | `/prompts/{id}/category` | `{category}` の末尾へ移す（`{prompt, warnings}`） |
+| PUT | `/prompts/order` / `/prompts/categories/order` | カテゴリーの中のプロンプトの順（`{category, ids}`）/ カテゴリーの順（`{categories}`）。今の内容と合わなければ 409 |
+| POST | `/prompts/categories/rename` | `{old, new}` カテゴリー名の変更（既存の名前・空なら統合） |
+| POST | `/prompts/import` | `{prompts, categories, on_conflict}` を追加（`{added, overwritten, skipped, invalid, warnings}`）。仕様は [specs/prompt-manager.md](../specs/prompt-manager.md) |
 
 ## Gemini プロバイダー（`providers/gemini.py`）
 - 画像生成は Interactions API（`/v1beta/interactions`）または `models/{model}:generateContent`（どちらもタイムアウト 600 秒）。

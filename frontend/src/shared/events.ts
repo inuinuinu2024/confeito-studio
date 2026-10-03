@@ -51,6 +51,8 @@ export interface AppEventMap {
   'parallel-mode:toggle': { enabled: boolean };
   'overlay-mode:toggle': { enabled: boolean };
   'batch-mode:toggle': { enabled: boolean };
+  /** The Prompt Manager (features/prompt-manager/) replaces ARCHIVES and the canvas. */
+  'prompt-mode:toggle': { enabled: boolean };
 
   // ── Current document (features/document/DocumentManager.ts) ──
   'document:loaded': DocumentLoadedDetail;

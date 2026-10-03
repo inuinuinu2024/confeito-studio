@@ -116,7 +116,7 @@ export function switchRow(
   };
 }
 
-type ButtonVariant = 'default' | 'outline' | 'primary';
+export type ButtonVariant = 'default' | 'outline' | 'primary';
 
 export function button(
   text: string,
@@ -139,6 +139,29 @@ export function iconButton(
   return h('button', { class: 'cs-icon-btn', title, onclick: onClick }, icon(name, size));
 }
 
+let suggestCount = 0;
+
+/** Free text input with suggestions (a <datalist>); returns the input with the list inside its wrapper. */
+export function suggestInput(opts: {
+  value: string;
+  suggestions: readonly string[];
+  placeholder?: string;
+  maxLength?: number;
+}): { el: HTMLDivElement; input: HTMLInputElement; setSuggestions(values: readonly string[]): void } {
+  const list = h('datalist', { id: `cs-suggest-${++suggestCount}` });
+  const input = h('input', {
+    type: 'text',
+    class: 'cs-input',
+    value: opts.value,
+    placeholder: opts.placeholder ?? '',
+    attrs: { list: list.id, autocomplete: 'off' },
+  });
+  if (opts.maxLength) input.maxLength = opts.maxLength;
+  const setSuggestions = (values: readonly string[]) =>
+    list.replaceChildren(...values.map(value => h('option', { value })));
+  setSuggestions(opts.suggestions);
+  return { el: h('div', { class: 'cs-suggest' }, input, list), input, setSuggestions };
+}
 export function note(text: string): HTMLDivElement {
   return h('div', { class: 'cs-note', text });
 }

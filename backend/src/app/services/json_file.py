@@ -1,4 +1,4 @@
-"""JSON object files the app writes in settings/ (user_settings.json, prompts.json).
+"""JSON object files the app writes (settings/user_settings.json, assets/prompts/prompts.json).
 
 * A file that cannot be parsed is never overwritten: it is moved aside to
   ``<stem>.broken-<stamp>.json`` and a Japanese warning is returned for the frontend to show.

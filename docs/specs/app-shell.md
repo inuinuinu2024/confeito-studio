@@ -7,7 +7,8 @@
 - 左端の列（`features/tool-bar/ToolBar.ts`）は上から 3 つのグループ: Normal Mode / Batch Mode、Parallel View / Overlay View、
   マネージャー（Prompt Manager: chat / Character Manager: person / Object Manager: eyeglasses / Style Manager: brush のアイコン）。
   グループの間には細い仕切り線（1px）を引く。
-  マネージャーは未実装で、押すと「開発中」トースト（「「Prompt Manager」は現在開発中です」など）を出すだけ（表示モードは変わらない）。
+  Prompt Manager は表示モードの 1 つ（[prompt-manager.md](./prompt-manager.md)）。ほかのマネージャーは未実装で、押すと「開発中」トースト
+  （「「Character Manager」は現在開発中です」など）を出すだけ（表示モードは変わらない）。
 - 左サイドバーは ARCHIVES 専用（レイヤーツリーは廃止）。左右のサイドバーは端のドラッグで 150〜600px に変更できる。
 - 右サイドバーは AI パネル。Parallel / Overlay モード中は右サイドバーを閉じてキャンバスを広げる
   （ツールは実行しない。[canvas.md](./canvas.md)「チェック列」）。
@@ -54,13 +55,12 @@
 
 ## 設定の保存（`shared/state/tool-settings.ts`、`backend/src/app/services/settings_service.py`）
 ツールの設定値（パラメータ・プロンプト欄の内容）と画面の状態（ツールの並び順など）は、フラットな文字列マップとして 2 つのファイルに置く。
-ユーザーが登録したプロンプトは別のファイル `settings/prompts.json`（git 管理外。仕様は [tools/gemini-image.md](./tools/gemini-image.md)「プロンプト」）。
+ユーザーが登録したプロンプトは別のファイル `assets/prompts/prompts.json`（全ツール共通・git 管理外。仕様は [prompt-manager.md](./prompt-manager.md)）。
 
 | ファイル | 内容 | git | 書き込み |
 |---|---|---|---|
 | `settings/default_settings.json` | 初期設定（アプリと一緒に配る値。プロンプトは含めない） | 管理対象 | アプリは書かない（読むだけ） |
 | `settings/user_settings.json` | ユーザー設定（使っている人が変えた値） | 除外 | アプリが書く |
-| `settings/prompts.json` | 登録したプロンプト（ツールごと） | 除外 | 登録・編集・削除の時にアプリが書く |
 
 - 読み込むと、初期設定の上にユーザー設定を重ねた値になる（同じキーはユーザー設定が優先）。どちらにもないキーはコード内の既定値。
 - **読み込むタイミング**: アプリ起動時と、ツールウィンドウを開く時（毎回ファイルから読み直す）。
@@ -69,7 +69,7 @@
     生成がエラーやブロックで失敗しても、実行を始めていれば保存される。
     実行せずにウィンドウを閉じた変更は、次にツールを開いた時（読み直し）に消え、保存済みの値に戻る。
   - TOOLS の並び順（`aiPanel_toolOrder`）・キャンバスの背景色（`canvas_bgColor`）: 明示的な操作なので、その場で書く。
-  - 登録したプロンプトの登録・編集・削除: その場で `prompts.json` に書く（ツール設定とは別）。
+  - 登録したプロンプトの変更: その場で `assets/prompts/prompts.json` に書く（ツール設定とは別）。
 - 書く時は変えた項目だけを送り、バックエンドがユーザー設定に重ねて保存する（ほかの項目・ほかのタブの保存は消えない）。
   ファイルは一時ファイルに書いてから置き換える（途中で失敗しても元のファイルが壊れない）。
 - **ファイルが壊れていた時**（JSON として読めない）:

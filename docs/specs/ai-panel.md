@@ -57,4 +57,4 @@
 - キーはツールごとの接頭辞付き: `nanoBananaPro_*`、`panelSplitter_*`、`removeBg_*`、`imageLoader_*`（ツールの `settingsPrefix`）。
   削除したツールのキーは初期設定から消す（以前の着彩ツールの `coloring_*` は削除済み）。
 - 共通の UI: JSON プレビュー（送信内容の確認とコピー）、ヘルプアイコン（ツールチップ）、プロンプト欄の登録・読み出しボタン
-  （登録したプロンプトはツール設定とは別に保存する。[tools/gemini-image.md](./tools/gemini-image.md)「プロンプト」）。
+  （登録したプロンプトはツール設定とは別に、全ツール共通で保存する。[prompt-manager.md](./prompt-manager.md)）。

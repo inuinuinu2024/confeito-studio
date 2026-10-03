@@ -6,6 +6,10 @@
   どちらかを外すか、別の役割（例: 実寸 = 画像 1px を画面 1px で表示）に変えるかを決める（docs/specs/canvas.md「ズームとスクロール」）。
 
 ## 完了タスク
+- [x] **プロンプトを全ツール共通にし、Prompt Manager で管理できるように**: 名前・カテゴリー・本文の 3 つで管理し、保存先を `assets/prompts/prompts.json` に。
+  Prompt Manager は表示モードの 1 つ（左にカテゴリー、キャンバスの場所に一覧と編集欄）。手動の並べ替え・D&D でカテゴリー移動・検索・複製・
+  カテゴリー名の一括変更（統合）・エクスポート / インポート。ツールからは登録（カテゴリー付き）と呼び出し（絞り込み・検索・使う）だけ。
+  以前の `settings/prompts.json`（ツールごと）は読まない（docs/specs/prompt-manager.md）。
 - [x] **Gemini API キーの保存を 1 つの部品にまとめた**: 将来の Web 版は利用者がキーを持ち込む方式（BYOK）に決定。
   ローカル版は保存先を `.env` のまま、読み書きを `services/secret_store.py` に集め、プロセスの環境変数を書き換えないように
   （docs/specs/app-shell.md「Gemini API キーの扱い」）。Windows の資格情報マネージャーへの移行は見送り。

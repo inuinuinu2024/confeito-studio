@@ -20,7 +20,10 @@ setup/*.log
 
 # User data — never commit or delete
 archives/
-# The user's tool settings (initial values are settings/default_settings.json), registered prompts and broken copies set aside
+# Registered prompts shared by every tool (assets/prompts/prompts.json), its temp file and broken copies set aside
+assets/prompts/
+# The user's tool settings (initial values are settings/default_settings.json) and broken copies set aside;
+# settings/prompts.* is where registered prompts used to be (no longer read, kept if present)
 settings/user_settings.json
 settings/user_settings.json.tmp
 settings/user_settings.broken-*.json

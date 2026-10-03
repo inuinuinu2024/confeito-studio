@@ -1,7 +1,7 @@
 /**
  * ToolBar — left column of view mode buttons (state lives in shared/state/view-mode.ts), in groups
  * separated by thin dividers: Normal, Batch | the comparison views Parallel, Overlay | the managers
- * (Prompt / Character / Object / Style; not implemented yet).
+ * (Prompt Manager is the "prompt" view mode; Character / Object / Style are not implemented yet).
  */
 import './tool-bar.css';
 import { on } from '../../shared/events';
@@ -14,12 +14,12 @@ const MODES: { mode: ViewMode; title: string; icon: string }[] = [
   { mode: 'batch', title: 'Batch Mode', icon: 'grid_view' },
   { mode: 'parallel', title: 'Parallel View', icon: 'compare' },
   { mode: 'overlay', title: 'Overlay View', icon: 'photo_library' },
+  { mode: 'prompt', title: 'Prompt Manager', icon: 'chat' },
 ];
-/** The divider goes before this mode (the comparison views follow it). */
-const DIVIDER_BEFORE: ViewMode = 'parallel';
-/** Managers below the modes (not implemented yet: they show a "開発中" toast). */
+/** A divider goes before each of these modes (the comparison views, then the managers). */
+const DIVIDER_BEFORE: ViewMode[] = ['parallel', 'prompt'];
+/** Managers after Prompt Manager (not implemented yet: they show a "開発中" toast). */
 const MANAGERS: { title: string; icon: string }[] = [
-  { title: 'Prompt Manager', icon: 'chat' },
   { title: 'Character Manager', icon: 'person' },
   { title: 'Object Manager', icon: 'eyeglasses' },
   { title: 'Style Manager', icon: 'brush' },
@@ -27,7 +27,11 @@ const MANAGERS: { title: string; icon: string }[] = [
 
 export function createToolBar(): HTMLElement {
   const buttons = MODES.map(m =>
-    h('div', { class: 'left-toolbar__btn', title: m.title, onclick: () => toggleViewMode(m.mode) }, icon(m.icon, 24)),
+    h(
+      'div',
+      { class: 'left-toolbar__btn', title: m.title, onclick: () => void toggleViewMode(m.mode) },
+      icon(m.icon, 24),
+    ),
   );
   // Batch mode still opens, with a notice that it is being reworked.
   on('batch-mode:toggle', ({ enabled }) => {
@@ -42,6 +46,7 @@ export function createToolBar(): HTMLElement {
     'parallel-mode:toggle',
     'overlay-mode:toggle',
     'batch-mode:toggle',
+    'prompt-mode:toggle',
   ] as const) {
     on(event, render);
   }
@@ -54,6 +59,6 @@ export function createToolBar(): HTMLElement {
     ),
   );
   const divider = () => h('div', { class: 'left-toolbar__divider' });
-  const modeItems = buttons.flatMap((btn, i) => (MODES[i].mode === DIVIDER_BEFORE ? [divider(), btn] : [btn]));
-  return h('div', { class: 'left-toolbar' }, ...modeItems, divider(), ...managers);
+  const modeItems = buttons.flatMap((btn, i) => (DIVIDER_BEFORE.includes(MODES[i].mode) ? [divider(), btn] : [btn]));
+  return h('div', { class: 'left-toolbar' }, ...modeItems, ...managers);
 }
