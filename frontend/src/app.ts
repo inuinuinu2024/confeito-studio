@@ -21,7 +21,6 @@ import './shared/styles/layout.css';
 import { createAIPanel } from './features/ai-panel/AIPanel';
 import { type ArchivePanel, createArchivePanel } from './features/archive-panel/ArchivePanel';
 import { createCanvas } from './features/canvas/Canvas';
-import { initDocumentManager } from './features/document/DocumentManager';
 import { createStatusBar } from './features/status-bar/StatusBar';
 import { createToolBar } from './features/tool-bar/ToolBar';
 import { createTopBar } from './features/top-bar/TopBar';
@@ -74,7 +73,6 @@ async function initApp(): Promise<void> {
   });
 
   app.appendChild(workspace);
-  initDocumentManager();
 }
 
 document.addEventListener('DOMContentLoaded', () => void initApp());

@@ -32,15 +32,16 @@ async def api_remove_background(
     alpha_matting_background_threshold: int = Form(10),
     alpha_matting_erode_size: int = Form(10),
 ) -> Response:
-    image_bytes = await _read_upload(image, "No image provided")
-    result = await run_in_threadpool(
-        remove_background,
-        image_bytes,
-        alpha_matting=alpha_matting,
-        alpha_matting_foreground_threshold=alpha_matting_foreground_threshold,
-        alpha_matting_background_threshold=alpha_matting_background_threshold,
-        alpha_matting_erode_size=alpha_matting_erode_size,
-    )
+    image_bytes = await _read_upload(image, "画像データが提供されていません。")
+    with unexpected_errors_as("背景除去の処理中にエラーが発生しました。"):
+        result = await run_in_threadpool(
+            remove_background,
+            image_bytes,
+            alpha_matting=alpha_matting,
+            alpha_matting_foreground_threshold=alpha_matting_foreground_threshold,
+            alpha_matting_background_threshold=alpha_matting_background_threshold,
+            alpha_matting_erode_size=alpha_matting_erode_size,
+        )
     return Response(content=result, media_type="image/png")
 
 
@@ -53,11 +54,12 @@ async def api_split_panels(
     model_name: str = Form(panel_geometry.DEFAULT_MODEL),
     thinking_level: str = Form("LOW"),
     target_folder: str | None = Form(None),
+    source_key: str | None = Form(None),
     api_key: str | None = Header(None, alias="X-API-Key"),
 ) -> dict:
-    """Detects panels with Gemini and saves them as 01.png, 02.png, ... + panels.json."""
-    image_bytes = await _read_upload(image, "画像データが提供されていません")
-    with unexpected_errors_as("コマ分割処理中にエラーが発生しました"):
+    """Detects panels with Gemini and saves them as 01.png, 02.png, ... + panels.json + info.json."""
+    image_bytes = await _read_upload(image, "画像データが提供されていません。")
+    with unexpected_errors_as("コマ分割の処理中にエラーが発生しました。"):
         return await run_in_threadpool(
             split_panels,
             image_bytes=image_bytes,
@@ -68,6 +70,7 @@ async def api_split_panels(
             model_name=model_name,
             thinking_level=thinking_level,
             target_folder=target_folder,
+            source_key=source_key,
         )
 
 
@@ -84,5 +87,5 @@ async def api_split_panels_preview(
 @router.post("/merge-panels")
 async def api_merge_panels(target_folder: str = Form(...)) -> dict:
     """Pastes the panels listed in ``<target_folder>/panels.json`` back into one image."""
-    with unexpected_errors_as("コマ結合処理中にエラーが発生しました"):
+    with unexpected_errors_as("コマ結合の処理中にエラーが発生しました。"):
         return await run_in_threadpool(merge_panels, target_folder)

@@ -9,13 +9,18 @@
    cd frontend
    npm install
    ```
-2. バックエンドの依存関係をインストール:
+2. バックエンドの依存関係をインストール（Python は python.org 公式版を使う）:
    ```bash
+   winget install --id Python.Python.3.13 -e --scope user
    cd backend
+   uv venv --python "%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
    uv sync
    ```
+   - Windows の「スマート アプリ コントロール」がオンの PC では、uv が自動で入れる Python（電子署名なし）はブロックされて
+     バックエンドが起動しない（画面が「起動中...」のまま止まる）。公式版の Python は署名付きなので動く。
+   - 既存の `.venv` が uv の Python で作られている場合は `uv venv --python <公式版の python.exe> --clear` で作り直してから `uv sync`。
 3. `setup/` フォルダ内にある **`create-shortcut.bat`** を実行します。
-4. 作成された `Confeito-Studio.lnk`（ショートカット）を右クリックして**タスクバーにピン留め**します。
+4. 作成された `ConfeitO Studio.lnk`（ショートカット）を右クリックして**タスクバーにピン留め**します。
 
 ## 日常の起動方法
 

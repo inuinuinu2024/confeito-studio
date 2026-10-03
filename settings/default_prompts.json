@@ -16,6 +16,6 @@
   "panelSplitter_model": "gemini-3.1-pro-preview",
   "panelSplitter_thinking_level": "HIGH",
   "coloring_imageSize": "2K",
-  "nanoBananaPro_model": "gemini-3.1-flash-image",
-  "nanoBananaPro_api": "generateContent"
+  "nanoBananaPro_model": "gemini-3-pro-image",
+  "nanoBananaPro_api": "interactions"
 }

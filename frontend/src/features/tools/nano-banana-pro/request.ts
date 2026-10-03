@@ -1,5 +1,5 @@
 /**
- * Builds the Nano Banana Pro request for the selected API (pure, unit tested).
+ * Builds the Nano Banana画像生成 tool's request for the selected API (pure, unit tested).
  *
  * Options that are undefined are left out of the request entirely ("既定（送らない）").
  * Spec: docs/specs/tools/nano-banana-pro.md

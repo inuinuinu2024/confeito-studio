@@ -1,5 +1,5 @@
 /**
- * E2E smoke test for Confeito-Studio.
+ * E2E smoke test for ConfeitO Studio.
  *
  * Boots the backend (uvicorn) and the Vite dev server against an isolated temporary
  * data directory, drives the real UI in headless Edge/Chrome, and writes:
@@ -234,25 +234,26 @@ async function canvasState(page: Page) {
     }));
 }
 
-async function sidebarState(page: Page) {
+async function toolWindowState(page: Page) {
   return page.evaluate(() => {
-    const sb = document.querySelector<HTMLElement>('.tool-settings-sidebar');
-    if (!sb || !document.body.contains(sb)) return null;
+    const win = document.querySelector<HTMLElement>('.tool-window');
+    if (!win || !document.body.contains(win)) return null;
     const shown = (el: Element) => el.getClientRects().length > 0;
     return {
-      title: sb.querySelector('h2')?.textContent ?? null,
-      labels: Array.from(sb.querySelectorAll('label'))
+      title: win.querySelector('.tool-window__title')?.textContent ?? null,
+      card: win.querySelector<HTMLElement>('.cs-card')?.innerText ?? null,
+      labels: Array.from(win.querySelectorAll('label'))
         .filter(shown)
         .map(l => l.textContent?.trim()),
-      buttons: Array.from(sb.querySelectorAll('button'))
+      buttons: Array.from(win.querySelectorAll('button'))
         .filter(shown)
         .map(b => b.textContent?.trim()),
-      selects: Array.from(sb.querySelectorAll('select')).map(s => ({
+      selects: Array.from(win.querySelectorAll('select')).map(s => ({
         value: s.value,
         options: Array.from(s.options).map(o => o.textContent),
       })),
-      ranges: Array.from(sb.querySelectorAll<HTMLInputElement>('input[type=range]')).map(r => r.value),
-      textareas: Array.from(sb.querySelectorAll('textarea')).map(t => t.value.slice(0, 40)),
+      ranges: Array.from(win.querySelectorAll<HTMLInputElement>('input[type=range]')).map(r => r.value),
+      textareas: Array.from(win.querySelectorAll('textarea')).map(t => t.value.slice(0, 40)),
     };
   });
 }
@@ -272,6 +273,30 @@ async function waitForToast(page: Page, pattern: RegExp, timeout = 20000): Promi
     { timeout },
   );
   return (await lastToast(page)) ?? '';
+}
+
+/** Kind (toast--<type>) and text parts of every toast currently on screen. */
+async function toastStack(page: Page) {
+  const toasts = await page.$$eval('.toast', els =>
+    els.map(t => ({
+      type: Array.from(t.classList).find(c => c.startsWith('toast--') && c !== 'toast--visible') ?? null,
+      title: t.querySelector('.toast__title')?.textContent ?? null,
+      message: t.querySelector('.toast__message')?.textContent ?? null,
+      detail: t.querySelector('.toast__detail')?.textContent ?? null,
+      buttons: Array.from(t.querySelectorAll('button')).map(b => b.textContent),
+    })),
+  );
+  return toasts.map(t => ({ ...t, message: t.message && maskTimestamps(t.message) }));
+}
+
+/** Runs `fn` with toasts visible (they are hidden during the run so screenshots stay stable). */
+async function withVisibleToasts<T>(page: Page, fn: () => Promise<T>): Promise<T> {
+  const style = await page.addStyleTag({ content: '.toast{visibility:visible!important}' });
+  try {
+    return await fn();
+  } finally {
+    await style.evaluate(el => (el as Element).remove());
+  }
 }
 
 /** Creates a deterministic PNG in the page (with a transparent margin so background colour shows). */
@@ -339,17 +364,17 @@ async function createPanelFixture(page: Page, apiBase: string): Promise<void> {
 
 async function clickTool(page: Page, toolName: string): Promise<void> {
   await page
-    .locator('.ai-panel__view:visible .ai-tool-btn')
+    .locator('.ai-panel__list .ai-tool-btn')
     .filter({ has: page.locator('.ai-tool-name', { hasText: toolName }) })
     .first()
     .click();
 }
 
-async function closeSidebar(page: Page): Promise<void> {
-  const sb = page.locator('.tool-settings-sidebar');
-  if (await sb.count()) {
-    await sb.locator('button').first().click();
-    await sb.waitFor({ state: 'detached', timeout: 3000 });
+async function closeToolWindow(page: Page): Promise<void> {
+  const win = page.locator('.tool-window');
+  if (await win.count()) {
+    await win.locator('.tool-window__close').click();
+    await win.waitFor({ state: 'detached', timeout: 3000 });
   }
 }
 
@@ -387,36 +412,52 @@ async function runScenarios(page: Page, apiBase: string, out: string, obs: Recor
       modes: await page.$$eval('.left-toolbar__btn', els =>
         els.map(e => [e.getAttribute('title'), e.classList.contains('left-toolbar__btn--active')]),
       ),
-      tabs: await page.$$eval('.ai-panel__tab', els => els.map(e => e.textContent)),
-      tools: await page.$$eval('.ai-panel__view:not([style*="none"]) .ai-tool-name', els =>
-        els.map(e => e.textContent),
-      ),
+      toolPanelTitle: await page.locator('.ai-panel__title').textContent(),
+      tools: await page.$$eval('.ai-panel__list .ai-tool-name', els => els.map(e => e.textContent)),
       status: await page.$$eval('.statusbar__status-item, .statusbar__left', els => els.map(e => e.textContent)),
       archives: await archiveTree(page),
       canvas: await canvasState(page),
     };
   });
 
-  await step('02-tool-tabs', async () => {
-    const tabs = page.locator('.ai-panel__tab');
-    await tabs.filter({ hasText: 'Custom' }).click();
-    const custom = await page.$$eval('.ai-panel__view:not([style*="none"]) .ai-tool-name', els =>
-      els.map(e => e.textContent),
+  await step('02-tool-order', async () => {
+    const names = () => page.$$eval('.ai-panel__list .ai-tool-name', els => els.map(e => e.textContent));
+    const rows = page.locator('.ai-panel__list .ai-tool-row');
+    const before = await names();
+    // Drop the last tool on the upper half of the first one → it moves to the top.
+    await rows.last().dragTo(rows.first(), { targetPosition: { x: 20, y: 4 } });
+    const after = await names();
+    // The order goes to the settings file (not the browser).
+    await page.waitForTimeout(300);
+    const saved = await page.evaluate(
+      async apiBase =>
+        ((await (await fetch(`${apiBase}/settings/prompts`)).json()) as Record<string, string>).aiPanel_toolOrder,
+      apiBase,
     );
-    await tabs.filter({ hasText: 'All Tools' }).click();
-    const pinBtn = page
-      .locator('.ai-panel__view:visible .ai-tool-row')
-      .filter({ has: page.locator('.ai-tool-name', { hasText: 'コマ分割' }) })
-      .locator('.ai-tool-action-btn');
-    await pinBtn.click();
-    const pinnedToast = await lastToast(page);
-    const badges = await page.$$eval('.ai-panel__tab-badge', els => els.map(e => e.textContent));
-    await pinBtn.click();
+    return { before, after, saved };
+  });
+
+  await step('02b-tool-not-ready', async () => {
+    // Nothing is selected yet: tools report the missing input as a warning, not as a failure.
+    await clickTool(page, 'コマ結合');
+    await page.waitForSelector('.tool-window');
+    const mergeCard = await page.locator('.tool-window .cs-card').innerText();
+    await page.locator('.tool-window .tool-window__run').click();
+    await waitForToast(page, /コマ結合: ARCHIVES/);
+    await closeToolWindow(page);
+    await clickTool(page, '背景除去');
+    await page.waitForSelector('.tool-window');
+    const removeBgCard = await page.locator('.tool-window .cs-card').innerText();
+    await page.locator('.tool-window .tool-window__run').click();
+    await waitForToast(page, /背景除去: ARCHIVES/);
+    const windowStaysOpen = await page.locator('.tool-window').count();
+    await closeToolWindow(page);
     return {
-      custom,
-      pinnedToast,
-      badgesAfterPin: badges,
-      badgesAfterUnpin: await page.$$eval('.ai-panel__tab-badge', els => els.map(e => e.textContent)),
+      mergeCard,
+      removeBgCard,
+      toasts: await toastStack(page),
+      windowStaysOpen,
+      archives: await archiveTree(page),
     };
   });
 
@@ -433,13 +474,30 @@ async function runScenarios(page: Page, apiBase: string, out: string, obs: Recor
     return { toast: await lastToast(page), archives: await archiveTree(page), canvas: await canvasState(page) };
   });
 
-  await step('04-select-log', async () => {
-    await archiveItem(page, 'log.txt').click();
+  await step('04-select-text', async () => {
+    // Imports no longer write log.txt: add a text file to the imported archive and show it.
+    const archive = await archiveItem(page, /e2e-image$/)
+      .locator('.layer-item__name')
+      .textContent();
+    await page.evaluate(
+      async ({ apiBase, archive }) => {
+        const form = new FormData();
+        form.append('name', archive ?? '');
+        form.append('files', new Blob(['e2e notes\n'], { type: 'text/plain' }), 'notes.txt');
+        form.append('paths', 'notes.txt');
+        const res = await fetch(`${apiBase}/archives`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(`text fixture upload failed: ${res.status}`);
+      },
+      { apiBase, archive },
+    );
+    await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="ARCHIVESを更新"]`).click();
+    await waitForToast(page, /ARCHIVES/);
+    await archiveItem(page, 'notes.txt').click();
     await page.waitForFunction(() =>
       Array.from(document.querySelectorAll<HTMLElement>('.canvas-text-overlay')).some(o => o.style.display === 'block'),
     );
     await page.waitForTimeout(300);
-    await screenshot('select-log');
+    await screenshot('select-text');
     return { archives: await archiveTree(page), canvas: await canvasState(page) };
   });
 
@@ -452,6 +510,23 @@ async function runScenarios(page: Page, apiBase: string, out: string, obs: Recor
     );
     await page.waitForTimeout(500);
     return { archives: await archiveTree(page), canvas: await canvasState(page) };
+  });
+
+  await step('05b-deselect-clears-save-folder', async () => {
+    // Deselecting also clears the save folder: コマ結合 asks for a folder instead of using the
+    // previously selected archive.
+    await archiveItem(page, 'e2e-image.png').click(); // second click deselects
+    await page.waitForFunction(() => !document.querySelector('.layer-item--selected'));
+    await clickTool(page, 'コマ結合');
+    await page.waitForSelector('.tool-window');
+    await page.locator('.tool-window .tool-window__run').click();
+    const toast = await waitForToast(page, /コマ結合: ARCHIVES/);
+    await closeToolWindow(page);
+    await archiveItem(page, 'e2e-image.png').click();
+    await page.waitForFunction(() =>
+      Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === 640),
+    );
+    return { toast, archives: await archiveTree(page) };
   });
 
   await step('06-zoom', async () => {
@@ -497,45 +572,117 @@ async function runScenarios(page: Page, apiBase: string, out: string, obs: Recor
     return { ...state, aiPanelRestored: await page.locator('aside.ai-panel').count() };
   });
 
-  await step('09-tool-sidebars', async () => {
+  await step('09-tool-windows', async () => {
     const result: Record<string, unknown> = {};
-    for (const tool of ['コマ分割', '背景除去', 'Nano Banana Pro']) {
+    for (const tool of ['コマ分割', '背景除去', 'Nano Banana画像生成']) {
       await clickTool(page, tool);
-      await page.waitForSelector('.tool-settings-sidebar', { timeout: 5000 });
+      await page.waitForSelector('.tool-window', { timeout: 5000 });
       await page.waitForTimeout(400);
-      result[tool] = await sidebarState(page);
-      await screenshot(`sidebar-${tool}`, '.tool-settings-sidebar');
-      await closeSidebar(page);
+      result[tool] = await toolWindowState(page);
+      await screenshot(`window-${tool}`, '.tool-window');
+      await closeToolWindow(page);
     }
     return result;
   });
 
+  await step('09b-tool-window', async () => {
+    // The tool window is a modal in the middle of the screen (docs/specs/ai-panel.md 「ツールの実行」).
+    const win = page.locator('.tool-window');
+    const isOpen = () => win.count();
+    const open = async () => {
+      await clickTool(page, 'コマ分割');
+      await win.waitFor();
+      await page.waitForTimeout(200);
+    };
+
+    await open();
+    await screenshot('tool-window');
+    const layout = await page.evaluate(() => {
+      const r = document.querySelector('.tool-window')!.getBoundingClientRect();
+      const row = document.querySelector('.layer-item')!.getBoundingClientRect();
+      const hit = document.elementFromPoint(row.x + row.width / 2, row.y + row.height / 2);
+      return {
+        width: Math.round(r.width),
+        centerOffset: [
+          Math.round(r.x + r.width / 2 - innerWidth / 2),
+          Math.round(r.y + r.height / 2 - innerHeight / 2),
+        ],
+        archivesCoveredByBackdrop: hit?.classList.contains('tool-window-overlay') ?? false,
+        appInert: document.getElementById('app')!.inert,
+        focusInWindow: !!document.activeElement?.closest('.tool-window'),
+      };
+    });
+
+    // A drag that starts inside the window and ends on the backdrop (e.g. a slider) does not close it.
+    const box = (await win.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + 70);
+    await page.mouse.down();
+    await page.mouse.move(20, 20, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+    const openAfterDragOut = await isOpen();
+
+    await page.mouse.click(20, 20); // the backdrop
+    await win.waitFor({ state: 'detached' });
+    const openAfterBackdropClick = await isOpen();
+
+    await open();
+    await page.keyboard.press('Escape');
+    await win.waitFor({ state: 'detached' });
+    const openAfterEscape = await isOpen();
+
+    await open();
+    await closeToolWindow(page);
+    return {
+      layout,
+      openAfterDragOut,
+      openAfterBackdropClick,
+      openAfterEscape,
+      afterClose: await page.evaluate(() => ({
+        appInert: document.getElementById('app')!.inert,
+        focus: document.activeElement?.textContent ?? null,
+      })),
+    };
+  });
+
   await step('10-json-preview', async () => {
     const result: Record<string, unknown> = {};
-    for (const tool of ['コマ分割', 'Nano Banana Pro']) {
+    for (const tool of ['コマ分割', 'Nano Banana画像生成']) {
       await clickTool(page, tool);
-      await page.waitForSelector('.tool-settings-sidebar');
-      await page.locator('.tool-settings-sidebar button', { hasText: 'JSONプレビュー' }).click();
+      await page.waitForSelector('.tool-window');
+      await page.locator('.tool-window button', { hasText: 'JSONプレビュー' }).click();
       const dialog = page.locator('dialog[open]');
       await dialog.waitFor();
       const text = (await dialog.locator('pre').textContent()) ?? '';
       result[tool] = JSON.parse(maskTimestamps(text).replace(/"<DATETIME>"/g, '"<DATETIME>"'));
       await dialog.locator('button', { hasText: '閉じる' }).click();
       await dialog.waitFor({ state: 'detached' });
-      await closeSidebar(page);
+      await closeToolWindow(page);
     }
     return result;
   });
 
   await step('11-tool-error', async () => {
-    // E2E has no API key, so the run fails and the AI panel records the error in error.txt.
-    await clickTool(page, 'Nano Banana Pro');
-    await page.waitForSelector('.tool-settings-sidebar');
-    await page.locator('.tool-settings-sidebar .tool-settings-sidebar__run').click();
-    const toast = await waitForToast(page, /failed/);
-    await page.waitForTimeout(800);
-    await closeSidebar(page);
-    return { toast, archives: await archiveTree(page) };
+    // E2E has no API key, so the run fails: an error toast that stays until closed, and nothing
+    // is written to the archives (no error.txt, no "_error" archive).
+    await clickTool(page, 'Nano Banana画像生成');
+    await page.waitForSelector('.tool-window');
+    await page.locator('.tool-window .tool-window__run').click();
+    await waitForToast(page, /Nano Banana画像生成の実行に失敗しました/);
+    await page.waitForTimeout(4500); // longer than the 4s auto-hide of other toasts
+    const toasts = await toastStack(page);
+    await closeToolWindow(page);
+    const errorToast = page.locator('.toast--error').last();
+    await withVisibleToasts(page, async () => {
+      await screenshot('error-toast', '.toast-stack');
+      await errorToast.locator('.toast__close').click();
+    });
+    await errorToast.waitFor({ state: 'detached' });
+    return {
+      toasts,
+      errorToastsAfterClose: await page.locator('.toast--error').count(),
+      archives: await archiveTree(page),
+    };
   });
 
   await step('12-merge-panels', async () => {
@@ -544,8 +691,15 @@ async function runScenarios(page: Page, apiBase: string, out: string, obs: Recor
     await waitForToast(page, /ARCHIVES/);
     await expandFolder(page, 'e2e-panels');
     await archiveItem(page, /^sub$/).click();
+    // The tool window shows the target folder, its panels.json and the save destination.
     await clickTool(page, 'コマ結合');
+    const card = page.locator('.tool-window .cs-card');
+    await card.filter({ hasText: 'コマ数' }).waitFor();
+    const mergeCard = await card.innerText();
+    await screenshot('window-コマ結合', '.tool-window');
+    await page.locator('.tool-window .tool-window__run').click();
     const toast = await waitForToast(page, /結合/);
+    await page.locator('.tool-window').waitFor({ state: 'detached' }); // closes on success
     await page.waitForFunction(() =>
       Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(
         c => c.width === 300 && c.height === 200,
@@ -553,7 +707,24 @@ async function runScenarios(page: Page, apiBase: string, out: string, obs: Recor
     );
     await page.waitForTimeout(500);
     await screenshot('merge-panels');
-    return { toast, archives: await archiveTree(page), canvas: await canvasState(page) };
+    // One success toast per run, carrying the result (the tool no longer shows its own toast).
+    const mergeToasts = (await toastStack(page)).filter(t => t.message?.includes('結合'));
+    // The result goes to "e2e-panels/<stamp>_コマ結合/" with info.json.
+    const info = await page.evaluate(async apiBase => {
+      const entries = (await (await fetch(`${apiBase}/archives/e2e-panels/contents`)).json()) as { key: string }[];
+      const key = entries.map(e => e.key).find(k => /_コマ結合\/info\.json$/.test(k));
+      if (!key) return null;
+      const path = key.slice('e2e-panels/'.length);
+      return (await fetch(`${apiBase}/archives/e2e-panels/extract?path=${encodeURIComponent(path)}`)).json();
+    }, apiBase);
+    return {
+      mergeCard,
+      toast,
+      mergeToasts,
+      info: info && JSON.parse(maskTimestamps(JSON.stringify(info))),
+      archives: await archiveTree(page),
+      canvas: await canvasState(page),
+    };
   });
 
   await step('13-batch-mode', async () => {
@@ -606,18 +777,20 @@ async function runScenarios(page: Page, apiBase: string, out: string, obs: Recor
     return { settingsVisible, settingsLabels, toast: await lastToast(page), canvas };
   });
 
-  await step('16-file-menu', async () => {
-    await page.locator('.topbar__nav-item', { hasText: 'File' }).hover();
-    await page.waitForTimeout(200);
-    return {
-      fileItems: await page.$$eval('.topbar__nav-item-wrapper:first-child .topbar__dropdown-item-label', els =>
-        els.map(e => e.textContent),
-      ),
-    };
+  await step('16-menus', async () => {
+    // File has no items: clicking it answers with the "開発中" toast (like Help).
+    const menus = await page.$$eval('.topbar__nav-item-wrapper', wrappers =>
+      wrappers.map(w => ({
+        menu: w.querySelector('.topbar__nav-item')?.textContent ?? null,
+        items: Array.from(w.querySelectorAll('.topbar__dropdown-item-label')).map(e => e.textContent),
+      })),
+    );
+    await page.locator('.topbar__nav-item', { hasText: 'File' }).click();
+    return { menus, fileToast: await waitForToast(page, /File メニュー/) };
   });
 
   await step('17-delete-items-and-undo', async () => {
-    await page.mouse.move(800, 500); // close the File menu
+    await page.mouse.move(800, 500);
     await expandFolder(page, 'e2e-panels');
     await (await childItem(page, 'e2e-panels', 'log.txt')).click();
     await (await childItem(page, 'e2e-panels', 'sub')).click({ modifiers: ['Control'] });
@@ -689,13 +862,20 @@ async function runScenarios(page: Page, apiBase: string, out: string, obs: Recor
   });
 
   await step('19-nano-banana-pro-model-api', async () => {
-    const sidebar = '.tool-settings-sidebar';
-    // Step 1 of the sidebar: [0] model, [1] API.
+    const sidebar = '.tool-window';
+    // Step 1 of the window: [0] model, [1] API.
     const stepSelect = (i: number) => page.locator(`${sidebar} .nbp-step select`).nth(i);
     const nbpState = async () => ({
-      ...(await sidebarState(page)),
+      ...(await toolWindowState(page)),
       modelInfo: await page.locator(`${sidebar} .nbp-model-info`).innerText(),
-      subtitle: await page.locator(`${sidebar} .nbp-step__subtitle`).innerText(),
+      // Three columns: model / API + prompt | reference images | parameters.
+      columns: await page.$$eval(`${sidebar} .tool-window__column`, els =>
+        els.map(e => ({
+          width: Math.round(e.getBoundingClientRect().width),
+          first: (e.firstElementChild as HTMLElement | null)?.innerText.split('\n')[0] ?? null,
+          scrolls: e.scrollHeight > e.clientHeight,
+        })),
+      ),
     });
     const fieldInput = (label: string) =>
       page
@@ -712,11 +892,20 @@ async function runScenarios(page: Page, apiBase: string, out: string, obs: Recor
       return { title, json };
     };
     const result: Record<string, unknown> = {};
-    await clickTool(page, 'Nano Banana Pro');
+    await clickTool(page, 'Nano Banana画像生成');
     await page.waitForSelector(sidebar);
 
     await stepSelect(1).selectOption('generateContent');
     result.proGenerateContent = await nbpState();
+    result.windowLayout = await page.evaluate(() => {
+      const r = document.querySelector('.tool-window')!.getBoundingClientRect();
+      return {
+        width: Math.round(r.width),
+        marginTop: Math.round(r.top),
+        marginBottom: Math.round(innerHeight - r.bottom),
+      };
+    });
+    await screenshot('nbp-window');
     await screenshot('nbp-pro-generate-content', sidebar);
     await page.locator(`${sidebar} button`, { hasText: 'すべて OFF' }).click();
     await fieldInput('seed').fill('42');
@@ -747,11 +936,111 @@ async function runScenarios(page: Page, apiBase: string, out: string, obs: Recor
     // Running through generateContent reaches its backend route (E2E has no API key -> missing-key error).
     await stepSelect(0).selectOption('gemini-3-pro-image');
     await stepSelect(1).selectOption('generateContent');
-    await page.locator(`${sidebar} .tool-settings-sidebar__run`).click();
-    result.generateContentRun = await waitForToast(page, /Nano Banana Pro failed/);
+    await page.locator(`${sidebar} .tool-window__run`).click();
+    await waitForToast(page, /Nano Banana画像生成の実行に失敗しました/);
+    result.generateContentRun = (await toastStack(page)).filter(t => t.type === 'toast--error');
     await stepSelect(1).selectOption('interactions');
-    await closeSidebar(page);
+    await closeToolWindow(page);
     return result;
+  });
+
+  await step('19b-reference-images', async () => {
+    // One list of reference images; each card sets its type, ★, description and order.
+    const win = '.tool-window';
+    const cards = page.locator(`${win} .ref-card`);
+    const cardState = () =>
+      page.$$eval(`${win} .ref-card`, els =>
+        els.map(el => ({
+          name: el.querySelector('.ref-card__name')?.textContent ?? null,
+          type: el.querySelector<HTMLSelectElement>('.ref-card__type')?.value ?? null,
+          important: !!el.querySelector('.ref-card__star--on'),
+          description: el.querySelector<HTMLTextAreaElement>('.ref-card__description')?.value ?? null,
+        })),
+      );
+    const counts = () => page.locator(`${win} .ref-list__counts`).innerText();
+    const addImages = (colors: string[]) =>
+      page.evaluate(async colors => {
+        const make = async (color: string, i: number) => {
+          const c = document.createElement('canvas');
+          c.width = 64;
+          c.height = 48;
+          const ctx = c.getContext('2d')!;
+          ctx.fillStyle = color;
+          ctx.fillRect(0, 0, 64, 48);
+          const blob = await new Promise<Blob>(r => c.toBlob(b => r(b!), 'image/png'));
+          return new File([blob], `ref${i}.png`, { type: 'image/png' });
+        };
+        const dt = new DataTransfer();
+        for (const [i, color] of colors.entries()) dt.items.add(await make(color, i));
+        const input = document.querySelector<HTMLInputElement>('.tool-window .ref-section input[type=file]')!;
+        input.files = dt.files;
+        input.dispatchEvent(new Event('change'));
+      }, colors);
+    await clickTool(page, 'Nano Banana画像生成');
+    await page.waitForSelector(win);
+    await addImages(['#cc3333', '#3366cc']);
+    await cards.nth(1).waitFor();
+    const added = await cardState();
+
+    await cards.nth(1).locator('.ref-card__type').selectOption('スタイル参照 (Style)');
+    await cards.nth(0).locator('.ref-card__description').fill('主人公の線画。形を保つこと。');
+    await cards.nth(1).locator('.ref-card__description').fill('塗りの参考');
+    await cards.nth(0).locator('.ref-card__star').click();
+    const edited = await cardState();
+
+    // Drag the second card above the first: the numbering follows the new order.
+    await cards
+      .nth(1)
+      .locator('.ref-card__handle')
+      .dragTo(cards.nth(0), { targetPosition: { x: 40, y: 4 } });
+    await page.waitForTimeout(300);
+    const reordered = await cardState();
+    await screenshot('nbp-reference-images', `${win} .tool-window__column:nth-child(2)`);
+
+    // The text sent to Gemini carries each image's heading, flags and description.
+    await page.locator(`${win} button`, { hasText: 'JSONプレビュー' }).click();
+    const dialog = page.locator('dialog[open]');
+    await dialog.waitFor();
+    const json = (await dialog.locator('pre').textContent()) ?? '';
+    await dialog.locator('button', { hasText: '閉じる' }).click();
+    const text =
+      (JSON.parse(json).input as { type: string; text?: string }[]).find(p => p.type === 'text')?.text ?? null;
+
+    // A type may go over its recommended number (Pro: Style 3) — only the total (14) is a limit.
+    await addImages(['#33aa33', '#aaaa33']);
+    await cards.nth(3).waitFor();
+    for (const i of [2, 3]) await cards.nth(i).locator('.ref-card__type').selectOption('スタイル参照 (Style)');
+    await cards.nth(1).locator('.ref-card__type').selectOption('スタイル参照 (Style)'); // 4 Style images
+    const overRecommended = {
+      types: (await cardState()).map(c => c.type),
+      counts: await counts(),
+      overCount: await page.locator(`${win} .ref-list__count--over`).allInnerTexts(),
+    };
+    await screenshot('nbp-reference-over-recommended', `${win} .tool-window__column:nth-child(2)`);
+
+    // The legacy model (Object only, 3 in total): other types become Object, the 4th image is removed,
+    // and nothing more can be added.
+    const modelSelect = page.locator(`${win} .nbp-step select`).first();
+    await modelSelect.selectOption('gemini-2.5-flash-image');
+    const legacy = { types: (await cardState()).map(c => c.type), counts: await counts() };
+    await addImages(['#999999']);
+    const legacyFull = {
+      cards: await cards.count(),
+      toast: await waitForToast(page, /合計 3 枚/),
+      addArea: await page.locator(`${win} .ref-list__add`).innerText(),
+    };
+    await modelSelect.selectOption('gemini-3-pro-image');
+    await closeToolWindow(page);
+    return { added, edited, reordered, sentText: text, overRecommended, legacy, legacyFull };
+  });
+
+  await step('20-browser-storage', async () => {
+    // Nothing is kept in the browser (docs/specs/app-shell.md 「ブラウザに残すもの」).
+    return page.evaluate(async () => ({
+      localStorage: localStorage.length,
+      sessionStorage: sessionStorage.length,
+      indexedDB: (await indexedDB.databases()).map(db => db.name),
+    }));
   });
 }
 
@@ -774,6 +1063,8 @@ async function main(): Promise<void> {
   let browser: Browser | undefined;
   const obs: Record<string, unknown> = {};
   const consoleMessages: string[] = [];
+  /** App responses (dev server / backend) without `Cache-Control: no-store`; expected to stay empty. */
+  const storableResponses = new Set<string>();
 
   try {
     backend = startProcess(
@@ -815,6 +1106,13 @@ async function main(): Promise<void> {
         consoleMessages.push(`${msg.type()}: ${maskTimestamps(msg.text().split('\n')[0])}`);
     });
     page.on('pageerror', err => consoleMessages.push(`pageerror: ${err.message}`));
+    page.on('response', res => {
+      const url = new URL(res.url());
+      if (!['localhost', '127.0.0.1'].includes(url.hostname)) return;
+      const cacheControl = res.headers()['cache-control'];
+      if (cacheControl !== 'no-store')
+        storableResponses.add(`${res.status()} ${url.pathname} (${cacheControl ?? 'none'})`);
+    });
     await page.clock.setFixedTime(new Date('2026-01-01T10:00:00'));
     await page.addInitScript(() => {
       window.addEventListener('DOMContentLoaded', () => {
@@ -827,6 +1125,7 @@ async function main(): Promise<void> {
     await page.goto(`http://localhost:${opts.frontendPort}/`);
     await runScenarios(page, apiBase, opts.out, obs);
   } finally {
+    obs.storableResponses = [...storableResponses].sort();
     obs.console = consoleMessages;
     fs.writeFileSync(path.join(opts.out, 'observations.json'), JSON.stringify(obs, null, 2));
     await browser?.close().catch(() => {});

@@ -1,9 +1,9 @@
 """Google Gemini API access.
 
 Two endpoints are used:
-  * Interactions API (``/v1beta/interactions``) — Nano Banana Pro image generation
+  * Interactions API (``/v1beta/interactions``) — image generation of the Nano Banana画像生成 tool
     via ``GeminiProvider.generate_multimodal``.
-  * ``models/{model}:generateContent`` — image generation when Nano Banana Pro selects
+  * ``models/{model}:generateContent`` — image generation when the Nano Banana画像生成 tool selects
     that API (``generate_multimodal(api="generate_content")``), and structured JSON
     output (manga panel detection) via ``generate_content``.
 
@@ -14,19 +14,18 @@ import asyncio
 import base64
 import json
 import os
-from typing import Any, NoReturn
+from typing import Any
 
 import requests
 
-from ..errors import AppError
+from ..errors import AppError, exception_text
 from .base import GenerationApi, GenerationResult, ImageGenerationProvider
 
 API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 IMAGE_GENERATION_TIMEOUT_SEC = 600
 GENERATE_CONTENT_TIMEOUT_SEC = 90
-HIGH_DEMAND_HINT = (
-    "\n(Google側のサーバーにリクエストが殺到しており高負荷状態です。しばらく待ってから再度お試しください)"
-)
+MISSING_API_KEY_MESSAGE = "Gemini API Key が設定されていません。右上の設定アイコンから設定してください。"
+HIGH_DEMAND_HINT = "Google 側のサーバーが高負荷です。しばらく待ってから再度お試しください。"
 
 
 class GeminiAPIError(AppError):
@@ -42,17 +41,12 @@ def resolve_api_key(api_key: str | None = None) -> str | None:
     return key.strip() if key else None
 
 
-def _error_message(response: requests.Response) -> tuple[str, Any]:
-    """Extracts ``error.message`` from a Gemini error body; falls back to the raw text."""
-    message = response.text
-    data = None
+def _error_body(response: requests.Response) -> Any:
+    """The parsed Gemini error body, or the raw text when it is not JSON."""
     try:
-        data = json.loads(response.text)
-        if "error" in data and "message" in data["error"]:
-            message = data["error"]["message"]
+        return json.loads(response.text)
     except (ValueError, TypeError):
-        pass
-    return message, data
+        return response.text
 
 
 def generate_content(
@@ -70,26 +64,14 @@ def generate_content(
     )
 
 
-def raise_for_status(response: requests.Response, label: str = "API Error") -> None:
+def raise_for_status(response: requests.Response) -> None:
+    """Raises ``GeminiAPIError`` (Japanese message, Gemini's error body as raw_response) unless 200."""
     if response.status_code == 200:
         return
-    message, data = _error_message(response)
-    raise GeminiAPIError(
-        f"{label} ({response.status_code}): {message}",
-        status_code=response.status_code,
-        raw_response=data,
-    )
-
-
-def _raise_generation_error(response: requests.Response) -> NoReturn:
-    message, data = _error_message(response)
-    if "high demand" in message.lower():
+    message = f"Gemini API がエラーを返しました（HTTP {response.status_code}）。"
+    if "high demand" in response.text.lower():
         message += HIGH_DEMAND_HINT
-    raise GeminiAPIError(
-        f"API Error ({response.status_code}): {message}",
-        status_code=response.status_code,
-        raw_response=data,
-    )
+    raise GeminiAPIError(message, status_code=response.status_code, raw_response=_error_body(response))
 
 
 def _post_interaction(payload: dict[str, Any], api_key: str) -> dict[str, Any]:
@@ -99,8 +81,7 @@ def _post_interaction(payload: dict[str, Any], api_key: str) -> dict[str, Any]:
         json=payload,
         timeout=IMAGE_GENERATION_TIMEOUT_SEC,
     )
-    if response.status_code != 200:
-        _raise_generation_error(response)
+    raise_for_status(response)
     # With response_format.type = image the API may return the image bytes directly.
     content_type = response.headers.get("Content-Type", "")
     if content_type.startswith("image/"):
@@ -112,8 +93,7 @@ def _post_generate_content(payload: dict[str, Any], api_key: str) -> dict[str, A
     """``payload`` is a generateContent body plus ``model`` (which goes into the URL)."""
     body = {k: v for k, v in payload.items() if k != "model"}
     response = generate_content(payload["model"], body, api_key, timeout=IMAGE_GENERATION_TIMEOUT_SEC)
-    if response.status_code != 200:
-        _raise_generation_error(response)
+    raise_for_status(response)
     return response.json()
 
 
@@ -165,22 +145,22 @@ def _find_candidate_image(data: dict[str, Any]) -> tuple[str, str | None] | None
 def _interaction_image(data: dict[str, Any]) -> tuple[str, str | None]:
     status = data.get("status")
     if status and status != "completed":
-        raise AppError(f"Interaction ended with status '{status}'. Response: {data}", raw_response=data)
+        raise AppError(f"画像の生成が完了しませんでした（status: {status}）。", raw_response=data)
     image = _find_interaction_image(data)
     if not image:
-        raise AppError(f"No image data found in response. Response keys: {list(data.keys())}")
+        raise AppError("Gemini の応答に画像が含まれていませんでした。", raw_response=data)
     return image
 
 
 def _generate_content_image(data: dict[str, Any]) -> tuple[str, str | None]:
     block_reason = (data.get("promptFeedback") or {}).get("blockReason")
     if block_reason:
-        raise AppError(f"The prompt was blocked (blockReason: {block_reason}).", raw_response=data)
+        raise AppError(f"プロンプトがブロックされました（blockReason: {block_reason}）。", raw_response=data)
     image = _find_candidate_image(data)
     if not image:
         reasons = [c["finishReason"] for c in data.get("candidates", []) if c.get("finishReason")]
         raise AppError(
-            f"No image data found in response (finishReason: {', '.join(reasons) or 'none'}).",
+            f"Gemini の応答に画像が含まれていませんでした（finishReason: {', '.join(reasons) or 'なし'}）。",
             raw_response=data,
         )
     return image
@@ -201,7 +181,7 @@ class GeminiProvider(ImageGenerationProvider):
     ) -> GenerationResult:
         key = resolve_api_key(api_key)
         if not key:
-            raise AppError("GEMINI_API_KEY is not set.")
+            raise AppError(MISSING_API_KEY_MESSAGE)
 
         model_name = payload.get("model", "interactions-api")
         try:
@@ -228,8 +208,7 @@ class GeminiProvider(ImageGenerationProvider):
                 metadata={"model": model_name, "raw_response": data},
                 mime_type=mime_type or sniff_image_mime(image_bytes),
             )
-        except Exception as e:
-            raise AppError(
-                f"Gemini API multimodal generation failed: {e}",
-                raw_response=getattr(e, "raw_response", None),
-            ) from e
+        except AppError:
+            raise
+        except Exception as e:  # network errors, timeouts, broken image data
+            raise AppError("Gemini API での画像生成に失敗しました。", raw_response=exception_text(e)) from e

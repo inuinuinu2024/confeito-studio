@@ -1,4 +1,4 @@
-# Confeito-Studio Startup Script
+# ConfeitO Studio Startup Script
 # Launches backend and frontend as fully detached processes using WMI.
 # This ensures child processes survive after this script exits.
 

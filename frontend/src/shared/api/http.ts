@@ -45,9 +45,12 @@ export async function toApiError(res: Response): Promise<ApiError> {
   return new ApiError(text, res.status, detail, body);
 }
 
-/** fetch() against API_BASE; throws ApiError for non-2xx responses. */
+/**
+ * fetch() against API_BASE; throws ApiError for non-2xx responses. Never uses or fills the
+ * browser's HTTP cache (the backend also answers with no-store; docs/specs/app-shell.md).
+ */
 export async function request(path: string, init?: RequestInit): Promise<Response> {
-  const res = await fetch(`${API_BASE}${path}`, init);
+  const res = await fetch(`${API_BASE}${path}`, { cache: 'no-store', ...init });
   if (!res.ok) throw await toApiError(res);
   return res;
 }

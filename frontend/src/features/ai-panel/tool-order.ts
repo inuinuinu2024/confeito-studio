@@ -1,40 +1,27 @@
 /**
- * AI panel preferences in localStorage:
- *   aiPanelActiveTab  "all" | "custom"
- *   toolOrder         tool names in "All Tools" order
- *   customToolOrder   pinned tool names in "Custom" order
+ * Tool list order, kept in the settings file (settings/default_prompts.json, key
+ * "aiPanel_toolOrder" = JSON array of tool names) — nothing is stored in the browser.
  */
+import { toolSettings } from '../../shared/state/tool-settings';
 
-export type PanelTab = 'all' | 'custom';
+const settings = toolSettings('aiPanel');
+const KEY = 'toolOrder';
 
-export const STORAGE_KEYS = {
-  activeTab: 'aiPanelActiveTab',
-  allOrder: 'toolOrder',
-  customOrder: 'customToolOrder',
-} as const;
-
-export function loadActiveTab(): PanelTab {
-  return (localStorage.getItem(STORAGE_KEYS.activeTab) as PanelTab) || 'all';
-}
-
-export function saveActiveTab(tab: PanelTab): void {
-  localStorage.setItem(STORAGE_KEYS.activeTab, tab);
-}
-
-/** Saved name list, or null when absent or unreadable. */
-export function loadNames(key: string): string[] | null {
-  const raw = localStorage.getItem(key);
+/** Saved tool order, or null when absent or unreadable. */
+export function loadToolOrder(): string[] | null {
+  const raw = settings.get(KEY, '');
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as string[];
+    const names: unknown = JSON.parse(raw);
+    return Array.isArray(names) ? names.map(String) : null;
   } catch (err) {
-    console.error(`Failed to parse ${key}`, err);
+    console.error('Failed to parse aiPanel_toolOrder', err);
     return null;
   }
 }
 
-export function saveNames(key: string, names: string[]): void {
-  localStorage.setItem(key, JSON.stringify(names));
+export function saveToolOrder(names: string[]): void {
+  settings.set(KEY, JSON.stringify(names));
 }
 
 /** Items sorted by their position in `order`; unknown items keep their relative order at the end. */
@@ -46,10 +33,4 @@ export function sortByOrder<T extends { name: string }>(items: readonly T[], ord
     return i === -1 ? Number.MAX_SAFE_INTEGER : i;
   };
   return sorted.sort((a, b) => rank(a.name) - rank(b.name));
-}
-
-/** Items whose names appear in `names`, in that order (unknown names are skipped). */
-export function pickByNames<T extends { name: string }>(items: readonly T[], names: string[]): T[] {
-  const byName = new Map(items.map(item => [item.name, item]));
-  return names.flatMap(name => byName.get(name) ?? []);
 }

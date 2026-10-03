@@ -1,17 +1,18 @@
 /**
  * 背景除去 — removes the background of the selected image locally with rembg
- * (backend: services/image_service.py). Each run creates a new archive
- * "<YYYYMMDD_HHMMSS>_remove-background" with origin.png and nobg.png.
+ * (backend: services/image_service.py) and saves nobg.png + info.json as a tool result
+ * ("<selected archive>/<YYYYMMDD_HHMMSS>_背景除去/", see result.ts).
  */
-import { saveArchive } from '../../shared/api/archives';
-import { ApiError } from '../../shared/api/http';
 import { removeBackground } from '../../shared/api/image';
 import { emit } from '../../shared/events';
 import { toolSettings } from '../../shared/state/tool-settings';
-import type { Tool, ToolContext } from '../../shared/types/tool';
+import { type Tool, type ToolContext, ToolNotReady } from '../../shared/types/tool';
 import { button, field, slider, switchRow } from '../../shared/ui/form';
-import { fileStamp } from '../../shared/utils/datetime';
+import { AppMessageError } from '../../shared/utils/error-message';
 import { canvasToBlob } from '../../shared/utils/image';
+import { DocumentManager } from '../document/DocumentManager';
+import { saveToolResult } from './result';
+import { imageTargetCard } from './target-card';
 
 const DEFAULTS = { alpha_matting: 'true', fg_threshold: '240', bg_threshold: '10', erode_size: '10' };
 
@@ -40,7 +41,6 @@ export class RemoveBackgroundTool implements Tool {
   id = 'remove-background';
   name = '背景除去';
   icon = '';
-  executeLabel = '背景除去する';
   executeIcon = null;
 
   private settings = toolSettings('removeBg');
@@ -72,35 +72,36 @@ export class RemoveBackgroundTool implements Tool {
     };
 
     container.append(
+      imageTargetCard(this.name, '背景を除去する画像'),
       alphaMatting.el,
       ...sliders.map(s => field(s.def.label, s.control.el, s.def.help)),
       button('初期値へ戻す', reset, { variant: 'outline', block: true }),
     );
   }
 
-  async execute(context: ToolContext): Promise<void> {
+  async execute(context: ToolContext): Promise<string> {
     const canvas = await context.getSelectedImage();
-    if (!canvas) throw new Error('No image available to process.');
-    const origin = await canvasToBlob(canvas, 'image/png');
-    if (!origin) throw new Error('Failed to extract image blob.');
+    if (!canvas) throw new ToolNotReady('ARCHIVES で対象の画像を選択してください。');
+    const input = await canvasToBlob(canvas, 'image/png');
+    if (!input) throw new AppMessageError('画像を PNG に変換できませんでした。');
 
-    let result: Blob;
-    try {
-      result = await removeBackground(origin, {
-        alphaMatting: this.get('alpha_matting'),
-        foregroundThreshold: this.get('fg_threshold'),
-        backgroundThreshold: this.get('bg_threshold'),
-        erodeSize: this.get('erode_size'),
-      });
-    } catch (err) {
-      if (err instanceof ApiError) throw new Error(`Background removal failed: ${err.message}`);
-      throw err;
-    }
+    const result = await removeBackground(input, {
+      alphaMatting: this.get('alpha_matting'),
+      foregroundThreshold: this.get('fg_threshold'),
+      backgroundThreshold: this.get('bg_threshold'),
+      erodeSize: this.get('erode_size'),
+    });
 
-    await saveArchive(`${fileStamp()}_${this.id}`, [
-      { blob: origin, path: 'origin.png' },
-      { blob: result, path: 'nobg.png' },
-    ]);
-    emit('archives:changed');
+    const folder = await saveToolResult(this.name, [{ blob: result, path: 'nobg.png' }], {
+      source: DocumentManager.getInstance().getCurrentKey(),
+      settings: {
+        alpha_matting: this.get('alpha_matting') === 'true',
+        fg_threshold: Number(this.get('fg_threshold')),
+        bg_threshold: Number(this.get('bg_threshold')),
+        erode_size: Number(this.get('erode_size')),
+      },
+    });
+    emit('archives:changed', { autoSelectKey: `${folder}/nobg.png` });
+    return `「${folder}」に保存しました`;
   }
 }

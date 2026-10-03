@@ -1,5 +1,5 @@
 /**
- * Nano Banana Pro settings per model × API (pure, unit tested).
+ * Nano Banana画像生成 tool settings per model × API (pure, unit tested).
  *
  * Every setting is stored as a string under `nanoBananaPro_<key>`. UNSET means
  * "既定（送らない）": the field is left out of the request. A stored value that the

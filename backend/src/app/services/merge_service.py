@@ -1,9 +1,7 @@
 """Panel merging (コマ結合): paste split panels back onto a canvas of the original size.
 
-Reads ``panels.json`` written by panel_service. Output location:
-  * target is a sub-folder ``root/a/b`` -> ``root/a/<YYYYMMDD_HHMMSS>_コマ結合.png`` (its parent)
-  * target is a root archive ``root``   -> new archive ``<YYYYMMDD_HHMMSS>_コマ結合/``
-A log line is appended to the original root archive's ``log.txt`` (best effort).
+Reads ``panels.json`` written by panel_service and saves ``<YYYYMMDD_HHMMSS>_コマ結合.png`` + info.json
+in ``<root of the target>/<YYYYMMDD_HHMMSS>_コマ結合/`` (``archive_service.save_result``).
 """
 
 import io
@@ -13,14 +11,10 @@ from typing import Any
 
 from PIL import Image
 
-from ..errors import BadRequestError
-from .archive_service import (
-    ArchiveServiceError,
-    append_archive_log,
-    extract_file,
-    normalize_rel_path,
-    save_archive,
-)
+from ..errors import BadRequestError, exception_text
+from .archive_service import ArchiveServiceError, extract_file, normalize_rel_path, save_result
+
+TOOL_NAME = "コマ結合"
 
 
 class MergeServiceError(BadRequestError):
@@ -65,7 +59,9 @@ def _compose(root: str, folder_path: str, panels_data: dict[str, Any]) -> bytes:
                 f"コマ画像 ({filename}) がフォルダ内に見つかりません。ファイルが削除または移動された可能性があります。"
             ) from e
         except Exception as e:
-            raise MergeServiceError(f"コマ画像 ({filename}) の読み込みに失敗しました: {e}") from e
+            raise MergeServiceError(
+                f"コマ画像 ({filename}) を読み込めませんでした。", raw_response=exception_text(e)
+            ) from e
 
         x, y = 0, 0
         if "pixel_box" in panel:
@@ -92,32 +88,15 @@ def merge_panels(target_folder: str) -> dict[str, Any]:
     merged = _compose(root, folder_path, panels_data)
 
     now = datetime.now()
-    out_filename = f"{now:%Y%m%d_%H%M%S}_コマ結合.png"
-    if len(parts) > 1:
-        dest_archive = root
-        parent_path = "/".join(parts[1:-1])
-        out_path = f"{parent_path}/{out_filename}" if parent_path else out_filename
-    else:
-        dest_archive = f"{now:%Y%m%d_%H%M%S}_コマ結合"
-        out_path = out_filename
-
-    try:
-        save_archive(dest_archive, [(out_path, merged)])
-    except Exception as e:
-        raise MergeServiceError(f"結合画像の保存に失敗しました: {e}") from e
-
-    try:
-        append_archive_log(
-            root,
-            f"[{now:%Y-%m-%d %H:%M:%S}] コマ結合ツールを実行し、{len(panels_data['panels'])}個のコマを結合しました"
-            f"（対象フォルダ: {target}、保存ファイル: {out_filename}）",
-        )
-    except ArchiveServiceError:
-        pass  # the log is informational only
+    name = f"{now:%Y%m%d_%H%M%S}_{TOOL_NAME}"
+    out_filename = f"{name}.png"
+    folder = save_result(
+        root, name, [(out_filename, merged)], {"tool": TOOL_NAME, "source": target, "settings": {}}, now
+    )
 
     return {
         "status": "success",
-        "parent_folder": dest_archive,
+        "folder": folder,
         "filename": out_filename,
-        "auto_select_key": f"{dest_archive}/{out_path}",
+        "auto_select_key": f"{folder}/{out_filename}",
     }

@@ -46,7 +46,7 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> FakeGemini:
 
 def test_missing_api_key_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    with pytest.raises(panel_service.PanelServiceError, match="GEMINI_API_KEY が設定されていません"):
+    with pytest.raises(panel_service.PanelServiceError, match="Gemini API Key が設定されていません"):
         panel_service.split_panels(make_png(10, 10))
 
 
@@ -68,24 +68,34 @@ def test_split_into_subfolder_of_selected_archive(fake: FakeGemini, archives_dir
         target_folder="page/sub",
         model_name="gemini-3.1-pro",
         thinking_level="high",
+        source_key="page/page.png",
     )
 
     assert fake.calls[0]["model"] == "gemini-3.1-pro-preview"
     assert fake.calls[0]["api_key"] == "test-key"
     assert fake.calls[0]["payload"]["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "HIGH"}
-    sub = result["sub_folder"]
-    assert result["archive_name"] == "page" and sub.endswith("_コマ分割")
-    assert result["auto_select_key"] == f"page/{sub}/01.png"
+    folder = result["folder"]
+    assert folder.startswith("page/") and folder.endswith("_コマ分割")  # top level, even with a sub folder selected
+    assert result["auto_select_key"] == f"{folder}/01.png"
     assert result["panels_count"] == 2
-    assert {p.name for p in (archives_dir / "page" / sub).iterdir()} == {"01.png", "02.png", "panels.json"}
+    files = {p.name for p in (archives_dir / folder).iterdir()}
+    assert files == {"01.png", "02.png", "panels.json", "info.json"}
 
-    meta = json.loads((archives_dir / "page" / sub / "panels.json").read_text(encoding="utf-8"))
+    meta = json.loads((archives_dir / folder / "panels.json").read_text(encoding="utf-8"))
     assert meta["image_size"] == {"width": 200, "height": 100}
     assert [p["pixel_box"] for p in meta["panels"]] == [[0, 0, 200, 50], [0, 50, 200, 100]]
+    info = json.loads((archives_dir / folder / "info.json").read_text(encoding="utf-8"))
+    assert info["tool"] == "コマ分割" and info["source"] == "page/page.png"
+    assert info["settings"] == {
+        "model": "gemini-3.1-pro-preview",
+        "thinking_level": "HIGH",
+        "reading_order": "left_to_right",
+        "padding": 0,
+    }
+    assert info["outputs"] == ["01.png", "02.png", "panels.json"]
 
-    log = (archives_dir / "page" / "log.txt").read_text(encoding="utf-8").splitlines()
-    assert log[0] == "[init]"
-    assert "コマ分割ツールを実行し、2コマに分割しました（元ファイル名 page.png、サブフォルダ名: " in log[1]
+    # No log is written (docs/specs/notifications.md): the existing log.txt stays as it was.
+    assert (archives_dir / "page" / "log.txt").read_text(encoding="utf-8") == "[init]\n"
 
 
 def test_split_without_target_creates_new_archive(fake: FakeGemini, archives_dir: Path) -> None:
@@ -93,11 +103,11 @@ def test_split_without_target_creates_new_archive(fake: FakeGemini, archives_dir
 
     result = panel_service.split_panels(make_png(30, 20))
 
-    assert result["sub_folder"] is None
-    root = result["archive_name"]
+    root = result["folder"]
+    assert "/" not in root and root.endswith("_コマ分割")
     assert result["auto_select_key"] == f"{root}/01.png"
-    assert {p.name for p in (archives_dir / root).iterdir()} == {"01.png", "panels.json", "log.txt"}
-    assert "サブフォルダ名: なし" in (archives_dir / root / "log.txt").read_text(encoding="utf-8")
+    assert {p.name for p in (archives_dir / root).iterdir()} == {"01.png", "panels.json", "info.json"}
+    assert json.loads((archives_dir / root / "info.json").read_text(encoding="utf-8"))["source"] is None
 
 
 def test_retries_without_thinking_config_when_model_rejects_it(fake: FakeGemini) -> None:
@@ -117,16 +127,21 @@ def test_retries_without_thinking_config_when_model_rejects_it(fake: FakeGemini)
     }
 
 
-def test_api_error_message(fake: FakeGemini) -> None:
+def test_api_error_keeps_gemini_response_as_raw(fake: FakeGemini) -> None:
     fake.responses.append(FakeResponse(500, {"error": {"message": "boom"}}))
-    with pytest.raises(panel_service.PanelServiceError, match=r"^Gemini API エラー \(500\): boom$"):
+    with pytest.raises(panel_service.PanelServiceError) as info:
         panel_service.split_panels(make_png(10, 10))
+    assert info.value.message == "Gemini API がエラーを返しました（HTTP 500）。"
+    assert info.value.raw_response == {"error": {"message": "boom"}}
 
 
 def test_unparseable_model_output(fake: FakeGemini) -> None:
     fake.responses.append(FakeResponse(200, {"candidates": [{"content": {"parts": [{"text": "not json"}]}}]}))
-    with pytest.raises(panel_service.PanelServiceError, match="JSON応答の解析に失敗しました"):
+    with pytest.raises(panel_service.PanelServiceError) as info:
         panel_service.split_panels(make_png(10, 10))
+    assert info.value.message == "Gemini の応答（JSON）を解析できませんでした。"
+    assert info.value.raw_response.startswith("JSONDecodeError: ")
+    assert info.value.raw_response.endswith("\nnot json")
 
 
 def test_preview_matches_request_shape() -> None:

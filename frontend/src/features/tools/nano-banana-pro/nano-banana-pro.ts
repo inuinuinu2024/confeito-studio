@@ -1,13 +1,14 @@
 /**
- * Nano Banana Pro — free-form image generation from a prompt and reference images.
+ * Nano Banana画像生成 — free-form image generation from a prompt and reference images.
+ * (Ids, the settings prefix "nanoBananaPro" and the backend routes keep the former name "Nano Banana Pro".)
  *
  * The user first picks the model and the API (Interactions / generateContent); the settings
  * below then show only what that combination supports (models.ts, options.ts) and the
  * request is written in that API's own format (request.ts).
- * Each run creates a new archive "<stamp>_Nano Banana Pro" with the image, Inputs/ and
- * Inputs/payload.json. Spec: docs/specs/tools/nano-banana-pro.md
+ * Each run saves the image, Inputs/ (reference images, payload.json) and info.json as a tool
+ * result ("<selected archive>/<stamp>_Nano Banana画像生成/", see ../result.ts).
+ * Spec: docs/specs/tools/nano-banana-pro.md
  */
-import { saveArchive } from '../../../shared/api/archives';
 import {
   type GenerateContentPayload,
   type GenerationInput,
@@ -15,21 +16,21 @@ import {
   generateImage,
   generateImageWithGenerateContent,
 } from '../../../shared/api/generation';
-import { ApiError } from '../../../shared/api/http';
 import { emit } from '../../../shared/events';
 import { toolSettings } from '../../../shared/state/tool-settings';
 import type { Tool } from '../../../shared/types/tool';
 import { openJsonPreview } from '../../../shared/ui/dialogs';
 import { h } from '../../../shared/ui/dom';
 import { button, field, helpIcon, note, select } from '../../../shared/ui/form';
-import { showToast } from '../../../shared/ui/toast';
+import { showError, showToast } from '../../../shared/ui/toast';
 import { fileStamp } from '../../../shared/utils/datetime';
 import { imageExtension } from '../../../shared/utils/image';
-import { MISSING_KEY_MESSAGE } from '../gemini-image/constants';
 import { imageHeading, imageInput, inputFiles, startProgress } from '../gemini-image/payload';
 import { promptField } from '../gemini-image/prompt-field';
-import { createReferenceZones, type ReferenceImage } from '../gemini-image/reference-images';
-import { DEFAULT_MODEL_ID, fitImagesToZones, findModel, IMAGE_MODELS, type ImageModel, outputSize } from './models';
+import { createReferenceList, type ReferenceImage } from '../gemini-image/reference-images';
+import { fitImagesToModel, totalLimit } from '../gemini-image/reference-list';
+import { saveToolResult } from '../result';
+import { DEFAULT_MODEL_ID, findModel, IMAGE_MODELS, type ImageModel, outputSize } from './models';
 import {
   APIS,
   type ChoiceSetting,
@@ -65,8 +66,9 @@ const apiLabel = (api: GeminiApi) => APIS.find(a => a.value === api)?.label ?? a
 
 export class NanoBananaProTool implements Tool {
   id = 'nano-banana-pro';
-  name = 'Nano Banana Pro';
+  name = 'Nano Banana画像生成';
   icon = 'auto_awesome';
+  windowColumns = 3;
 
   private settings = toolSettings('nanoBananaPro');
   private images: ReferenceImage[] = [];
@@ -80,75 +82,83 @@ export class NanoBananaProTool implements Tool {
     return toApi(this.settings.get('api', DEFAULT_API));
   }
 
+  /**
+   * Three columns: model / API and the prompt | reference images | the other parameters.
+   * Changing the model or the API rebuilds the middle and right columns.
+   */
   renderSettings(container: HTMLElement): void {
     const modelInfo = note('');
     modelInfo.classList.add('nbp-model-info');
-    const details = h('div', { class: 'nbp-details' });
-    const renderDetails = () => {
+    const references = h('div', { class: 'tool-window__column' });
+    const parameters = h('div', { class: 'tool-window__column nbp-parameters' });
+    const previewButton = button('JSONプレビュー', () => void this.preview(), { block: true });
+    const renderModelDependent = () => {
       const model = this.model;
-      const removed = fitImagesToZones(this.images, model.zones);
-      if (removed) showToast(`このモデルの参照画像の上限を超えるため、${removed} 枚を外しました。`, 'info');
+      const { retyped, removed } = fitImagesToModel(this.images, model.zones);
+      if (retyped) showToast(`このモデルにない種類の参照画像 ${retyped} 枚を「${model.zones[0].title}」にしました。`);
+      if (removed) {
+        showToast(
+          `このモデルの参照画像の上限（${totalLimit(model.zones)} 枚）を超えるため、${removed} 枚を外しました。`,
+          'warning',
+        );
+      }
       modelInfo.replaceChildren(
         h('div', { class: 'nbp-model-info__name', text: `正式名: ${model.officialName}（${model.id}）` }),
         h('div', { text: model.description }),
       );
-      details.replaceChildren(...this.detailElements(renderDetails));
+      references.replaceChildren(createReferenceList(this.images, [...model.zones]));
+      parameters.replaceChildren(...this.parameterElements(renderModelDependent), previewButton);
     };
 
+    const prompt = promptField('プロンプト', this.settings, DEFAULT_PROMPT);
+    prompt.classList.add('nbp-prompt');
     container.append(
       h(
         'div',
-        { class: 'nbp-step' },
-        h('div', { class: 'nbp-step__title', text: '1. モデルと API' }),
-        field(
-          'モデル',
-          select(
-            IMAGE_MODELS.map(m => ({ value: m.id, label: m.nickname })),
-            this.model.id,
-            v => {
-              this.settings.set('model', v);
-              renderDetails();
-            },
+        { class: 'tool-window__column' },
+        h(
+          'div',
+          { class: 'nbp-step' },
+          h('div', { class: 'nbp-step__title', text: 'モデルと API' }),
+          field(
+            'モデル',
+            select(
+              IMAGE_MODELS.map(m => ({ value: m.id, label: m.nickname })),
+              this.model.id,
+              v => {
+                this.settings.set('model', v);
+                renderModelDependent();
+              },
+            ),
+          ),
+          modelInfo,
+          field(
+            'API',
+            select(
+              APIS.map(a => ({ value: a.value, label: a.label })),
+              this.api,
+              v => {
+                this.settings.set('api', v);
+                renderModelDependent();
+              },
+            ),
+            'Interactions API: POST /v1beta/interactions（安全設定は指定できない）。\n' +
+              'generateContent API: POST /v1beta/models/{model}:generateContent（安全設定・temperature 等を指定できる）。',
           ),
         ),
-        modelInfo,
-        field(
-          'API',
-          select(
-            APIS.map(a => ({ value: a.value, label: a.label })),
-            this.api,
-            v => {
-              this.settings.set('api', v);
-              renderDetails();
-            },
-          ),
-          'Interactions API: POST /v1beta/interactions（安全設定は指定できない）。\n' +
-            'generateContent API: POST /v1beta/models/{model}:generateContent（安全設定・temperature 等を指定できる）。',
-        ),
+        prompt,
       ),
-      details,
-      button('JSONプレビュー', () => void this.preview(), { block: true }),
+      references,
+      parameters,
     );
-    renderDetails();
+    renderModelDependent();
   }
 
-  /** Step 2: prompt, reference images and the settings the selected model / API supports. */
-  private detailElements(rerender: () => void): HTMLElement[] {
+  /** Right column: the settings the selected model / API supports, by section. */
+  private parameterElements(rerender: () => void): HTMLElement[] {
     const model = this.model;
     const api = this.api;
-    const elements: HTMLElement[] = [
-      h(
-        'div',
-        { class: 'nbp-step nbp-step--second' },
-        h('div', { class: 'nbp-step__title', text: '2. 生成設定' }),
-        h('div', {
-          class: 'nbp-step__subtitle',
-          text: `${model.nickname}（${model.officialName}）× ${apiLabel(api)}`,
-        }),
-      ),
-      promptField('プロンプト', this.settings, DEFAULT_PROMPT),
-      ...createReferenceZones(this.images, [...model.zones]),
-    ];
+    const elements: HTMLElement[] = [];
     const refreshOutputLabels: (() => void)[] = [];
 
     for (const section of SECTIONS) {
@@ -290,40 +300,40 @@ export class NanoBananaProTool implements Tool {
       const endpoint = api === 'generateContent' ? `models/${payload.model}:generateContent` : 'interactions';
       openJsonPreview(redactImageData(payload, 'BASE64_IMAGE_DATA'), `JSON Preview — ${apiLabel(api)} (${endpoint})`);
     } catch (err) {
-      alert((err as Error).message || 'ペイロードの生成に失敗しました。');
+      showError('JSON プレビューを作成できませんでした', err);
     }
   }
 
-  async execute(): Promise<void> {
+  async execute(): Promise<string> {
     const request = await this.buildRequest();
     const stopProgress = startProgress(s => emit('tool:progress', { message: `Generating image... (${s}s elapsed)` }));
     try {
-      let blob: Blob;
-      try {
-        blob =
-          request.api === 'generateContent'
-            ? await generateImageWithGenerateContent(request.payload)
-            : await generateImage(request.payload);
-      } catch (err) {
-        if (!(err instanceof ApiError)) throw err;
-        // The whole detail (message + raw_response) is shown so safety blocks stay visible in error.txt.
-        const message = typeof err.detail === 'object' && err.detail ? JSON.stringify(err.detail) : err.message;
-        throw new Error(message.includes('GEMINI_API_KEY is not set') ? MISSING_KEY_MESSAGE : message);
-      }
+      // On failure the ApiError carries the upstream response (safety blocks etc.); the error toast shows it.
+      const blob =
+        request.api === 'generateContent'
+          ? await generateImageWithGenerateContent(request.payload)
+          : await generateImage(request.payload);
 
       // The backend answers with the image's real MIME type, which decides the extension.
       const mimeType = blob.type.startsWith('image/') ? blob.type : 'image/png';
-      const archive = `${fileStamp()}_${this.name}`;
+      const stamp = fileStamp();
+      const imagePath = `${stamp}_${this.name}${imageExtension(mimeType)}`;
       const savedPayload = redactImageData(request.payload, '[Image data omitted — see Image files in this folder]');
-      await saveArchive(archive, [
-        { blob, path: `${archive}${imageExtension(mimeType)}` },
-        ...inputFiles(this.images, (_image, i) => `Image${i + 1}`),
-        {
-          blob: new Blob([JSON.stringify(savedPayload, null, 2)], { type: 'application/json' }),
-          path: 'Inputs/payload.json',
-        },
-      ]);
-      emit('archives:changed');
+      const folder = await saveToolResult(
+        this.name,
+        [
+          { blob, path: imagePath },
+          ...inputFiles(this.images, (_image, i) => `Image${i + 1}`),
+          {
+            blob: new Blob([JSON.stringify(savedPayload, null, 2)], { type: 'application/json' }),
+            path: 'Inputs/payload.json',
+          },
+        ],
+        { source: null, settings: { model: this.model.id, api: request.api } },
+        stamp,
+      );
+      emit('archives:changed', { autoSelectKey: `${folder}/${imagePath}` });
+      return `「${folder}」に画像を保存しました`;
     } finally {
       stopProgress();
     }

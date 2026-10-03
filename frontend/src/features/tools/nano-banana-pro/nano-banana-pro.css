@@ -1,4 +1,5 @@
-/* ── Nano Banana Pro settings (nano-banana-pro.ts) ────────── */
+/* ── Nano Banana画像生成 settings (nano-banana-pro.ts) ──────────────
+   Three tool-window columns: model / API + prompt | reference images | parameters. */
 
 .nbp-step {
   display: flex;
@@ -9,19 +10,21 @@
   border-radius: 6px;
 }
 
-.nbp-step--second {
-  padding: 6px 12px;
-}
-
 .nbp-step__title {
   font-size: 13px;
   font-weight: 600;
   color: var(--color-on-surface);
 }
 
-.nbp-step__subtitle {
-  font-size: 11px;
-  color: var(--color-on-surface-variant);
+/* The prompt fills the rest of the left column. */
+.nbp-prompt {
+  flex: 1 1 auto;
+}
+
+.nbp-prompt .cs-textarea {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 240px;
 }
 
 .nbp-model-info {
@@ -35,12 +38,6 @@
   color: var(--color-on-surface);
 }
 
-.nbp-details {
-  display: flex;
-  flex-direction: column;
-  gap: inherit;
-}
-
 .nbp-section__title {
   display: flex;
   align-items: center;
@@ -51,6 +48,10 @@
   font-size: 12px;
   font-weight: 600;
   color: var(--color-on-surface);
+}
+
+.nbp-parameters > .nbp-section__title:first-child {
+  margin-top: 0;
 }
 
 .nbp-section__actions {
@@ -74,7 +75,7 @@
   height: 80px;
 }
 
-.nbp-details .cs-input:invalid {
+.nbp-parameters .cs-input:invalid {
   border-color: var(--color-error);
 }
 

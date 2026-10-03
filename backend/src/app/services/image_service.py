@@ -1,4 +1,4 @@
-"""Background removal with rembg (isnet-anime model, stored in U2NET_HOME = models/)."""
+"""Background removal with rembg (isnet-anime model in U2NET_HOME, by default <repo>/models; see config.py)."""
 
 import functools
 import io

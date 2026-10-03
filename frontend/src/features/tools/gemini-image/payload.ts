@@ -5,11 +5,18 @@
 import type { GenerationInput } from '../../../shared/api/generation';
 import { blobToBase64, imageExtension } from '../../../shared/utils/image';
 import { IMPORTANT_IMAGE_NOTE } from './constants';
-import { type ReferenceImage, zoneLabel } from './reference-images';
+import { type ReferenceImage, zoneLabel } from './reference-list';
 
-/** "# Image N\nこの画像を<zone>画像とする。\n" (+ the important note) for one reference image. */
-export function imageHeading(index: number, image: Pick<ReferenceImage, 'zoneTitle' | 'isImportant'>): string {
-  return `# Image ${index}\nこの画像を${zoneLabel(image.zoneTitle)}画像とする。\n${image.isImportant ? IMPORTANT_IMAGE_NOTE : ''}\n`;
+/**
+ * "# Image N\nこの画像を<zone>画像とする。\n" (+ the important note, + the image's description)
+ * and a blank line, for one reference image.
+ */
+export function imageHeading(
+  index: number,
+  image: Pick<ReferenceImage, 'zoneTitle' | 'isImportant' | 'description'>,
+): string {
+  const description = image.description?.trim() ? `${image.description.trim()}\n` : '';
+  return `# Image ${index}\nこの画像を${zoneLabel(image.zoneTitle)}画像とする。\n${image.isImportant ? IMPORTANT_IMAGE_NOTE : ''}${description}\n`;
 }
 
 export async function imageInput(blob: Blob, mimeType = blob.type || 'image/png'): Promise<GenerationInput> {

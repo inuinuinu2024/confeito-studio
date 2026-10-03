@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-set "SHORTCUT_PATH=%~dp0Confeito-Studio.lnk"
+set "SHORTCUT_PATH=%~dp0ConfeitO Studio.lnk"
 set "PS1_PATH=%~dp0start-app.ps1"
 set "ICON_PATH=%~dp0app-icon.ico"
 set "WORKING_DIR=%~dp0.."
@@ -11,6 +11,6 @@ powershell -NoProfile -Command ^
 
 echo =======================================================
 echo Shortcut created: %SHORTCUT_PATH%
-echo Right-click "Confeito-Studio.lnk" and "Pin to taskbar".
+echo Right-click "ConfeitO Studio.lnk" and "Pin to taskbar".
 echo =======================================================
 pause

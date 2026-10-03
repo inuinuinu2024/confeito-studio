@@ -4,7 +4,7 @@ import { emit } from '../../../shared/events';
 import { createModal } from '../../../shared/ui/dialogs';
 import { h } from '../../../shared/ui/dom';
 import { button, field } from '../../../shared/ui/form';
-import { showToast } from '../../../shared/ui/toast';
+import { showError, showToast } from '../../../shared/ui/toast';
 
 export function createSettingsDialog(): { open: () => Promise<void> } {
   const modal = createModal({ title: 'Settings', overlayClass: 'settings-overlay' });
@@ -15,10 +15,10 @@ export function createSettingsDialog(): { open: () => Promise<void> } {
     if (value) {
       try {
         await saveGeminiKey(value);
-        showToast('Settings saved to .env', 'success');
+        showToast('Gemini API Key を .env に保存しました', 'success');
       } catch (err) {
         console.error(err);
-        showToast('Failed to save settings', 'error');
+        showError('設定を保存できませんでした', err);
       }
     }
     emit('settings:updated');

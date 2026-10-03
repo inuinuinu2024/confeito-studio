@@ -1,5 +1,5 @@
 /**
- * Form controls for tool settings sidebars (styles: shared/styles/components.css).
+ * Form controls for tool settings in the tool window (styles: shared/styles/components.css).
  * Controls that persist a value take the current value and an onChange callback;
  * persistence itself is done by the caller (usually via toolSettings()).
  */

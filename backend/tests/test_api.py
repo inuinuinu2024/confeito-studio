@@ -17,6 +17,25 @@ def test_health(client) -> None:
     assert client.get("/api/health").json() == {"status": "ok", "version": "0.1.0"}
 
 
+def test_every_response_is_no_store(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.app.routers import archives
+
+    client.post("/api/archives", data={"name": "arc", "paths": ["a.png"]}, files=[("files", ("a.png", b"x"))])
+
+    def explode(*_a, **_kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(archives.svc, "list_archives", explode)
+    responses = [
+        client.get("/api/health"),
+        client.get("/api/archives/arc/extract", params={"path": "a.png"}),
+        client.get("/api/archives/nope/contents"),  # AppError (404)
+        client.get("/api/archives"),  # unexpected error (500)
+    ]
+    assert [r.status_code for r in responses] == [200, 200, 404, 500]
+    assert all(r.headers["cache-control"] == "no-store" for r in responses)
+
+
 def test_archive_roundtrip(client, archives_dir: Path) -> None:
     files = [
         ("files", ("a.png", make_png(4, 4), "image/png")),
@@ -32,8 +51,9 @@ def test_archive_roundtrip(client, archives_dir: Path) -> None:
     extracted = client.get("/api/archives/arc/extract", params={"path": "sub/a.png"})
     assert extracted.headers["content-type"] == "image/png"
 
-    assert client.post("/api/archives/arc/log", json={"message": "more"}).status_code == 200
-    assert (archives_dir / "arc" / "log.txt").read_text(encoding="utf-8") == "line\nmore\n"
+    # Logging was removed (docs/specs/notifications.md): there is no log endpoint any more.
+    assert client.post("/api/archives/arc/log", json={"message": "more"}).status_code == 404
+    assert (archives_dir / "arc" / "log.txt").read_text(encoding="utf-8") == "line\n"
 
     assert client.post("/api/archives/arc/delete_contents", json={"paths": ["sub/a.png"]}).status_code == 200
     assert {e["key"] for e in client.get("/api/archives/arc/contents").json()} == {"arc/log.txt"}
@@ -46,18 +66,36 @@ def test_archive_roundtrip(client, archives_dir: Path) -> None:
     assert [a["key"] for a in client.get("/api/archives").json()] == ["arc"]
 
 
+def test_save_result_route(client, archives_dir: Path) -> None:
+    def post(**data):
+        return client.post(
+            "/api/archives/results",
+            data={"paths": ["nobg.png"], **data},
+            files=[("files", ("nobg.png", b"x"))],
+        )
+
+    info = json.dumps({"tool": "背景除去", "source": "page/page.png", "settings": {}})
+    assert post(name="r", root="page", info=info).json() == {"status": "success", "folder": "page/r"}
+    assert post(name="r", root="page").json()["folder"] == "page/r_2"
+    assert post(name="r").json()["folder"] == "r"
+    assert json.loads((archives_dir / "page" / "r" / "info.json").read_text(encoding="utf-8"))["tool"] == "背景除去"
+    assert not (archives_dir / "page" / "r_2" / "info.json").exists()
+    assert post(name="r", info="{").status_code == 400
+
+
 def test_archive_errors_use_detail_and_status(client) -> None:
     res = client.get("/api/archives/nope/contents")
     assert res.status_code == 404
-    assert res.json() == {"detail": "Archive 'nope' not found"}
+    assert res.json() == {"detail": "アーカイブ「nope」が見つかりません。"}
 
     client.post("/api/archives", data={"name": "arc", "paths": ["a.txt"]}, files=[("files", ("a.txt", b"x"))])
     res = client.get("/api/archives/arc/extract", params={"path": "../x"})
     assert res.status_code == 400
-    assert res.json() == {"detail": "Path traversal detected"}
+    assert res.json() == {"detail": {"message": "アーカイブの外を指すパスは使えません。", "raw_response": "../x"}}
 
     res = client.post("/api/archives", data={"name": "arc", "paths": ["a", "b"]}, files=[("files", ("a", b"x"))])
     assert res.status_code == 400
+    assert res.json() == {"detail": "ファイルとパスの数が一致しません。"}
 
 
 def test_settings_prompts_roundtrip(client, data_dir: Path) -> None:
@@ -88,7 +126,7 @@ NBP_PAYLOAD = {
 def test_nano_banana_pro_without_key(client) -> None:
     res = client.post("/api/nano-banana-pro", json=NBP_PAYLOAD)
     assert res.status_code == 500
-    assert res.json() == {"detail": "GEMINI_API_KEY is not set."}
+    assert res.json() == {"detail": gemini.MISSING_API_KEY_MESSAGE}
 
 
 def test_nano_banana_pro_success(client, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -206,11 +244,11 @@ def test_generate_content_returns_the_final_image(client, monkeypatch: pytest.Mo
     [
         (
             {"promptFeedback": {"blockReason": "PROHIBITED_CONTENT"}},
-            "The prompt was blocked (blockReason: PROHIBITED_CONTENT).",
+            "プロンプトがブロックされました（blockReason: PROHIBITED_CONTENT）。",
         ),
         (
             {"candidates": [{"content": {"parts": [{"text": "no"}]}, "finishReason": "IMAGE_SAFETY"}]},
-            "No image data found in response (finishReason: IMAGE_SAFETY).",
+            "Gemini の応答に画像が含まれていませんでした（finishReason: IMAGE_SAFETY）。",
         ),
     ],
 )
@@ -226,9 +264,7 @@ def test_generate_content_without_image_carries_raw_response(
     )
 
     assert res.status_code == 500
-    assert res.json() == {
-        "detail": {"message": f"Gemini API multimodal generation failed: {message}", "raw_response": response}
-    }
+    assert res.json() == {"detail": {"message": message, "raw_response": response}}
 
 
 def test_nano_banana_pro_api_error_carries_raw_response(client, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -240,8 +276,26 @@ def test_nano_banana_pro_api_error_carries_raw_response(client, monkeypatch: pyt
     assert res.status_code == 500
     assert res.json() == {
         "detail": {
-            "message": "Gemini API multimodal generation failed: API Error (400): blocked",
+            "message": "Gemini API がエラーを返しました（HTTP 400）。",
             "raw_response": {"error": {"message": "blocked"}},
+        }
+    }
+
+
+def test_nano_banana_pro_network_error_keeps_the_exception_text(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(*_a, **_kw):
+        raise gemini.requests.exceptions.ConnectionError("connection refused")
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setattr(gemini.requests, "post", fail)
+
+    res = client.post("/api/nano-banana-pro", json=NBP_PAYLOAD)
+
+    assert res.status_code == 500
+    assert res.json() == {
+        "detail": {
+            "message": "Gemini API での画像生成に失敗しました。",
+            "raw_response": "ConnectionError: connection refused",
         }
     }
 
@@ -249,13 +303,13 @@ def test_nano_banana_pro_api_error_carries_raw_response(client, monkeypatch: pyt
 def test_split_panels_requires_image(client) -> None:
     res = client.post("/api/image/split-panels", files={"image": ("x.png", b"")})
     assert res.status_code == 400
-    assert res.json() == {"detail": "画像データが提供されていません"}
+    assert res.json() == {"detail": "画像データが提供されていません。"}
 
 
 def test_split_panels_without_key_is_bad_request(client) -> None:
     res = client.post("/api/image/split-panels", files={"image": ("x.png", make_png(4, 4))})
     assert res.status_code == 400
-    assert "GEMINI_API_KEY" in res.json()["detail"]
+    assert res.json() == {"detail": gemini.MISSING_API_KEY_MESSAGE}
 
 
 def test_split_panels_preview(client) -> None:
@@ -271,18 +325,33 @@ def test_merge_panels_error_is_bad_request(client) -> None:
     assert "panels.json が見つかりません" in res.json()["detail"]
 
 
-def test_unexpected_errors_keep_the_tool_prefix(client, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("route", "target", "kwargs", "message"),
+    [
+        ("merge-panels", "merge_panels", {"data": {"target_folder": "x"}}, "コマ結合の処理中にエラーが発生しました。"),
+        (
+            "remove-bg",
+            "remove_background",
+            {"files": {"image": ("x.png", b"png")}},
+            "背景除去の処理中にエラーが発生しました。",
+        ),
+    ],
+)
+def test_unexpected_errors_keep_the_original_text(
+    client, monkeypatch: pytest.MonkeyPatch, route: str, target: str, kwargs: dict, message: str
+) -> None:
     from src.app.routers import image
 
     def explode(*_a, **_kw):
         raise RuntimeError("disk full")
 
-    monkeypatch.setattr(image, "merge_panels", explode)
-    res = client.post("/api/image/merge-panels", data={"target_folder": "x"})
+    monkeypatch.setattr(image, target, explode)
+    res = client.post(f"/api/image/{route}", **kwargs)
     assert res.status_code == 500
-    assert res.json() == {"detail": "コマ結合処理中にエラーが発生しました: disk full"}
+    assert res.json() == {"detail": {"message": message, "raw_response": "RuntimeError: disk full"}}
 
 
 def test_remove_bg_requires_image(client) -> None:
     res = client.post("/api/image/remove-bg", files={"image": ("x.png", b"")})
     assert res.status_code == 400
+    assert res.json() == {"detail": "画像データが提供されていません。"}

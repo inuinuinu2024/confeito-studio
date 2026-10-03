@@ -22,7 +22,7 @@ import { isViewMode } from '../../shared/state/view-mode';
 import type { ArchiveEntry } from '../../shared/types/archive';
 import { h, icon } from '../../shared/ui/dom';
 import { createResizer } from '../../shared/ui/resizer';
-import { showToast } from '../../shared/ui/toast';
+import { showError, showToast } from '../../shared/ui/toast';
 import { historyManager } from '../../shared/utils/history';
 import { DocumentManager } from '../document/DocumentManager';
 import {
@@ -332,7 +332,7 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
 
   deleteBtn.addEventListener('click', async () => {
     if (selected.size === 0) {
-      showToast('削除するアーカイブを選択してください');
+      showToast('削除するアーカイブを選択してください', 'warning');
       return;
     }
     try {
@@ -360,7 +360,7 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
             ]);
           } catch (err) {
             console.error('Failed to restore deleted items', err);
-            showToast('削除を元に戻せませんでした', 'error');
+            showError('削除を元に戻せませんでした', err);
           }
           emit('archives:changed');
         },
@@ -380,7 +380,7 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
       await reload();
     } catch (err) {
       console.error('Failed to delete cache', err);
-      showToast('削除に失敗しました', 'error');
+      showError('削除に失敗しました', err);
     }
   });
 
@@ -395,7 +395,7 @@ export function createArchivePanel(options: ArchivePanelOptions = {}): ArchivePa
       showToast('ARCHIVESを最新の状態に更新しました', 'success');
     } catch (err) {
       console.error('Failed to refresh archives', err);
-      showToast('アーカイブの更新に失敗しました', 'error');
+      showError('ARCHIVES を更新できませんでした', err);
     } finally {
       refreshIcon.classList.remove('is-spinning');
       refreshBtn.disabled = false;

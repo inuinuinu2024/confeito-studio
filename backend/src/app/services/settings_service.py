@@ -9,7 +9,7 @@ import os
 from typing import Any
 
 from ..config import settings
-from ..errors import AppError
+from ..errors import AppError, exception_text
 
 
 class SettingsServiceError(AppError):
@@ -37,7 +37,7 @@ def save_gemini_key(api_key: str) -> None:
             lines.append(key_line)
         env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     except OSError as e:
-        raise SettingsServiceError(f"Failed to save API key: {e}") from e
+        raise SettingsServiceError("API Key を .env に保存できませんでした。", raw_response=exception_text(e)) from e
 
 
 def get_default_prompts() -> dict[str, Any]:
@@ -52,4 +52,4 @@ def save_default_prompts(prompts: dict[str, Any]) -> None:
         settings.settings_dir.mkdir(parents=True, exist_ok=True)
         settings.prompts_file.write_text(json.dumps(prompts, ensure_ascii=False, indent=2), encoding="utf-8")
     except OSError as e:
-        raise SettingsServiceError(f"Failed to save prompts: {e}") from e
+        raise SettingsServiceError("ツールの設定を保存できませんでした。", raw_response=exception_text(e)) from e

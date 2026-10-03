@@ -1,31 +1,34 @@
 /**
- * 画像読み込み — imports an image file as a new archive "<YYYYMMDD_HHMMSS>_<name>" containing
- * the file and log.txt, then selects it. Also used for drag & drop onto the canvas.
+ * 画像読み込み — imports an image file as a new archive "<YYYYMMDD_HHMMSS>_<name>" (a "_2" ...
+ * suffix when taken) containing only the file, then selects it. Canvas drag & drop runs the
+ * same tool (`importImageTool`).
  */
-import { saveArchive } from '../../shared/api/archives';
+import { saveResult } from '../../shared/api/archives';
 import { IMAGE_ACCEPT, IMAGE_EXTENSIONS } from '../../shared/config';
 import { emit } from '../../shared/events';
 import { type Tool, ToolCancelled } from '../../shared/types/tool';
-import { showToast } from '../../shared/ui/toast';
-import { fileStamp, logStamp } from '../../shared/utils/datetime';
-import { DocumentManager } from '../document/DocumentManager';
+import { fileStamp } from '../../shared/utils/datetime';
 
-/** Creates the archive for `file` and selects the image. Returns the archive name. */
-export async function importImageFile(file: File): Promise<string> {
-  const now = new Date();
+const NAME = '画像読み込み';
+
+/** Creates the archive for `file` and selects the image. Returns the result summary. */
+async function importImageFile(file: File): Promise<string> {
   const baseName = (file.name.replace(/\.[^/.]+$/, '') || file.name).replace(/[\\/:*?"<>|]/g, '_');
-  const folderName = `${fileStamp(now)}_${baseName}`;
-  const log = `[${logStamp(now)}] 画像読み込みツールにより読み込まれました (ファイル名: ${file.name})\n`;
+  // The archive is the page itself: no info.json (the original file name stays as the image name).
+  const archive = await saveResult({
+    root: null,
+    name: `${fileStamp()}_${baseName}`,
+    info: null,
+    files: [{ blob: file, path: file.name }],
+  });
 
-  await saveArchive(folderName, [
-    { blob: file, path: file.name },
-    { blob: new Blob([log], { type: 'text/plain; charset=utf-8' }), path: 'log.txt' },
-  ]);
+  emit('archives:changed', { autoSelectKey: `${archive}/${file.name}` });
+  return `「${archive}」を作成し、${file.name} を読み込みました`;
+}
 
-  DocumentManager.getInstance().setCurrentArchiveFolder(folderName);
-  emit('archives:changed', { autoSelectKey: `${folderName}/${file.name}` });
-  showToast(`アーカイブ「${folderName}」を作成し、画像を読み込みました`, 'success');
-  return folderName;
+/** The 画像読み込み tool for a file that is already chosen (canvas drag & drop). */
+export function importImageTool(file: File): Pick<Tool, 'name' | 'execute'> {
+  return { name: NAME, execute: () => importImageFile(file) };
 }
 
 /** Native file picker when available, otherwise a hidden <input type=file>. Null if cancelled. */
@@ -58,12 +61,12 @@ async function pickImageFile(): Promise<File | null> {
 
 export class ImageLoaderTool implements Tool {
   id = 'image-loader';
-  name = '画像読み込み';
+  name = NAME;
   icon = '';
 
-  async execute(): Promise<void> {
+  async execute(): Promise<string> {
     const file = await pickImageFile();
     if (!file) throw new ToolCancelled();
-    await importImageFile(file);
+    return importImageFile(file);
   }
 }

@@ -1,7 +1,7 @@
 [project]
 name = "confeito-studio-backend"
 version = "0.1.0"
-description = "Confeito-Studio backend — archive storage, Gemini proxy and image processing"
+description = "ConfeitO Studio backend — archive storage, Gemini proxy and image processing"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",

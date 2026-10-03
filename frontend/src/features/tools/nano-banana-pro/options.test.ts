@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  CHARACTER_ZONE,
-  findModel,
-  fitImagesToZones,
-  IMAGE_MODELS,
-  OBJECT_ZONE,
-  outputSize,
-  STYLE_ZONE,
-} from './models';
+import { totalLimit } from '../gemini-image/reference-list';
+import { CHARACTER_ZONE, findModel, IMAGE_MODELS, OBJECT_ZONE, outputSize, STYLE_ZONE } from './models';
 import { effectiveValue, isAvailable, resolveOptions, SETTINGS, type SettingsReader, UNSET } from './options';
 
 const PRO = findModel('gemini-3-pro-image');
@@ -46,20 +39,9 @@ describe('models', () => {
     expect(outputSize(PRO, 'unset', '1K')).toBeNull();
   });
 
-  it('drops reference images the model has no room for, keeping the order', () => {
-    const images = [
-      { zoneTitle: OBJECT_ZONE, n: 1 },
-      { zoneTitle: STYLE_ZONE, n: 2 },
-      { zoneTitle: CHARACTER_ZONE, n: 3 },
-      { zoneTitle: OBJECT_ZONE, n: 4 },
-    ];
-    expect(
-      fitImagesToZones(images, [
-        { title: OBJECT_ZONE, max: 1 },
-        { title: CHARACTER_ZONE, max: 4 },
-      ]),
-    ).toBe(2);
-    expect(images.map(i => i.n)).toEqual([1, 3]);
+  it('allows the documented total of reference images per model', () => {
+    expect([PRO, FLASH, LITE, LEGACY].map(m => totalLimit(m.zones))).toEqual([14, 14, 14, 3]);
+    expect(PRO.zones.map(z => z.title)).toEqual([OBJECT_ZONE, CHARACTER_ZONE, STYLE_ZONE]);
   });
 });
 

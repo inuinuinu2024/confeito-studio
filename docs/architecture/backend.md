@@ -30,9 +30,19 @@ backend/src/app/
 ## エラー処理
 - サービスは `AppError` のサブクラスを投げる。`main.py` が `{"detail": exc.detail}` と `status_code` に変換する。
   - `BadRequestError`(400) / `NotFoundError`(404) / `AppError`(500)
-  - `raw_response` を持つ場合 `detail` は `{"message": ..., "raw_response": ...}`（Gemini のセーフティブロック等をフロントまで伝える）
-- 想定外の例外は 500 `{"detail": str(exc)}`。ツール名を付けたい場合はルーターで `with unexpected_errors_as("コマ分割処理中にエラーが発生しました"):`。
+  - `raw_response` を持つ場合 `detail` は `{"message": ..., "raw_response": ...}`
+- **メッセージは日本語で書き、そのままユーザーに見せる。** 例外の文言や外部 API の応答（Gemini のセーフティブロック等）は
+  メッセージに埋め込まず `raw_response` に入れる（フロントのエラートーストに「原文」として出る。[specs/notifications.md](../specs/notifications.md)）。
+  例: `raise ArchiveServiceError("アーカイブに保存できませんでした。", raw_response=exception_text(e)) from e`
+- 想定外の例外は 500 `{"detail": {"message": "バックエンドで予期しないエラーが発生しました。", "raw_response": "<型>: <内容>"}}`。
+  処理名を付けたい場合はルーターで `with unexpected_errors_as("コマ分割の処理中にエラーが発生しました。"):`。
 - フロントは `shared/api/http.ts` の `ApiError` でこの形式を解釈する。形式を変える時は両方を直す。
+- ログファイル（log.txt / error.txt）は書かない。
+
+## ツールの結果の保存
+- 結果は必ず `archive_service.save_result(root, folder_name, files, info)` で書く（仕様: [specs/archives.md](../specs/archives.md)「ツールの結果の保存」）。
+  root のトップレベルの中（root なしなら新しいアーカイブ）に一意な名前のフォルダを作り、info があれば info.json を付ける。
+  コマ分割・コマ結合はサービスから直接、フロントで保存するツールは `POST /archives/results` 経由で呼ぶ。
 
 ## 設定（`config.py`）
 
@@ -42,7 +52,8 @@ backend/src/app/
 | `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブ保存先（ゴミ箱 `.trash/` を含む） |
 | `CONFEITO_SETTINGS_DIR` | `<repo>/settings` | `default_prompts.json` |
 | `GEMINI_API_KEY` | （.env） | Gemini API キー。リクエストの `X-API-Key` ヘッダーが優先 |
-| `U2NET_HOME` | （.env, `models`） | rembg モデルの場所（相対パスはリポジトリ基準） |
+| `CONFEITO_MODELS_DIR` | `<repo>/models` | rembg モデルの場所。起動時に `U2NET_HOME` の既定値にする（.env に書く必要はない） |
+| `U2NET_HOME` | （未設定） | 環境変数か .env で指定した場合はそちらが優先（.env の相対パスは .env の場所基準） |
 
 ## API 一覧（すべて `/api` 配下）
 
@@ -52,13 +63,13 @@ backend/src/app/
 | POST | `/shutdown` | 全タブクローズ時に Vite プラグインが呼ぶ |
 | GET | `/archives` | トップレベル一覧（新しい順） |
 | POST | `/archives` | multipart: `name`, `files[]`, `paths[]` で保存（既存なら追記・上書き） |
+| POST | `/archives/results` | ツールの結果を保存: multipart `root?`, `name`, `info?`(JSON), `files[]`, `paths[]` → `{folder}`（`save_result`。同名は `_2`…、info.json を付ける） |
 | GET | `/archives/{name}/contents` | 配下の全フォルダ・ファイル（`folderId` で親子） |
 | GET | `/archives/{name}/extract?path=` | ファイル本体 |
 | DELETE | `/archives/{name}` | `.trash/` へ移動 |
 | POST | `/archives/{name}/restore` | `.trash/` から復元 |
 | POST | `/archives/{name}/delete_contents` | `{paths}` を `.trash/.items/{name}/` へ移動。空になったフォルダ・アーカイブは消す |
 | POST | `/archives/{name}/restore_contents` | `{paths}` を `.trash/.items/{name}/` から元の場所へ戻す（Undo） |
-| POST | `/archives/{name}/log` | `{message, file_name="log.txt"}` を追記 |
 | POST | `/image/remove-bg` | 背景除去（[specs/tools/remove-background.md](../specs/tools/remove-background.md)） |
 | POST | `/image/split-panels` | コマ分割（[specs/tools/panel-split-merge.md](../specs/tools/panel-split-merge.md)） |
 | POST | `/image/split-panels/preview` | コマ分割で Gemini に送るリクエストの確認用 |
@@ -77,7 +88,8 @@ backend/src/app/
   `promptFeedback.blockReason` があるとき、画像がないとき（`finishReason` を表示）は `raw_response` 付きのエラーにする。
 - API キーは `x-goog-api-key` ヘッダーで送る（URL に載せない）。
 - `gemini-3-pro-image` にはメディアごとの解像度指定（`resolution`）を付けない（400 エラーになる）。
-- "high demand" エラーには日本語の補足を付ける。エラー本文は `raw_response` として保持し上位へ伝える。
+- Gemini が 200 以外を返したら「Gemini API がエラーを返しました（HTTP <status>）。」とし、エラー本文を `raw_response` に入れる。
+  "high demand" のときは日本語の補足を付ける。API キー未設定は `MISSING_API_KEY_MESSAGE`（コマ分割と共通）。
 - リクエストモデルは宣言した項目だけを Gemini に送り、それ以外のトップレベル項目は捨てる。
   - `NanoBananaProRequest`（Interactions）: `model` / `input` / `response_format` / `generation_config` /
     `system_instruction` / `tools` / `store` / `service_tier`。

@@ -1,0 +1,126 @@
+/* ── Reference image list (reference-images.ts) ───────────── */
+.ref-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ref-list__counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 11px;
+  color: var(--color-on-surface-variant);
+}
+
+.ref-list__count--total {
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+/* Total reached: nothing more can be added. Over a type's recommended number: allowed, just noted. */
+.ref-list__count--full,
+.ref-list__count--over {
+  color: var(--color-warning);
+}
+
+.ref-list__add--full {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.ref-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* One image: thumbnail on the left; name, ★, ×, type and description on the right. */
+.ref-card {
+  display: flex;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 6px;
+  background: var(--color-surface-container);
+}
+
+.ref-card__thumb {
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 4px;
+  background: var(--color-surface-container-lowest);
+}
+
+.ref-card__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.ref-card__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ref-card__head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ref-card__handle {
+  font-size: 18px;
+  color: var(--color-outline);
+  cursor: grab;
+  touch-action: none;
+}
+
+.ref-card__name {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+.ref-card__star,
+.ref-card__remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  color: var(--color-on-surface-variant);
+}
+
+.ref-card__star {
+  font-size: 16px;
+}
+
+.ref-card__star--on {
+  color: gold;
+}
+
+.ref-card__star:hover,
+.ref-card__remove:hover {
+  background: var(--color-surface-container-highest);
+}
+
+.ref-card__type {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.ref-card__description {
+  height: auto;
+  min-height: 52px;
+  padding: 6px 8px;
+  font-size: 12px;
+}

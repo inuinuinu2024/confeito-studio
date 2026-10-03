@@ -1,6 +1,6 @@
 /**
  * Every tool shown in the AI panel. The order here is the default order of the
- * "All Tools" tab (users can reorder; the order is stored in localStorage).
+ * tool list (users can reorder; the order is stored in the settings file as aiPanel_toolOrder).
  *
  * To add a tool: create features/tools/<id>.ts (or <id>/<id>.ts for a large one) implementing `Tool`
  * (shared/types/tool.ts), add it below, and document it in docs/specs/tools/.
@@ -19,6 +19,3 @@ export const TOOLS: readonly Tool[] = [
   new RemoveBackgroundTool(),
   new PanelMergeTool(),
 ];
-
-/** Tools pinned to the "Custom" tab on first start. */
-export const DEFAULT_CUSTOM_TOOLS = ['Nano Banana Pro'];

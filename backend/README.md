@@ -1,4 +1,4 @@
-# Confeito-Studio Backend
+# ConfeitO Studio Backend
 
 FastAPI 製のローカル API サーバー。設計は [docs/architecture/backend.md](../docs/architecture/backend.md) を参照。
 
@@ -30,7 +30,8 @@ uv run ruff format --check .  # 整形は uv run ruff format .
 | 変数 | 既定値 | 説明 |
 |---|---|---|
 | `GEMINI_API_KEY` | （`.env`） | Gemini API キー。設定画面から `.env` に保存できる |
-| `U2NET_HOME` | （`.env`: `models`） | rembg のモデル置き場（相対パスはリポジトリ基準） |
 | `CONFEITO_ENV_FILE` | `<repo>/.env` | 起動時に読み込む .env |
 | `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブ保存先 |
 | `CONFEITO_SETTINGS_DIR` | `<repo>/settings` | ツール設定（`default_prompts.json`） |
+| `CONFEITO_MODELS_DIR` | `<repo>/models` | rembg のモデル置き場（`.env` に書く必要はない） |
+| `U2NET_HOME` | （未設定） | 設定した場合はこちらが優先（rembg 本来の変数。`.env` の相対パスは .env の場所基準） |

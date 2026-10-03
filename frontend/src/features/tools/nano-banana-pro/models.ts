@@ -1,11 +1,11 @@
 /**
- * Gemini image models selectable in Nano Banana Pro and what each one supports (pure data).
+ * Gemini image models selectable in the Nano Banana画像生成 tool and what each one supports (pure data).
  *
  * Source: Gemini API guide "Nano Banana image generation" — aspect ratio / size tables,
  * reference image limits, thinking levels and Google Search grounding per model.
  * Spec: docs/specs/tools/nano-banana-pro.md
  */
-import type { ZoneDef } from '../gemini-image/reference-images';
+import type { ZoneDef } from '../gemini-image/reference-list';
 
 export const OBJECT_ZONE = '高精度反映オブジェクト (Object)';
 export const CHARACTER_ZONE = 'キャラクター一貫性 (Character)';
@@ -33,7 +33,7 @@ export interface ImageModel {
   /** Gemini 3 image models always think, so thought summaries can be requested. */
   thinks: boolean;
   searchModes: readonly SearchMode[];
-  /** Reference image drop zones and their limits. */
+  /** Reference image types with their recommended numbers; the total limit is the sum. */
   zones: readonly ZoneDef[];
   /** Output pixel sizes when they differ from the Gemini 3 table (fixed-size models). */
   fixedDimensions?: Readonly<Record<string, readonly [number, number]>>;
@@ -113,24 +113,6 @@ export const IMAGE_MODELS: readonly ImageModel[] = [
 
 export function findModel(id: string): ImageModel {
   return IMAGE_MODELS.find(m => m.id === id) ?? IMAGE_MODELS[0];
-}
-
-/**
- * Removes (in place) reference images whose zone the model does not have or that exceed the
- * zone's limit, keeping the order of the rest. Returns how many were removed.
- */
-export function fitImagesToZones(images: { zoneTitle: string }[], zones: readonly ZoneDef[]): number {
-  const used = new Map<string, number>();
-  const kept = images.filter(image => {
-    const zone = zones.find(z => z.title === image.zoneTitle);
-    const count = used.get(image.zoneTitle) ?? 0;
-    if (!zone || count >= zone.max) return false;
-    used.set(image.zoneTitle, count + 1);
-    return true;
-  });
-  const removed = images.length - kept.length;
-  images.splice(0, images.length, ...kept);
-  return removed;
 }
 
 /** 1K output sizes of the Gemini 3 image models; 512 / 2K / 4K are 0.5x / 2x / 4x of these. */

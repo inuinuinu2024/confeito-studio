@@ -4,10 +4,10 @@
  *
  * Inputs (events):  archive:item-selected(:right), archive:selection-cleared(:right),
  *                   archive:batch-selected, overlay:underdrawing-selected(:right),
- *                   <mode>-mode:toggle, document:loaded/closed/redraw, canvas:bg-color
+ *                   <mode>-mode:toggle, document:loaded/redraw, canvas:bg-color
  * Drawing:          render.ts (from CanvasState in canvas-state.ts)
  * Zoom:             zoom.ts
- * Image files dropped on the area are imported with the image loader tool.
+ * Image files dropped on the area are imported by running the image loader tool.
  */
 import './canvas.css';
 import { fetchArchiveKey } from '../../shared/api/archives';
@@ -16,8 +16,9 @@ import { emit, on } from '../../shared/events';
 import { h, icon, setShown } from '../../shared/ui/dom';
 import { showToast } from '../../shared/ui/toast';
 import { blobToCanvas } from '../../shared/utils/image';
+import { runTool } from '../ai-panel/tool-runner';
 import { DocumentManager } from '../document/DocumentManager';
-import { importImageFile } from '../tools/image-loader';
+import { importImageTool } from '../tools/image-loader';
 import { type BatchImage, contentSize, createCanvasState, isTextActive, type Side } from './canvas-state';
 import { batchGridSize, renderSide, topImageRect } from './render';
 import { createCompareToolbar, createOverlayToolbar } from './toolbars';
@@ -369,8 +370,8 @@ export function createCanvas(): HTMLElement {
     e.preventDefault();
     const file = e.dataTransfer?.files?.[0];
     if (!file) return;
-    if (file.type.startsWith('image/') || IMAGE_FILE_PATTERN.test(file.name)) await importImageFile(file);
-    else showToast('画像ファイル（PNG/JPG/WebP/BMP/GIF）をドロップしてください', 'error');
+    if (file.type.startsWith('image/') || IMAGE_FILE_PATTERN.test(file.name)) await runTool(importImageTool(file));
+    else showToast('画像ファイル（PNG/JPG/WebP/BMP/GIF）をドロップしてください', 'warning');
   });
 
   // ── View modes ──
@@ -418,15 +419,6 @@ export function createCanvas(): HTMLElement {
     }
   });
 
-  on('document:closed', () => {
-    state.docImage = null;
-    canvases.left = canvases.right = null;
-    for (const side of ['left', 'right'] as const) {
-      wrappers[side].replaceChildren();
-      panels[side].replaceChildren(wrappers[side]);
-    }
-  });
-
   on('document:redraw', redraw);
 
   on('canvas:bg-color', ({ color }) => {
@@ -454,7 +446,7 @@ export function createCanvas(): HTMLElement {
     state.sides[side].image = image;
     if (side === 'left') {
       const docManager = DocumentManager.getInstance();
-      docManager.setCanvas(image, name); // emits document:loaded synchronously
+      docManager.setCanvas(image, name, key); // emits document:loaded synchronously
       const archive = key.split('/');
       if (archive.length > 1) docManager.setCurrentArchiveFolder(archive[0]);
     }
@@ -470,7 +462,10 @@ export function createCanvas(): HTMLElement {
     setText(side, null);
     if (side === 'left') {
       state.batchImages = [];
-      DocumentManager.getInstance().setCanvas(null);
+      const docManager = DocumentManager.getInstance();
+      docManager.setCanvas(null);
+      // Nothing selected -> no save folder either, so tools never write into the previous selection.
+      docManager.setCurrentArchiveFolder(null);
     }
     updateDrawSize(true);
     updateLayout();

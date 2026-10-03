@@ -24,72 +24,27 @@
   opacity: 0.3;
 }
 
+/* Same look and height as the ARCHIVES header (its 24px action buttons), which takes this column in Compare mode. */
 .ai-panel__header {
   display: flex;
-  align-items: stretch;
-  gap: 4px;
-  height: 44px;
-  padding: 0 8px;
-  flex-shrink: 0;
-  background: var(--color-surface-container-low);
-  border-bottom: 1px solid var(--color-outline-variant);
-}
-
-.ai-panel__tab {
-  position: relative;
-  display: flex;
-  flex: 1;
   align-items: center;
-  gap: 6px;
-  padding: 12px 4px;
+  flex-shrink: 0;
+  padding: 16px 12px;
+  border-bottom: 1px solid var(--color-outline-variant);
+  background: var(--color-surface-container-low);
+}
+
+.ai-panel__title {
   font-family: var(--font-label);
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.05em;
   font-weight: 600;
-  letter-spacing: 0.02em;
   color: var(--color-on-surface-variant);
-  text-align: center;
-  white-space: nowrap;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  user-select: none;
-  transition: all 150ms ease;
+  text-transform: uppercase;
 }
 
-.ai-panel__tab:hover {
-  color: var(--color-on-surface);
-  background: var(--color-surface-container-highest);
-}
-
-/* The active tab keeps the variant text colour; only the underline marks it. */
-.ai-panel__tab--active {
-  border-bottom: 2px solid var(--color-primary);
-}
-
-.ai-panel__tab-badge {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: var(--radius-full);
-  background: var(--color-surface-container-highest);
-  color: var(--color-secondary);
-}
-
-.ai-panel__tab--active .ai-panel__tab-badge {
-  background: var(--color-secondary-container);
-  color: var(--color-on-secondary-container);
-}
-
-.ai-panel__views {
-  position: relative;
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.ai-panel__view {
+.ai-panel__list {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -153,126 +108,175 @@
   white-space: nowrap;
 }
 
-.ai-tool-action-btn {
+/* ── Tool window (components/ToolWindow.ts): modal in the middle of the screen ──
+   Above the canvas, toolbars and menus; below the prompt editor dialog and toasts (z-index 10000). */
+.tool-window-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 34px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-container-high);
-  color: var(--color-on-surface-variant);
-  cursor: pointer;
-  transition: all 150ms ease;
+  padding: 48px 16px;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transition: opacity 150ms ease;
 }
 
-.ai-tool-action-btn:hover {
+.tool-window-overlay--open {
+  opacity: 1;
+}
+
+/* Fixed width for every tool; the height follows the content up to the screen height. */
+.tool-window {
+  display: flex;
+  flex-direction: column;
+  width: 480px;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  background-color: #201e22;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  transform: scale(0.97);
+  transition: transform 150ms ease;
+}
+
+.tool-window-overlay--open .tool-window {
+  transform: scale(1);
+}
+
+.tool-window:focus {
+  outline: none;
+}
+
+.tool-window__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 14px 12px 14px 16px;
+  border-bottom: 1px solid var(--color-outline-variant);
+}
+
+.tool-window__heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tool-window__icon {
+  display: flex;
+  color: var(--color-on-surface-variant);
+}
+
+/* Tools without an icon: no empty slot before the title. */
+.tool-window__icon:empty {
+  display: none;
+}
+
+.tool-window__title {
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-window__close {
+  display: flex;
+  flex-shrink: 0;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  color: var(--color-on-surface-variant);
+}
+
+.tool-window__close:hover {
   background: var(--color-surface-container-highest);
   color: var(--color-on-surface);
 }
 
-.ai-tool-action-btn--pinned {
-  color: var(--color-primary);
-  background: var(--color-secondary-container);
-}
-
-.ai-tool-action-btn--pinned:hover {
-  background: var(--color-secondary-container);
-  opacity: 0.85;
-}
-
-.ai-tool-action-btn--remove:hover {
-  color: var(--color-error);
-  background: var(--color-error-container);
-}
-
-.ai-panel__empty {
+/* Only the body scrolls; the header and the run button stay visible. */
+.tool-window__body {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 36px 16px;
-  text-align: center;
-  color: var(--color-on-surface-variant);
-}
-
-.ai-panel__empty-text {
-  font-family: var(--font-body);
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--color-on-surface-variant);
-}
-
-/* ── Tool settings sidebar (components/ToolSettingsSidebar.ts) ── */
-.tool-settings-sidebar {
-  position: fixed;
-  top: var(--topbar-height);
-  right: 0;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  width: 360px;
-  height: calc(100vh - var(--topbar-height));
-  background-color: #201e22;
-  border-left: 1px solid var(--color-outline-variant);
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.5);
-  transform: translateX(100%);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.tool-settings-sidebar--open {
-  transform: translateX(0);
-}
-
-.tool-settings-sidebar__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px;
-  border-bottom: 1px solid var(--color-outline-variant);
-}
-
-.tool-settings-sidebar__title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--color-on-surface);
-}
-
-.tool-settings-sidebar__close {
-  display: flex;
-  padding: 4px;
-  color: var(--color-on-surface-variant);
-}
-
-.tool-settings-sidebar__body {
-  display: flex;
-  flex: 1;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 16px;
+  min-height: 0;
   padding: 16px;
   overflow-y: auto;
 }
 
-.tool-settings-sidebar__footer {
+/* Multi-column tools (Tool.windowColumns): 400px per column, each column scrolls on its own.
+   On a narrow screen the columns stack and the body scrolls as one. */
+.tool-window--columns {
+  width: calc(var(--tool-window-columns) * 400px);
+}
+
+.tool-window__body--columns {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.tool-window__column {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
-  gap: 8px;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.tool-window__column + .tool-window__column {
+  border-left: 1px solid var(--color-outline-variant);
+}
+
+@media (max-width: 960px) {
+  .tool-window__body--columns {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .tool-window__column {
+    flex: none;
+    overflow-y: visible;
+  }
+
+  .tool-window__column + .tool-window__column {
+    border-top: 1px solid var(--color-outline-variant);
+    border-left: none;
+  }
+}
+
+.tool-window__footer {
+  flex-shrink: 0;
   padding: 16px;
   border-top: 1px solid var(--color-outline-variant);
 }
 
-.tool-settings-sidebar__run {
+.tool-window__run {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   width: 100%;
   padding: 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background-color: var(--color-primary);
   color: var(--color-on-primary);
   font-weight: 600;
+}
+
+.tool-window__run:disabled {
+  opacity: 0.6;
+  cursor: progress;
 }

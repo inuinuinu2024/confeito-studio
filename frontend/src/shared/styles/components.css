@@ -1,5 +1,5 @@
 /* ============================================================
-   Confeito-Studio — Shared UI components (shared/ui/*.ts)
+   ConfeitO Studio — Shared UI components (shared/ui/*.ts)
    Prefix: cs-  (feature-specific blocks keep their own BEM prefix)
    ============================================================ */
 
@@ -254,23 +254,7 @@
   word-wrap: break-word;
 }
 
-/* ── Reference image drop zone (tools/gemini-image) ───────── */
-.cs-dropzone__header {
-  display: flex;
-  justify-content: space-between;
-}
-
-.cs-dropzone__header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.cs-dropzone__count {
-  font-size: 11px;
-  color: var(--color-outline);
-}
-
+/* ── Drop area for adding files (tools/gemini-image reference images) ── */
 .cs-dropzone__area {
   display: flex;
   flex-wrap: wrap;
@@ -290,82 +274,6 @@
 
 .cs-dropzone__area--dragover {
   border-color: var(--color-primary);
-}
-
-.cs-dropzone__placeholder {
-  pointer-events: none;
-}
-
-.cs-thumb {
-  position: relative;
-  width: 48px;
-  height: 48px;
-  overflow: hidden;
-  border: 1px solid var(--color-outline);
-  border-radius: 4px;
-}
-
-.cs-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.cs-thumb__badge,
-.cs-thumb__star,
-.cs-thumb__remove {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-}
-
-.cs-thumb__badge {
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 2px;
-  font-size: 10px;
-  font-weight: bold;
-  pointer-events: none;
-}
-
-.cs-thumb__star,
-.cs-thumb__remove {
-  width: 16px;
-  height: 16px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.cs-thumb__star {
-  bottom: 2px;
-  right: 2px;
-  border-radius: 2px;
-  color: #ccc;
-}
-
-.cs-thumb__star--on {
-  color: gold;
-}
-
-.cs-thumb__remove {
-  top: 2px;
-  right: 2px;
-  border-radius: 50%;
-}
-
-.cs-thumb--add {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  color: var(--color-outline-variant);
-  cursor: pointer;
 }
 
 .cs-input {

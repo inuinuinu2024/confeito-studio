@@ -13,7 +13,7 @@ router = APIRouter(tags=["generate"])
 
 
 class NanoBananaProRequest(BaseModel):
-    """Interactions API payload built by Nano Banana Pro (frontend features/tools/nano-banana-pro/).
+    """Interactions API payload built by the Nano Banana画像生成 tool (frontend features/tools/nano-banana-pro/).
 
     Only these fields are forwarded; anything else is dropped.
     """
@@ -29,7 +29,7 @@ class NanoBananaProRequest(BaseModel):
 
 
 class GenerateContentRequest(BaseModel):
-    """generateContent body built by Nano Banana Pro, plus ``model`` (moved into the URL by the provider).
+    """generateContent body built by the Nano Banana画像生成 tool, plus ``model`` (moved into the URL by the provider).
 
     Only these fields are forwarded; anything else is dropped.
     """
@@ -65,8 +65,8 @@ async def api_generate_nano_banana_pro(
 ) -> Response:
     """Interactions API. Returns the image bytes (Content-Type = the image's MIME type).
 
-    Errors: 500 with ``detail`` = message, or ``{message, raw_response}`` when Gemini
-    returned a body (safety blocks etc.; the frontend records it in error.txt).
+    Errors: ``detail`` = Japanese message, or ``{message, raw_response}`` with Gemini's
+    response / the exception text (safety blocks etc.; the frontend shows it in the error toast).
     """
     return await _generate(
         request.model_dump(exclude_none=True),

@@ -1,18 +1,20 @@
 /**
  * コマ分割 — detects manga panels with Gemini and saves each as 01.png, 02.png, ... plus
- * panels.json (backend: services/panel_service.py). Spec: docs/specs/tools/panel-split-merge.md
+ * panels.json and info.json in "<selected archive>/<stamp>_コマ分割/" (backend: services/panel_service.py).
+ * Spec: docs/specs/tools/panel-split-merge.md
  */
-import { ApiError } from '../../shared/api/http';
 import { type PanelSplitOptions, previewSplitPanels, splitPanels } from '../../shared/api/image';
 import { emit } from '../../shared/events';
 import { toolSettings } from '../../shared/state/tool-settings';
-import type { Tool, ToolContext } from '../../shared/types/tool';
+import { type Tool, type ToolContext, ToolNotReady } from '../../shared/types/tool';
 import { openJsonPreview } from '../../shared/ui/dialogs';
-import { h, icon } from '../../shared/ui/dom';
 import { button, field, select, slider } from '../../shared/ui/form';
-import { showToast } from '../../shared/ui/toast';
+import { showError } from '../../shared/ui/toast';
+import { AppMessageError } from '../../shared/utils/error-message';
 import { canvasToBlob } from '../../shared/utils/image';
 import { DocumentManager } from '../document/DocumentManager';
+import { selectedArchive } from './result';
+import { imageTargetCard } from './target-card';
 
 const MODELS = [
   { value: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
@@ -28,7 +30,6 @@ export class PanelSplitterTool implements Tool {
   id = 'panel-splitter';
   name = 'コマ分割';
   icon = 'auto_awesome';
-  executeLabel = 'コマ分割を実行';
   executeIcon = 'auto_awesome';
 
   private settings = toolSettings('panelSplitter');
@@ -51,7 +52,7 @@ export class PanelSplitterTool implements Tool {
     const opts = this.options();
     const set = (key: string) => (value: string) => this.settings.set(key, value);
     container.append(
-      this.targetCard(),
+      imageTargetCard(this.name, '分割する画像'),
       field(
         'モデル (Model)',
         select(MODELS, opts.model, set('model')),
@@ -76,57 +77,29 @@ export class PanelSplitterTool implements Tool {
     );
   }
 
-  /** Shows the selected image and where the panels will be saved. */
-  private targetCard(): HTMLElement {
-    const docManager = DocumentManager.getInstance();
-    const canvas = docManager.getCurrentCanvas();
-    if (!canvas) {
-      return h(
-        'div',
-        { class: 'cs-card' },
-        h('div', { class: 'cs-card__warning', text: '⚠️ 分割対象の画像が選択されていません' }),
-        h('div', { class: 'cs-card__line', text: '左側のARCHIVESから分割したい画像を選択してください。' }),
-      );
-    }
-    const folder = docManager.getCurrentArchiveFolder();
-    return h(
-      'div',
-      { class: 'cs-card' },
-      h('div', { class: 'cs-card__title', text: `対象画像: ${docManager.getCurrentFilename() || 'キャンバス画像'}` }),
-      h(
-        'div',
-        { class: 'cs-card__line cs-card__line--accent' },
-        icon('folder', 13),
-        `保存先: ${folder ? `${folder} / [日時]_コマ分割/ (サブフォルダ)` : '[日時]_コマ分割/ (新規フォルダ作成)'}`,
-      ),
-      h('div', { class: 'cs-card__line', text: `解像度: ${canvas.width} × ${canvas.height} px` }),
-    );
-  }
-
   private async preview(): Promise<void> {
     const opts = this.options();
     const docManager = DocumentManager.getInstance();
     const canvas = docManager.getCurrentCanvas();
-    const folder = docManager.getCurrentArchiveFolder();
-    const prefix = folder ? 'YYYYMMDD_HHMMSS_コマ分割/' : '';
+    const archive = selectedArchive();
+    const folder = archive ? `${archive}/YYYYMMDD_HHMMSS_コマ分割` : 'YYYYMMDD_HHMMSS_コマ分割';
     let request;
     try {
       request = await previewSplitPanels(opts);
     } catch (err) {
-      alert((err as Error).message || 'ペイロードの生成に失敗しました。');
+      showError('JSON プレビューを作成できませんでした', err);
       return;
     }
     openJsonPreview({
       ...request,
       output_format: {
-        save_destination: folder
-          ? `${folder}/YYYYMMDD_HHMMSS_コマ分割/ (選択中フォルダ内のサブフォルダ)`
-          : 'YYYYMMDD_HHMMSS_コマ分割/ (新規フォルダ作成)',
-        archive_path: folder ? `${folder}/YYYYMMDD_HHMMSS_コマ分割` : 'YYYYMMDD_HHMMSS_コマ分割',
+        save_destination: archive
+          ? `${folder}/ (選択中アーカイブの中。同名があれば _2, _3 … を付ける)`
+          : `${folder}/ (新しいアーカイブ。同名があれば _2, _3 … を付ける)`,
         generated_files: [
-          `${prefix}01.png, 02.png, ... (${folder ? '切り分けられた各コマの' : ''}個別PNG画像)`,
-          `${prefix}panels.json (構造化JSONデータ)`,
-          folder ? 'log.txt (元フォルダのlog.txtに一文追記)' : 'log.txt (実行ログ一文)',
+          `${folder}/01.png, 02.png, ... (切り分けた各コマの PNG)`,
+          `${folder}/panels.json (コマの座標データ。コマ結合で使う)`,
+          `${folder}/info.json (ツール名・日時・元画像・設定)`,
         ],
         panels_json_sample: {
           version: '1.0',
@@ -154,29 +127,22 @@ export class PanelSplitterTool implements Tool {
     });
   }
 
-  async execute(context: ToolContext): Promise<void> {
+  async execute(context: ToolContext): Promise<string> {
     const docManager = DocumentManager.getInstance();
     const canvas = await context.getSelectedImage();
-    if (!canvas) throw new Error('ARCHIVESで分割対象の画像を選択してください。');
+    if (!canvas) throw new ToolNotReady('ARCHIVES で対象の画像を選択してください。');
     const image = await canvasToBlob(canvas, 'image/png');
-    if (!image) throw new Error('画像のBlobデータ変換に失敗しました。');
+    if (!image) throw new AppMessageError('画像を PNG に変換できませんでした。');
 
-    let result;
-    try {
-      result = await splitPanels(
-        image,
-        docManager.getCurrentFilename() || 'image.png',
-        docManager.getCurrentArchiveFolder(),
-        this.options(),
-      );
-    } catch (err) {
-      if (err instanceof ApiError) throw new Error(`コマ分割処理に失敗しました: ${err.message}`);
-      throw err;
-    }
+    const result = await splitPanels(
+      image,
+      docManager.getCurrentFilename() || 'image.png',
+      selectedArchive(),
+      docManager.getCurrentKey(),
+      this.options(),
+    );
 
-    const folder = result.sub_folder ? `${result.archive_name}/${result.sub_folder}` : result.archive_name;
-    docManager.setCurrentArchiveFolder(folder);
-    emit('archives:changed', { autoSelectKey: result.auto_select_key || `${result.folder_name}/01.png` });
-    showToast(`「${folder}」に ${result.panels_count} コマを分割保存しました（panels.json 出力完了）`, 'success');
+    emit('archives:changed', { autoSelectKey: result.auto_select_key });
+    return `${result.panels_count} コマに分割し、「${result.folder}」に保存しました`;
   }
 }

@@ -1,4 +1,4 @@
-# Confeito-Studio — AI エージェント向けガイド
+# ConfeitO Studio — AI エージェント向けガイド
 
 リポジトリ直下のこの `AGENTS.md` は、Claude Code（v2.1.277 以降）と Antigravity がどちらも自動で読み込む共通の作業ガイド。
 作業の進め方とルールだけを書き、開発履歴・変更ログは書かない。
@@ -36,10 +36,13 @@
    - バックエンド呼び出しは `shared/api/` の関数経由（`fetch` を直接書かない）。
    - 機能間の通知は `shared/events.ts` の `emit` / `on`（`window.dispatchEvent` を直接使わない）。新しいイベントは `AppEventMap` に追加する。
    - 表示モードは `shared/state/view-mode.ts`、現在の画像と保存先フォルダは `DocumentManager`。
+   - 通知は `showToast` / `showError`（`alert()` を使わない）。ログファイル（log.txt / error.txt）は書かない（docs/specs/notifications.md）。
+   - ブラウザにデータを残さない: localStorage・IndexedDB を使わず、次回も残したい画面の状態は `toolSettings()` 経由で settings/ に保存する（docs/specs/app-shell.md）。
    - DOM は `shared/ui/dom.ts` の `h()` と `shared/ui/form.ts` の部品で組み、見た目は CSS クラスで書く（インラインスタイルを増やさない）。
    - `shared/` から `features/` を import しない。純粋なロジックは関数に切り出して `*.test.ts` を書く。
 5. **バックエンドの決まり**
    - ルーターは薄く保ち、ロジックは `services/` に置く。失敗は `errors.py` の `AppError` 系を投げる（ルーターで try/except しない）。
+     メッセージは日本語で書き、例外の文言や外部 API の応答は `raw_response` に分ける。
    - ファイルパス・環境変数は `config.settings` から取る（`__file__` からパスを組み立てない）。
    - 時間のかかる同期処理は `run_in_threadpool` で実行する。
 6. UI の文言とドキュメントは日本語、コードの識別子・コメントは英語。
@@ -55,7 +58,8 @@
 | ARCHIVES の表示・選択 | `features/archive-panel/`（ツリー計算は `archive-tree.ts`） |
 | キャンバスの描画・モード | `features/canvas/`（描画 `render.ts`、状態 `canvas-state.ts`、ズーム `zoom.ts`） |
 | API の追加 | `backend/src/app/routers/` + `services/` → `frontend/src/shared/api/`、手順は backend.md |
-| 保存形式・ログ書式 | `backend/src/app/services/archive_service.py`、仕様は docs/specs/archives.md |
+| 保存形式・ツールの結果の保存先 | `backend/src/app/services/archive_service.py`（`save_result`）、`frontend/src/features/tools/result.ts`、仕様は docs/specs/archives.md |
+| トースト・エラー表示の文言 | `shared/ui/toast.ts`・`shared/utils/error-message.ts`・`ai-panel/tool-runner.ts`、仕様は docs/specs/notifications.md |
 
 ## 画面の確認（E2E の出力）
 - `npm run e2e` の後、`frontend/e2e/.output/latest/*.png` を画像として開いて画面を確認し、
@@ -67,6 +71,9 @@
 ## 注意点
 - 開発環境は Windows。Bash（Git Bash）と PowerShell の両方を使える。パスが長いと numba（rembg の依存）のキャッシュ書き込みが失敗するので、
   深い一時ディレクトリで backend を動かす時は `NUMBA_CACHE_DIR` を短いパスにする。
+- この PC は Windows の「スマート アプリ コントロール」がオン。電子署名のない Python（uv が自動で入れるもの）は起動時にブロックされる
+  （`ImportError: DLL load failed ... アプリケーション制御ポリシーによってこのファイルがブロックされました`）。
+  `backend/.venv` は python.org 公式版（`%LOCALAPPDATA%\Programs\Python\Python313`）で作る（手順は setup/README.md）。
 - backend の import ルートは `src.app`（`uvicorn src.app.main:app`、テストも `from src.app...`）。
 - `settings/default_prompts.json` はアプリ実行中に書き換わる（git 管理対象）。
 - 未対応の課題・判断待ちの項目はリポジトリ直下の `task.md` にある。

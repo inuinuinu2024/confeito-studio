@@ -1,8 +1,53 @@
+import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
 from src.app.services import archive_service as svc
+
+
+def test_save_result_inside_the_top_level_of_the_selected_archive(archives_dir: Path) -> None:
+    svc.save_archive("page", [("page.png", b"png")])
+    info: svc.ResultInfo = {"tool": "背景除去", "source": "page/page.png", "settings": {"erode_size": 10}}
+
+    key = svc.save_result("page/sub", "20260101_100000_背景除去", [("nobg.png", b"x")], info, datetime(2026, 1, 1))
+
+    assert key == "page/20260101_100000_背景除去"
+    assert (archives_dir / key / "nobg.png").read_bytes() == b"x"
+    assert json.loads((archives_dir / key / "info.json").read_text(encoding="utf-8")) == {
+        "tool": "背景除去",
+        "created_at": "2026-01-01 00:00:00",
+        "source": "page/page.png",
+        "settings": {"erode_size": 10},
+        "outputs": ["nobg.png"],
+    }
+
+
+def test_save_result_never_overwrites(archives_dir: Path) -> None:
+    keys = [svc.save_result(None, "20260101_100000_x", [("a.png", bytes([i]))]) for i in range(3)]
+    keys.append(svc.save_result("20260101_100000_x", "r", [("a.png", b"")]))
+    keys.append(svc.save_result("20260101_100000_x", "r", [("a.png", b"")]))
+
+    assert keys == [
+        "20260101_100000_x",
+        "20260101_100000_x_2",
+        "20260101_100000_x_3",
+        "20260101_100000_x/r",
+        "20260101_100000_x/r_2",
+    ]
+    assert (archives_dir / "20260101_100000_x_2" / "a.png").read_bytes() == b"\x01"
+    assert not (archives_dir / "20260101_100000_x" / "info.json").exists()  # no info -> no info.json
+
+
+@pytest.mark.parametrize(("text", "valid"), [(None, True), ('{"tool": "t", "settings": {"a": 1}}', True), ("{", False)])
+def test_parse_result_info(text: str | None, valid: bool) -> None:
+    if valid:
+        info = svc.parse_result_info(text)
+        assert info is None or info == {"tool": "t", "source": None, "settings": {"a": 1}}
+    else:
+        with pytest.raises(svc.ArchiveValidationError):
+            svc.parse_result_info(text)
 
 
 def test_save_and_list_contents(archives_dir: Path) -> None:
@@ -120,14 +165,6 @@ def test_restore_contents_replaces_newer_file_and_reports_missing(archives_dir: 
         svc.restore_archive_contents("a", ["x.png"])
     with pytest.raises(svc.ArchiveValidationError):
         svc.restore_archive_contents("a", ["../b/x.png"])
-
-
-def test_append_log_adds_newline(archives_dir: Path) -> None:
-    svc.save_archive("a", [("log.txt", b"first\n")])
-    svc.append_archive_log("a", "second")
-    svc.append_archive_log("a", "third\n", "error.txt")
-    assert (archives_dir / "a" / "log.txt").read_text(encoding="utf-8") == "first\nsecond\n"
-    assert (archives_dir / "a" / "error.txt").read_text(encoding="utf-8") == "third\n"
 
 
 def test_split_archive_path() -> None:

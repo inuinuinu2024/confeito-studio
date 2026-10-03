@@ -7,18 +7,21 @@ Layout (under ``settings.archives_dir``)::
     .trash/<archive>/                deleted archives (restore_archive)
     .trash/.items/<archive>/<path>   files / sub-folders deleted from an archive (restore_archive_contents)
 
+Tool results are written with ``save_result`` (one folder per run, plus info.json).
 The frontend addresses entries with keys of the form ``"<archive>/<relative path>"``.
 Every path is resolved through ``resolve_path`` which rejects traversal outside the
 archive folder. Archive names starting with "." are reserved for these folders.
 """
 
+import json
 import os
 import shutil
+from datetime import datetime
 from pathlib import Path
-from typing import Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from ..config import settings
-from ..errors import AppError, BadRequestError, NotFoundError
+from ..errors import AppError, BadRequestError, NotFoundError, exception_text
 
 MIME_TYPES = {
     ".png": "image/png",
@@ -42,6 +45,17 @@ class ArchiveNotFoundError(ArchiveServiceError, NotFoundError):
 
 class ArchiveValidationError(ArchiveServiceError, BadRequestError):
     pass
+
+
+class ResultInfo(TypedDict):
+    """What a tool tells about its result; ``save_result`` writes it as info.json."""
+
+    tool: str
+    source: str | None
+    settings: dict[str, Any]
+
+
+RESULT_INFO_FILE = "info.json"
 
 
 class ArchiveEntry(TypedDict):
@@ -76,13 +90,13 @@ ITEM_TRASH = ".items"
 
 def validate_archive_name(name: str) -> None:
     if not name or name.startswith(".") or ".." in name or "/" in name or "\\" in name:
-        raise ArchiveValidationError(f"Invalid archive name: {name}")
+        raise ArchiveValidationError(f"アーカイブ名が正しくありません: {name}")
 
 
 def _resolve_inside(base_dir: Path, relative_path: str) -> Path:
     target = (base_dir / normalize_rel_path(relative_path)).resolve()
     if target == base_dir or not target.is_relative_to(base_dir):
-        raise ArchiveValidationError("Path traversal detected")
+        raise ArchiveValidationError("アーカイブの外を指すパスは使えません。", raw_response=relative_path)
     return target
 
 
@@ -117,7 +131,7 @@ def _prune_empty_dirs(root: Path) -> None:
 def _existing_archive_dir(archive_name: str) -> Path:
     archive_dir = resolve_path(archive_name)
     if not archive_dir.is_dir():
-        raise ArchiveNotFoundError(f"Archive '{archive_name}' not found")
+        raise ArchiveNotFoundError(f"アーカイブ「{archive_name}」が見つかりません。")
     return archive_dir
 
 
@@ -201,11 +215,11 @@ def extract_file(archive_name: str, path: str) -> tuple[bytes, str]:
     """Returns ``(content, mime_type)`` of a file inside an archive."""
     target = resolve_path(archive_name, path)
     if not target.is_file():
-        raise ArchiveNotFoundError(f"File '{path}' not found in archive '{archive_name}'")
+        raise ArchiveNotFoundError(f"アーカイブ「{archive_name}」に {path} が見つかりません。")
     try:
         content = target.read_bytes()
     except OSError as e:
-        raise ArchiveServiceError(str(e)) from e
+        raise ArchiveServiceError("ファイルを読み込めませんでした。", raw_response=exception_text(e)) from e
     return content, MIME_TYPES.get(target.suffix.lower(), "application/octet-stream")
 
 
@@ -222,21 +236,68 @@ def save_archive(name: str, files_data: list[tuple[str, bytes]]) -> str:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content)
     except OSError as e:
-        raise ArchiveServiceError(f"Failed to save archive: {e}") from e
+        raise ArchiveServiceError("アーカイブに保存できませんでした。", raw_response=exception_text(e)) from e
     return name
 
 
-def append_archive_log(archive_name: str, message: str, file_name: str = "log.txt") -> None:
-    """Appends ``message`` (newline-terminated) to a log file at the archive root."""
-    _existing_archive_dir(archive_name)
-    log_file = resolve_path(archive_name, file_name)
-    if not message.endswith("\n"):
-        message += "\n"
+def _unique_name(parent: Path, name: str) -> str:
+    """``name``, or ``name_2``, ``name_3`` ... when ``parent`` already has an entry with that name."""
+    candidate, n = name, 1
+    while (parent / candidate).exists():
+        n += 1
+        candidate = f"{name}_{n}"
+    return candidate
+
+
+def save_result(
+    root: str | None,
+    folder_name: str,
+    files_data: list[tuple[str, bytes]],
+    info: ResultInfo | None = None,
+    now: datetime | None = None,
+) -> str:
+    """Saves a tool result and returns its folder key (docs/specs/archives.md 「ツールの結果の保存」).
+
+    * ``root`` given -> ``<root>/<folder_name>/`` (only the top-level part of ``root`` is used)
+    * no ``root``    -> new archive ``<folder_name>``
+
+    An existing folder is never overwritten: ``_2``, ``_3`` ... is appended instead.
+    ``info`` is written as info.json with ``created_at`` and ``outputs`` added.
+    """
+    root_name = split_archive_path(root)[0] if root else ""
+    validate_archive_name(folder_name)
+    if root_name:
+        name = _unique_name(resolve_path(root_name), folder_name)
+        archive, prefix, key = root_name, f"{name}/", f"{root_name}/{name}"
+    else:
+        name = _unique_name(settings.archives_dir, folder_name)
+        archive, prefix, key = name, "", name
+
+    files = [(f"{prefix}{path}", content) for path, content in files_data]
+    if info is not None:
+        record = {
+            "tool": info["tool"],
+            "created_at": f"{now or datetime.now():%Y-%m-%d %H:%M:%S}",
+            "source": info.get("source"),
+            "settings": info.get("settings") or {},
+            "outputs": [path for path, _ in files_data],
+        }
+        files.append((f"{prefix}{RESULT_INFO_FILE}", json.dumps(record, ensure_ascii=False, indent=2).encode("utf-8")))
+    save_archive(archive, files)
+    return key
+
+
+def parse_result_info(text: str | None) -> ResultInfo | None:
+    """The ``info`` form field of POST /archives/results (JSON), or None when absent."""
+    if not text:
+        return None
     try:
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(message)
-    except OSError as e:
-        raise ArchiveServiceError(f"Failed to append to log: {e}") from e
+        data = json.loads(text)
+    except ValueError as e:
+        raise ArchiveValidationError("info が JSON として読めません。", raw_response=exception_text(e)) from e
+    if not isinstance(data, dict) or not isinstance(data.get("tool"), str):
+        raise ArchiveValidationError("info に tool（ツール名）がありません。", raw_response=text)
+    return {"tool": data["tool"], "source": data.get("source"), "settings": data.get("settings") or {}}
 
 
 def delete_archive(archive_name: str) -> None:
@@ -248,7 +309,7 @@ def delete_archive(archive_name: str) -> None:
         _remove(trash_target)
         shutil.move(str(archive_dir), str(trash_target))
     except OSError as e:
-        raise ArchiveServiceError(str(e)) from e
+        raise ArchiveServiceError("アーカイブを削除できませんでした。", raw_response=exception_text(e)) from e
 
 
 def delete_archive_contents(archive_name: str, paths: list[str]) -> None:
@@ -271,7 +332,7 @@ def delete_archive_contents(archive_name: str, paths: list[str]) -> None:
         if not any(archive_dir.iterdir()):
             archive_dir.rmdir()
     except OSError as e:
-        raise ArchiveServiceError(f"Failed to delete archive contents: {e}") from e
+        raise ArchiveServiceError("ファイルを削除できませんでした。", raw_response=exception_text(e)) from e
 
 
 def restore_archive_contents(archive_name: str, paths: list[str]) -> None:
@@ -283,7 +344,7 @@ def restore_archive_contents(archive_name: str, paths: list[str]) -> None:
     moves = [(_resolve_inside(trash_dir, p), resolve_path(archive_name, p)) for p in _outermost(paths)]
     missing = [source.relative_to(trash_dir).as_posix() for source, _ in moves if not source.exists()]
     if missing:
-        raise ArchiveNotFoundError(f"Not found in trash of '{archive_name}': {', '.join(missing)}")
+        raise ArchiveNotFoundError(f"ゴミ箱に見つかりません（{archive_name}）: {', '.join(missing)}")
     try:
         for source, dest in moves:
             _remove(dest)
@@ -293,7 +354,7 @@ def restore_archive_contents(archive_name: str, paths: list[str]) -> None:
         if trash_dir.is_dir() and not any(trash_dir.iterdir()):
             trash_dir.rmdir()
     except OSError as e:
-        raise ArchiveServiceError(f"Failed to restore archive contents: {e}") from e
+        raise ArchiveServiceError("ファイルを元に戻せませんでした。", raw_response=exception_text(e)) from e
 
 
 def restore_archive(archive_name: str) -> None:
@@ -301,10 +362,10 @@ def restore_archive(archive_name: str) -> None:
     validate_archive_name(archive_name)
     trash_path = settings.trash_dir / archive_name
     if not trash_path.exists():
-        raise ArchiveNotFoundError(f"Archive '{archive_name}' not found in trash")
+        raise ArchiveNotFoundError(f"ゴミ箱にアーカイブ「{archive_name}」が見つかりません。")
     dest_path = settings.archives_dir / archive_name
     try:
         _remove(dest_path)
         shutil.move(str(trash_path), str(dest_path))
     except OSError as e:
-        raise ArchiveServiceError(str(e)) from e
+        raise ArchiveServiceError("アーカイブを元に戻せませんでした。", raw_response=exception_text(e)) from e

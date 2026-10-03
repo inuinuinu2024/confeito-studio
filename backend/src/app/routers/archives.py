@@ -15,11 +15,6 @@ class PathsRequest(BaseModel):
     paths: list[str]
 
 
-class AppendLogRequest(BaseModel):
-    message: str
-    file_name: str = "log.txt"
-
-
 @router.post("")
 async def save_archive(
     name: str = Form(...),
@@ -28,9 +23,28 @@ async def save_archive(
 ) -> dict:
     """Creates the archive if needed and writes ``files[i]`` to ``paths[i]``."""
     if len(files) != len(paths):
-        raise svc.ArchiveValidationError("Mismatch between files and paths")
+        raise svc.ArchiveValidationError("ファイルとパスの数が一致しません。")
     files_data = [(path, await file.read()) for file, path in zip(files, paths, strict=True)]
     return {"status": "success", "archive": svc.save_archive(name, files_data)}
+
+
+@router.post("/results")
+async def save_result(
+    name: str = Form(...),
+    files: list[UploadFile] = File(...),
+    paths: list[str] = Form(...),
+    root: str | None = Form(None),
+    info: str | None = Form(None),
+) -> dict:
+    """Saves a tool result into ``<root>/<name>/`` (new archive ``<name>`` without ``root``) plus info.json.
+
+    Returns the folder key actually used (``_2`` ... is appended instead of overwriting).
+    """
+    if len(files) != len(paths):
+        raise svc.ArchiveValidationError("ファイルとパスの数が一致しません。")
+    files_data = [(path, await file.read()) for file, path in zip(files, paths, strict=True)]
+    folder = svc.save_result(root, name, files_data, svc.parse_result_info(info))
+    return {"status": "success", "folder": folder}
 
 
 @router.get("")
@@ -72,10 +86,4 @@ async def restore_archive_contents(archive_name: str, req: PathsRequest) -> dict
 @router.post("/{archive_name}/restore")
 async def restore_archive(archive_name: str) -> dict:
     svc.restore_archive(archive_name)
-    return {"status": "success"}
-
-
-@router.post("/{archive_name}/log")
-async def append_archive_log(archive_name: str, req: AppendLogRequest) -> dict:
-    svc.append_archive_log(archive_name, req.message, req.file_name)
     return {"status": "success"}

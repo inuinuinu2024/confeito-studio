@@ -3,7 +3,6 @@
  * Menu items without an action show a "開発中" toast.
  */
 import './top-bar.css';
-import { emit } from '../../shared/events';
 import { h, icon } from '../../shared/ui/dom';
 import { showToast } from '../../shared/ui/toast';
 import { historyManager } from '../../shared/utils/history';
@@ -33,7 +32,7 @@ function buildMenu(items: MenuItem[]): HTMLDivElement {
           onclick: (e: MouseEvent) => {
             e.preventDefault();
             if (item.action) item.action();
-            else showToast(`${item.label} clicked`, 'mock');
+            else showToast(item.label, 'mock');
           },
         },
         h('div', { class: 'topbar__dropdown-item-check' }),
@@ -51,15 +50,7 @@ export function createTopBar(): HTMLElement {
   installShortcuts({ openBgColorDialog: bgColorDialog.open });
 
   const menus: MenuDef[] = [
-    {
-      label: 'File',
-      items: [
-        { type: 'item', label: 'Save Image', shortcut: 'Ctrl+S', action: () => emit('file:save') },
-        { type: 'item', label: 'Save Image As...', shortcut: 'Ctrl+Shift+S', action: () => emit('file:save-as') },
-        { type: 'separator' },
-        { type: 'item', label: 'Close Image', action: () => emit('file:close') },
-      ],
-    },
+    { label: 'File' }, // no items yet: clicking shows the "開発中" toast
     {
       label: 'Edit',
       items: [
@@ -103,7 +94,7 @@ export function createTopBar(): HTMLElement {
   return h(
     'header',
     { class: 'topbar' },
-    h('div', { class: 'topbar__left' }, h('div', { class: 'topbar__logo', text: 'ConfeitO-StudiO' }), nav),
+    h('div', { class: 'topbar__left' }, h('div', { class: 'topbar__logo', text: 'ConfeitO Studio' }), nav),
     h(
       'div',
       { class: 'topbar__right' },

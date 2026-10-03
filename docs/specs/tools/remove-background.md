@@ -1,10 +1,17 @@
 # 背景除去（`features/tools/remove-background.ts` → `POST /api/image/remove-bg`）
 
-- rembg（`rembg[cpu]`、モデル `isnet-anime`）でローカルに背景を透過する。モデルは `.env` の `U2NET_HOME`（`models/`）に置く。
+- rembg（`rembg[cpu]`、モデル `isnet-anime`）でローカルに背景を透過する。モデルはリポジトリの `models/` に置く（`.env` の設定は不要。`U2NET_HOME` を指定した場合はそちらを使う）。
   rembg はバックエンドで初回実行時に読み込み、セッションを使い回す。
 - 対象: キャンバスに表示中の画像。
+- ツールウィンドウの先頭に対象画像のカード（「対象画像: <ファイル名>」「保存先: <アーカイブ> / [日時]_背景除去/」「解像度」）を出す。
+  未選択時は「⚠️ 背景を除去する画像が選択されていません」「ARCHIVES で背景を除去する画像を選択してください。」と案内する
+  （コマ分割・コマ結合と同じ部品 `features/tools/target-card.ts`）。
 - 設定（`removeBg_*`）:
   - アルファマッチング ON/OFF（既定 ON）: 髪の毛など複雑な境界の精度が上がる。OFF だと輪郭がくっきり切り抜かれる。
   - 前景しきい値 0〜255（既定 240）、背景しきい値 0〜255（既定 10）、浸食サイズ 0〜50（既定 10）。
   - 「初期値へ戻す」で既定値に戻す。
-- 保存先: 毎回アーカイブ `YYYYMMDD_HHMMSS_remove-background` を作り、`origin.png`（入力）と `nobg.png`（結果）を保存する。
+- 保存先は共通ルール（[archives.md](../archives.md)「ツールの結果の保存」）: 選択中アーカイブの中の `YYYYMMDD_HHMMSS_背景除去/`、
+  未選択なら新しいアーカイブ。`nobg.png`（結果）と `info.json`（source = 対象画像のキー、settings = アルファマッチング・各しきい値）を保存する。
+  入力のコピーは保存しない。
+- 完了後: 「背景除去: 「<結果フォルダ>」に保存しました」のトースト。`nobg.png` を自動選択・表示する。
+- 画像が選択されていなければ、実行ボタンを押した時に注意トースト（[notifications.md](../notifications.md)）。

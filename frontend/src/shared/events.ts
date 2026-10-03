@@ -40,14 +40,8 @@ export interface AppEventMap {
 
   // ── Current document (features/document/DocumentManager.ts) ──
   'document:loaded': DocumentLoadedDetail;
-  'document:closed': undefined;
   /** Asks the canvas to repaint. */
   'document:redraw': undefined;
-
-  // ── File menu / shortcuts → DocumentManager ──
-  'file:save': undefined;
-  'file:save-as': undefined;
-  'file:close': undefined;
 
   // ── ARCHIVES panel → Canvas ──
   'archive:item-selected': ArchiveSelection;

@@ -1,4 +1,4 @@
-# Confeito-Studio アーキテクチャ概要
+# ConfeitO Studio アーキテクチャ概要
 
 ローカル専用の漫画着彩ワークスペース。ブラウザで動く UI（Vite + TypeScript）と、
 ローカルの FastAPI バックエンド（ファイル保存・Gemini API 中継・画像処理）で構成される。
@@ -19,7 +19,7 @@
 |---|---|---|
 | `archives/` | ユーザーの作業データ（アーカイブ = フォルダ）。`.trash/` はゴミ箱（削除したアーカイブと `.items/` に削除したファイル） | 除外（**消さないこと**） |
 | `settings/default_prompts.json` | 各ツールの設定値（フラットな文字列マップ） | 管理対象 |
-| `.env` | `GEMINI_API_KEY`, `U2NET_HOME=models` | 除外（秘密情報） |
+| `.env` | `GEMINI_API_KEY` | 除外（秘密情報） |
 | `models/` | rembg モデル（isnet-anime.onnx） | 除外 |
 
 バックエンドの各パスは `CONFEITO_ARCHIVES_DIR` / `CONFEITO_SETTINGS_DIR` / `CONFEITO_ENV_FILE` で差し替え可能（テストと E2E が一時ディレクトリを使うため）。

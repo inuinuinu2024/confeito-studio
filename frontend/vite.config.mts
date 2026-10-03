@@ -41,10 +41,37 @@ function closeOnDisconnectPlugin(apiBase: string): Plugin {
   };
 }
 
+/**
+ * Makes every dev-server response `Cache-Control: no-store` so the browser keeps nothing on disk
+ * (docs/specs/app-shell.md 「ブラウザに残すもの」). Vite sets its own Cache-Control on some files
+ * (e.g. `max-age=31536000,immutable` for pre-bundled deps), so both ways of setting headers are wrapped.
+ */
+function noStorePlugin(): Plugin {
+  const isCacheControl = (name: string) => name.toLowerCase() === 'cache-control';
+  return {
+    name: 'no-store',
+    configureServer(server) {
+      server.middlewares.use((_req, res, next) => {
+        const setHeader = res.setHeader.bind(res);
+        res.setHeader = (name, value) => setHeader(name, isCacheControl(name) ? 'no-store' : value);
+        const writeHead = res.writeHead.bind(res) as (...args: unknown[]) => typeof res;
+        res.writeHead = ((...args: unknown[]) => {
+          const headers = args.find(a => a && typeof a === 'object' && !Array.isArray(a)) as
+            Record<string, unknown> | undefined;
+          for (const key of Object.keys(headers ?? {})) if (isCacheControl(key)) headers![key] = 'no-store';
+          return writeHead(...args);
+        }) as typeof res.writeHead;
+        res.setHeader('Cache-Control', 'no-store');
+        next();
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
   return {
-    plugins: [closeOnDisconnectPlugin(env.VITE_API_BASE || DEFAULT_API_BASE)],
+    plugins: [noStorePlugin(), closeOnDisconnectPlugin(env.VITE_API_BASE || DEFAULT_API_BASE)],
     server: {
       port: 45173,
       strictPort: true,

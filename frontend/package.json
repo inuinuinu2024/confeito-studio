@@ -1,7 +1,7 @@
 {
   "name": "confeito-studio",
   "version": "0.1.0",
-  "description": "Confeito-Studio frontend (Vite + TypeScript, no framework)",
+  "description": "ConfeitO Studio frontend (Vite + TypeScript, no framework)",
   "scripts": {
     "dev": "vite",
     "build": "npm run typecheck && vite build",

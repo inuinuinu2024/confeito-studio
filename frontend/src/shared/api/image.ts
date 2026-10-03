@@ -40,10 +40,8 @@ export interface PanelRecord {
 
 export interface SplitPanelsResult {
   status: 'success';
-  archive_name: string;
-  /** Sub folder created inside archive_name, or null when a new archive was created. */
-  sub_folder: string | null;
-  folder_name: string;
+  /** Result folder key: "<root>/<stamp>_コマ分割" or a new archive "<stamp>_コマ分割". */
+  folder: string;
   auto_select_key: string;
   panels_count: number;
   panels: PanelRecord[];
@@ -54,11 +52,15 @@ export interface SplitPanelsResult {
   thinking_level: string;
 }
 
-/** Detects panels with Gemini and saves 01.png, 02.png, ... + panels.json. */
+/**
+ * Detects panels with Gemini and saves 01.png, 02.png, ... + panels.json + info.json into the
+ * top level of `targetFolder` (a new archive when null). `sourceKey` is recorded in info.json.
+ */
 export function splitPanels(
   image: Blob,
   originalFilename: string,
   targetFolder: string | null,
+  sourceKey: string | null,
   opts: PanelSplitOptions,
 ): Promise<SplitPanelsResult> {
   return postForm(
@@ -71,6 +73,7 @@ export function splitPanels(
       model_name: opts.model,
       thinking_level: opts.thinkingLevel,
       target_folder: targetFolder,
+      source_key: sourceKey,
     }),
   );
 }
@@ -94,7 +97,8 @@ export function previewSplitPanels(opts: Omit<PanelSplitOptions, 'padding'>): Pr
 
 export interface MergePanelsResult {
   status: 'success';
-  parent_folder: string;
+  /** Result folder key: "<root of the target>/<stamp>_コマ結合". */
+  folder: string;
   filename: string;
   auto_select_key: string;
 }
