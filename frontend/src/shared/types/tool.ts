@@ -8,6 +8,16 @@
 export interface ToolContext {
   /** Copy of the image currently shown on the canvas (selected in ARCHIVES), or null. */
   getSelectedImage(): Promise<HTMLCanvasElement | null>;
+  /**
+   * Call once the inputs are checked (after the last `ToolNotReady`): the tool window closes here and
+   * the run goes on behind it (docs/specs/ai-panel.md 「ツールの実行」). Without it the window closes on success.
+   */
+  ready(): void;
+  /**
+   * Aborted when the user stops the run (docs/specs/ai-panel.md 「実行の停止」). Pass it to requests whose
+   * result the tool saves itself; a result the backend already saved is removed with `discardIfStopped`.
+   */
+  signal: AbortSignal;
 }
 
 export interface Tool {
@@ -22,6 +32,8 @@ export interface Tool {
    * Called every time the window opens.
    */
   renderSettings?: (container: HTMLElement) => void;
+  /** Prepares the tool's state before its window opens (after the settings are read). */
+  beforeOpen?: () => Promise<void>;
   /**
    * Side-by-side columns in the tool window (400px each; e.g. 3 for Nano Banana画像生成). renderSettings then
    * appends that many `.tool-window__column` elements, each scrolling on its own. Default: one column.
@@ -36,7 +48,7 @@ export interface Tool {
   executeIcon?: string | null;
   /**
    * Runs the tool and resolves with a short Japanese summary of the result
-   * (shown as "<name>: <summary>"). Throw `ToolNotReady` when an input is missing,
+   * (shown as "<name>: <summary>"). Throw `ToolNotReady` when an input is missing (then call `context.ready()`),
    * `ToolCancelled` when the user cancels, and `AppMessageError` (or let `ApiError` through) on failure.
    */
   execute(context: ToolContext): Promise<string>;

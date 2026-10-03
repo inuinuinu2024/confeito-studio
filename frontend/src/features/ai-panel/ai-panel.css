@@ -57,8 +57,7 @@
 .ai-tool-row {
   position: relative;
   display: flex;
-  align-items: center;
-  gap: 4px;
+  align-items: stretch;
   width: 100%;
   cursor: grab;
 }
@@ -95,9 +94,47 @@
   transform: scale(0.98);
 }
 
+.ai-panel__list--busy .ai-tool-btn {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .ai-tool-row .ai-tool-btn {
   flex: 1;
   min-width: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* ▶ / ⏸ at the right end of the tool's button: runs without the window, or stops the run. */
+.ai-tool-play {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  border-left: 1px solid var(--color-outline-variant);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--color-surface-container-high);
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.ai-tool-play:hover {
+  background: var(--color-surface-container-highest);
+  color: var(--color-primary);
+}
+
+.ai-tool-row--running .ai-tool-play {
+  color: var(--color-primary);
+}
+
+.ai-panel__list--busy .ai-tool-row:not(.ai-tool-row--running) .ai-tool-play {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .ai-tool-btn .ai-tool-name {

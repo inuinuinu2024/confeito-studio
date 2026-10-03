@@ -12,8 +12,11 @@ export interface ToolWindowContent {
   render: (body: HTMLElement) => void;
   /** Side-by-side columns (`render` appends `.tool-window__column` elements); omitted = one column. */
   columns?: number;
-  /** Runs the tool; resolves true when the window should close. The run button is disabled meanwhile. */
-  onExecute: () => Promise<boolean>;
+  /**
+   * Runs the tool; calling `close` or resolving true closes the window (the run goes on after `close`).
+   * The run button is disabled until then.
+   */
+  onExecute: (close: () => void) => Promise<boolean>;
   /** Material icon of the run button (labelled 「実行」 for every tool); null hides it. */
   executeIcon?: string | null;
   /** Focused again after the window closes (the tool's button). */
@@ -73,7 +76,9 @@ export function createToolWindow(): ToolWindow {
     renderRunButton();
     let done = false;
     try {
-      done = await current.onExecute();
+      done = await current.onExecute(() => {
+        if (content === current) close();
+      });
     } finally {
       // The window may have been closed (or reopened for another tool) while the tool ran.
       if (content === current) {

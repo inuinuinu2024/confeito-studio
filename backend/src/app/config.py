@@ -10,6 +10,7 @@ environment variable (the tests and the E2E harness point them at temp dirs):
                            user_settings.json (the user's values, not in git) and prompts.json
                            (registered prompts, not in git) (default: <repo>/settings)
     CONFEITO_MODELS_DIR    rembg model directory (default: <repo>/models)
+    CONFEITO_PROJECT_DIR   where 画像読み込み's file dialog opens when no folder is set (default: <repo>)
 
 Values from the .env file (GEMINI_API_KEY, ...) are copied into ``os.environ`` without
 overriding variables that are already set. rembg reads its model directory from
@@ -32,6 +33,7 @@ class Settings(BaseSettings):
     archives_dir: Path = PROJECT_ROOT / "archives"
     settings_dir: Path = PROJECT_ROOT / "settings"
     models_dir: Path = PROJECT_ROOT / "models"
+    project_dir: Path = PROJECT_ROOT
 
     @property
     def trash_dir(self) -> Path:

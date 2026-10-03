@@ -370,12 +370,80 @@ async function clickTool(page: Page, toolName: string): Promise<void> {
     .click();
 }
 
+/**
+ * Opens Nano Banana画像生成 and removes the 原画, which the image on the canvas fills when the window opens
+ * (docs/specs/tools/nano-banana-pro.md 「原画」): for scenarios about the tool without one.
+ */
+async function openNanoBananaWithoutOriginal(page: Page): Promise<void> {
+  await clickTool(page, 'Nano Banana画像生成');
+  await page.waitForSelector('.tool-window');
+  const remove = page.locator('.tool-window .nbp-original__card .ref-card__remove');
+  if (await remove.count()) {
+    await remove.click();
+    await page.waitForSelector('.tool-window .nbp-original__add');
+  }
+}
+
+/** The ▶ / ⏸ button at the right end of a tool's row. */
+function playButton(page: Page, toolName: string) {
+  return page
+    .locator('.ai-panel__list .ai-tool-row')
+    .filter({ has: page.locator('.ai-tool-name', { hasText: toolName }) })
+    .first()
+    .locator('.ai-tool-play');
+}
+
+/** A PNG of `width` x `height` drawn in the page. */
+async function makePng(page: Page, width: number, height: number): Promise<Buffer> {
+  const base64 = await page.evaluate(
+    async ([w, h]) => {
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext('2d')!;
+      ctx.fillStyle = '#5577aa';
+      ctx.fillRect(0, 0, w, h);
+      const blob = await new Promise<Blob>(r => c.toBlob(b => r(b!), 'image/png'));
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      return btoa(String.fromCharCode(...bytes));
+    },
+    [width, height],
+  );
+  return Buffer.from(base64, 'base64');
+}
+
+/**
+ * Answers the backend's file dialog (POST /api/local-files/pick-image) with `file`, or as cancelled
+ * when null; the request bodies are pushed to `requests`. Replaces the previous stub.
+ */
+async function stubFileDialog(
+  page: Page,
+  file: { name: string; body: Buffer } | null,
+  requests: { initial_dir: string }[],
+): Promise<void> {
+  await page.unroute('**/api/local-files/pick-image');
+  await page.route('**/api/local-files/pick-image', route => {
+    requests.push(route.request().postDataJSON() as { initial_dir: string });
+    if (!file) return route.fulfill({ status: 204, headers: { 'Cache-Control': 'no-store' } });
+    return route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      headers: {
+        'Cache-Control': 'no-store',
+        'X-File-Name': encodeURIComponent(file.name),
+        'Access-Control-Expose-Headers': 'X-File-Name',
+      },
+      body: file.body,
+    });
+  });
+}
+
 async function closeToolWindow(page: Page): Promise<void> {
   const win = page.locator('.tool-window');
-  if (await win.count()) {
-    await win.locator('.tool-window__close').click();
-    await win.waitFor({ state: 'detached', timeout: 3000 });
-  }
+  if (!(await win.count())) return;
+  // A run closes the window itself; then it is only fading out.
+  if (await page.locator('.tool-window-overlay--open').count()) await win.locator('.tool-window__close').click();
+  await win.waitFor({ state: 'detached', timeout: 3000 });
 }
 
 async function setMode(page: Page, mode: 'Normal' | 'Compare' | 'Overlay' | 'Batch'): Promise<void> {
@@ -791,13 +859,30 @@ async function runScenarios(
   await step('11-tool-error', async () => {
     // E2E has no API key, so the run fails: an error toast that stays until closed, and nothing
     // is written to the archives (no error.txt, no "_error" archive).
+    // The window closes as soon as the run starts (docs/specs/ai-panel.md 「ツールの実行」); the request is
+    // held meanwhile, so the run is still going when another tool is clicked: that only warns.
+    let releaseRun = () => {};
+    const held = new Promise<void>(resolve => (releaseRun = resolve));
+    await page.route('**/api/nano-banana-pro**', async route => {
+      await held;
+      await route.continue();
+    });
     await clickTool(page, 'Nano Banana画像生成');
     await page.waitForSelector('.tool-window');
     await page.locator('.tool-window .tool-window__run').click();
+    await page.locator('.tool-window').waitFor({ state: 'detached', timeout: 3000 });
+    const statusWhileRunning = await page.locator('.statusbar__left').innerText();
+    const toolListBusy = (await page.locator('.ai-panel__list--busy').count()) === 1;
+    await clickTool(page, '背景除去');
+    const busyToast = await waitForToast(page, /背景除去: 「Nano Banana画像生成」の実行が終わってから実行してください/);
+    const windowOpenedWhileBusy = (await page.locator('.tool-window').count()) > 0;
+    await screenshot('tool-running');
+    releaseRun();
     await waitForToast(page, /Nano Banana画像生成の実行に失敗しました/);
+    await page.unroute('**/api/nano-banana-pro**');
+    const toolListBusyAfterRun = (await page.locator('.ai-panel__list--busy').count()) === 1;
     await page.waitForTimeout(4500); // longer than the 4s auto-hide of other toasts
     const toasts = await toastStack(page);
-    await closeToolWindow(page);
     const errorToast = page.locator('.toast--error').last();
     await withVisibleToasts(page, async () => {
       await screenshot('error-toast', '.toast-stack');
@@ -805,6 +890,11 @@ async function runScenarios(
     });
     await errorToast.waitFor({ state: 'detached' });
     return {
+      statusWhileRunning,
+      toolListBusy,
+      busyToast,
+      windowOpenedWhileBusy,
+      toolListBusyAfterRun,
       toasts,
       errorToastsAfterClose: await page.locator('.toast--error').count(),
       archives: await archiveTree(page),
@@ -825,7 +915,7 @@ async function runScenarios(
     await screenshot('window-コマ結合', '.tool-window');
     await page.locator('.tool-window .tool-window__run').click();
     const toast = await waitForToast(page, /結合/);
-    await page.locator('.tool-window').waitFor({ state: 'detached' }); // closes on success
+    await page.locator('.tool-window').waitFor({ state: 'detached' }); // closes once the run starts
     await page.waitForFunction(() =>
       Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(
         c => c.width === 300 && c.height === 200,
@@ -1018,8 +1108,7 @@ async function runScenarios(
       return { title, json };
     };
     const result: Record<string, unknown> = {};
-    await clickTool(page, 'Nano Banana画像生成');
-    await page.waitForSelector(sidebar);
+    await openNanoBananaWithoutOriginal(page);
 
     await stepSelect(1).selectOption('generateContent');
     result.proGenerateContent = await nbpState();
@@ -1065,6 +1154,9 @@ async function runScenarios(
     await page.locator(`${sidebar} .tool-window__run`).click();
     await waitForToast(page, /Nano Banana画像生成の実行に失敗しました/);
     result.generateContentRun = (await toastStack(page)).filter(t => t.type === 'toast--error');
+    // The run closed the window; reopen it to switch back.
+    await clickTool(page, 'Nano Banana画像生成');
+    await page.waitForSelector(sidebar);
     await stepSelect(1).selectOption('interactions');
     await closeToolWindow(page);
     return result;
@@ -1102,8 +1194,7 @@ async function runScenarios(
         input.files = dt.files;
         input.dispatchEvent(new Event('change'));
       }, colors);
-    await clickTool(page, 'Nano Banana画像生成');
-    await page.waitForSelector(win);
+    await openNanoBananaWithoutOriginal(page);
     // Unsaved changes of the previous step are gone (settings are read again when the window opens).
     await page.locator(`${win} .nbp-step select`).nth(1).selectOption('interactions');
     await addImages(['#cc3333', '#3366cc']);
@@ -1198,8 +1289,7 @@ async function runScenarios(
       return c;
     })()`;
 
-    await clickTool(page, 'Nano Banana画像生成');
-    await page.waitForSelector(win);
+    await openNanoBananaWithoutOriginal(page);
     await page.locator(`${win} .nbp-step select`).nth(1).selectOption('interactions');
     const before = { aspect: await aspectState(), original: await originalState() };
 
@@ -1315,9 +1405,11 @@ async function runScenarios(
       { apiBase, folder, draw: drawOriginal },
     );
 
-    // The image on the canvas (the result, selected after saving) can be the 原画 too; × removes it.
+    // The image on the canvas (the result, selected after saving) is the 原画 when the window opens;
+    // × removes it and 「表示中の画像を原画にする」 sets it again.
     await clickTool(page, 'Nano Banana画像生成');
     await page.waitForSelector(win);
+    const autoSet = JSON.parse(maskTimestamps(JSON.stringify(await originalState())));
     await page.locator(`${win} .nbp-original__card .ref-card__remove`).click();
     await page.locator(`${win} button`, { hasText: '表示中の画像を原画にする' }).click();
     await page.waitForSelector(`${win} .nbp-original__card`);
@@ -1333,6 +1425,7 @@ async function runScenarios(
       sentImages,
       toast,
       result: JSON.parse(maskTimestamps(JSON.stringify(result))),
+      autoSet,
       fromCanvas: JSON.parse(maskTimestamps(JSON.stringify(fromCanvas))),
       removed,
     };
@@ -1437,6 +1530,218 @@ async function runScenarios(
     return { initial, notRun, reopened, afterRun, reopenedAfterRun, broken };
   });
 
+  await step('19f-original-on-open', async () => {
+    // Opening the tool puts the image on the canvas into the 原画 (docs/specs/tools/nano-banana-pro.md 「原画」).
+    const win = '.tool-window';
+    const original = async () => {
+      const card = page.locator(`${win} .nbp-original__card`);
+      if (!(await card.count())) return null;
+      return maskTimestamps(await card.locator('.ref-card__main').innerText());
+    };
+    const openAndRead = async () => {
+      await clickTool(page, 'Nano Banana画像生成');
+      await page.waitForSelector(win);
+      const value = await original();
+      await closeToolWindow(page);
+      return value;
+    };
+
+    // Selecting another image replaces the 原画 when the window opens.
+    await archiveItem(page, 'e2e-image.png').click();
+    await page.waitForFunction(() =>
+      Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === 640),
+    );
+    await clickTool(page, 'Nano Banana画像生成');
+    await page.waitForSelector(win);
+    const selected = await original();
+    await screenshot('nbp-original-on-open', `${win} .tool-window__column:nth-child(2)`);
+
+    // × removes it; the next open fills it again.
+    await page.locator(`${win} .nbp-original__card .ref-card__remove`).click();
+    await closeToolWindow(page);
+    const afterRemove = await openAndRead();
+
+    // Nothing selected: the previous 原画 stays.
+    await archiveItem(page, 'e2e-image.png').click(); // second click deselects
+    await page.waitForFunction(() => !document.querySelector('.layer-item--selected'));
+    const nothingSelected = await openAndRead();
+
+    // Other view modes leave the 原画 as it is (here: removed, so the window opens without one).
+    await archiveItem(page, 'e2e-image.png').click();
+    await openNanoBananaWithoutOriginal(page);
+    await closeToolWindow(page);
+    await setMode(page, 'Overlay'); // (Compare mode shows a second ARCHIVES panel instead of the tools)
+    const overlayMode = await openAndRead();
+    await setMode(page, 'Normal');
+
+    // Reference images filling the model's limit (14): adding the 原画 would drop one, so it is not added.
+    await openNanoBananaWithoutOriginal(page);
+    await page.evaluate(async () => {
+      const dt = new DataTransfer();
+      for (let i = 0; i < 14; i++) {
+        const c = document.createElement('canvas');
+        c.width = 32;
+        c.height = 32;
+        const blob = await new Promise<Blob>(r => c.toBlob(b => r(b!), 'image/png'));
+        dt.items.add(new File([blob], `full${i}.png`, { type: 'image/png' }));
+      }
+      const input = document.querySelector<HTMLInputElement>('.tool-window .ref-section input[type=file]')!;
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change'));
+    });
+    await page.locator(`${win} .ref-card`).nth(13).waitFor();
+    await closeToolWindow(page);
+    await clickTool(page, 'Nano Banana画像生成');
+    await page.waitForSelector(win);
+    const referencesFull = {
+      original: await original(),
+      references: await page.locator(`${win} .ref-list .ref-card`).count(),
+    };
+    // Clean up: remove the reference images.
+    while ((await page.locator(`${win} .ref-list .ref-card`).count()) > 0) {
+      await page.locator(`${win} .ref-list .ref-card .ref-card__remove`).first().click();
+    }
+    await closeToolWindow(page);
+    return { selected, afterRemove, nothingSelected, overlayMode, referencesFull };
+  });
+
+  await step('19g-image-loader', async () => {
+    // 画像読み込み has a window with the folder the dialog starts in (docs/specs/tools/image-loader.md).
+    // The dialog itself is the backend's and is stubbed here.
+    const win = '.tool-window';
+    const folderInput = page.locator(`${win} input.cs-input`);
+    const missing = path.join(settingsDir, 'missing-folder');
+    const requests: { initial_dir: string }[] = [];
+    await clickTool(page, '画像読み込み');
+    await page.waitForSelector(win);
+    const windowState = await toolWindowState(page);
+    await screenshot('window-画像読み込み', win);
+
+    // A folder that does not exist only warns; the window stays open and the dialog does not open.
+    await folderInput.fill(missing);
+    await page.locator(`${win} .tool-window__run`).click();
+    const missingToast = (await waitForToast(page, /画像読み込み: フォルダが見つかりません/)).replace(
+      missing,
+      '<MISSING>',
+    );
+    const openAfterMissing = (await page.locator(win).count()) === 1;
+
+    // An existing folder (quoted as by "Copy as path"): the window closes and the chosen image is imported.
+    await stubFileDialog(page, { name: 'ダイアログ画像.png', body: await makePng(page, 120, 90) }, requests);
+    await folderInput.fill(`"${settingsDir}"`);
+    await page.locator(`${win} .tool-window__run`).click();
+    const toast = maskTimestamps(await waitForToast(page, /ダイアログ画像\.png を読み込みました/));
+    await page.locator(win).waitFor({ state: 'detached' });
+    await page.waitForFunction(() =>
+      Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === 120),
+    );
+    const savedFolder = (
+      JSON.parse(fs.readFileSync(path.join(settingsDir, 'user_settings.json'), 'utf-8')) as Record<string, string>
+    ).imageLoader_initialDir;
+
+    // ▶ runs it without the window, with the saved folder; cancelling the dialog shows nothing.
+    await stubFileDialog(page, null, requests);
+    const toastsBefore = (await toastStack(page)).length;
+    const requestsBefore = requests.length;
+    await playButton(page, '画像読み込み').click();
+    for (let i = 0; i < 50 && requests.length === requestsBefore; i++) await page.waitForTimeout(100);
+    await page.waitForFunction(() => !document.querySelector('.ai-panel__list--busy'));
+    const play = {
+      windowOpened: (await page.locator(win).count()) > 0,
+      newToasts: (await toastStack(page)).length - toastsBefore,
+    };
+    await page.unroute('**/api/local-files/pick-image');
+    return {
+      window: windowState,
+      missingToast,
+      openAfterMissing,
+      toast,
+      savedFolderIsSet: savedFolder === `"${settingsDir}"`,
+      dialogStartedIn: requests.map(r => (r.initial_dir === `"${settingsDir}"` ? '<SETTINGS_DIR>' : r.initial_dir)),
+      play,
+      archives: await archiveTree(page),
+    };
+  });
+
+  await step('19h-play-and-stop', async () => {
+    // ▶ runs a tool without its window; while it runs the button is ⏸ and stops the run
+    // (docs/specs/ai-panel.md 「実行の停止」). コマ結合 is saved by the backend, so stopping removes the result.
+    const mergeFolders = () =>
+      page.evaluate(async apiBase => {
+        const entries = (await (await fetch(`${apiBase}/archives/e2e-panels/contents`)).json()) as { key: string }[];
+        return new Set(entries.map(e => /^(e2e-panels\/[^/]*_コマ結合)\//.exec(e.key)?.[1]).filter(Boolean)).size;
+      }, apiBase);
+    if (!(await archiveItem(page, /^sub$/).count())) await expandFolder(page, 'e2e-panels');
+    await archiveItem(page, /^sub$/).click();
+    await page.waitForFunction(() => !!document.querySelector('.layer-item--selected'));
+    const before = await mergeFolders();
+    await screenshot('tool-list-play', '.ai-panel');
+
+    let release = () => {};
+    const held = new Promise<void>(resolve => (release = resolve));
+    await page.route('**/api/image/merge-panels', async route => {
+      await held;
+      await route.continue();
+    });
+    await playButton(page, 'コマ結合').click();
+    await page.waitForSelector('.ai-tool-row--running');
+    const running = {
+      windowOpened: (await page.locator('.tool-window').count()) > 0,
+      icon: await playButton(page, 'コマ結合').innerText(),
+      title: await playButton(page, 'コマ結合').getAttribute('title'),
+      otherIcon: await playButton(page, '背景除去').innerText(),
+    };
+    await screenshot('tool-list-running', '.ai-panel');
+
+    await playButton(page, 'コマ結合').click();
+    const stopToast = await waitForToast(page, /コマ結合: 実行を停止しました/);
+    const afterStop = {
+      busy: (await page.locator('.ai-panel__list--busy').count()) > 0,
+      status: await page.locator('.statusbar__left').innerText(),
+      icon: await playButton(page, 'コマ結合').innerText(),
+    };
+    const successToasts = () =>
+      toastStack(page).then(ts => ts.filter(t => t.message?.includes('結合画像を保存')).length);
+    const successBefore = await successToasts();
+    // The backend still saves the image when the request goes on; the stopped run then moves it to the trash.
+    const responded = page.waitForResponse(res => res.url().includes('/api/image/merge-panels'));
+    release();
+    await responded;
+    await page.unroute('**/api/image/merge-panels');
+    await page.waitForFunction(
+      async ({ apiBase, before }) => {
+        const entries = (await (await fetch(`${apiBase}/archives/e2e-panels/contents`)).json()) as { key: string }[];
+        return (
+          new Set(entries.map(e => /^(e2e-panels\/[^/]*_コマ結合)\//.exec(e.key)?.[1]).filter(Boolean)).size === before
+        );
+      },
+      { apiBase, before },
+      { polling: 200, timeout: 10000 },
+    );
+    const after = await mergeFolders();
+
+    // ▶ Nano Banana画像生成 runs without its window too (E2E has no API key, so it fails).
+    await playButton(page, 'Nano Banana画像生成').click();
+    await waitForToast(page, /Nano Banana画像生成の実行に失敗しました/);
+    const nanoWindowOpened = (await page.locator('.tool-window').count()) > 0;
+    await withVisibleToasts(page, async () => {
+      while ((await page.locator('.toast--error').count()) > 0) {
+        const count = await page.locator('.toast--error').count();
+        await page.locator('.toast--error .toast__close').first().click();
+        await page.waitForFunction(n => document.querySelectorAll('.toast--error').length < n, count);
+      }
+    });
+    return {
+      before,
+      running,
+      stopToast,
+      afterStop,
+      after,
+      successToastsAfterStop: (await successToasts()) - successBefore,
+      nanoWindowOpened,
+    };
+  });
+
   await step('20-browser-storage', async () => {
     // Nothing is kept in the browser (docs/specs/app-shell.md 「ブラウザに残すもの」).
     return page.evaluate(async () => ({
@@ -1516,6 +1821,16 @@ async function main(): Promise<void> {
       if (cacheControl !== 'no-store')
         storableResponses.add(`${res.status()} ${url.pathname} (${cacheControl ?? 'none'})`);
     });
+    // The backend's file dialog must never open on the desktop: scenarios answer it with stubFileDialog,
+    // anything else gets an error.
+    await page.route(/\/api\/local-files\/pick-image$/, route =>
+      route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        headers: { 'Cache-Control': 'no-store' },
+        body: JSON.stringify({ detail: 'E2E: the file dialog is not stubbed' }),
+      }),
+    );
     await page.clock.setFixedTime(new Date('2026-01-01T10:00:00'));
     await page.addInitScript(() => {
       window.addEventListener('DOMContentLoaded', () => {

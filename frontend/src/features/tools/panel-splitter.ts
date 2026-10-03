@@ -13,7 +13,7 @@ import { showError } from '../../shared/ui/toast';
 import { AppMessageError } from '../../shared/utils/error-message';
 import { canvasToBlob } from '../../shared/utils/image';
 import { DocumentManager } from '../document/DocumentManager';
-import { selectedArchive } from './result';
+import { discardIfStopped, selectedArchive } from './result';
 import { imageTargetCard } from './target-card';
 
 const MODELS = [
@@ -132,6 +132,7 @@ export class PanelSplitterTool implements Tool {
     const docManager = DocumentManager.getInstance();
     const canvas = await context.getSelectedImage();
     if (!canvas) throw new ToolNotReady('ARCHIVES で対象の画像を選択してください。');
+    context.ready();
     const image = await canvasToBlob(canvas, 'image/png');
     if (!image) throw new AppMessageError('画像を PNG に変換できませんでした。');
 
@@ -142,6 +143,8 @@ export class PanelSplitterTool implements Tool {
       docManager.getCurrentKey(),
       this.options(),
     );
+    // The backend saves the panels itself, so a stopped run removes them afterwards.
+    await discardIfStopped(context.signal, result.folder);
 
     emit('archives:changed', { autoSelectKey: result.auto_select_key });
     return `${result.panels_count} コマに分割し、「${result.folder}」に保存しました`;

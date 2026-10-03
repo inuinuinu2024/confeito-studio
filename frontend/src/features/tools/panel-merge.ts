@@ -7,9 +7,10 @@
 import { fetchArchiveKey } from '../../shared/api/archives';
 import { mergePanels } from '../../shared/api/image';
 import { emit } from '../../shared/events';
-import { type Tool, ToolNotReady } from '../../shared/types/tool';
+import { type Tool, type ToolContext, ToolNotReady } from '../../shared/types/tool';
 import { h } from '../../shared/ui/dom';
 import { DocumentManager } from '../document/DocumentManager';
+import { discardIfStopped } from './result';
 import { missingTargetCard, saveDestinationLine } from './target-card';
 
 const SELECT_FOLDER = 'ARCHIVES でコマ分割のフォルダ（panels.json を含むフォルダ）を選択してください。';
@@ -57,11 +58,14 @@ export class PanelMergeTool implements Tool {
     );
   }
 
-  async execute(): Promise<string> {
+  async execute(context: ToolContext): Promise<string> {
     const folder = DocumentManager.getInstance().getCurrentArchiveFolder();
     if (!folder) throw new ToolNotReady(SELECT_FOLDER);
+    context.ready();
 
     const result = await mergePanels(folder);
+    // The backend saves the image itself, so a stopped run removes it afterwards.
+    await discardIfStopped(context.signal, result.folder);
     emit('archives:changed', { autoSelectKey: result.auto_select_key });
     return `「${result.folder}」に結合画像を保存しました`;
   }

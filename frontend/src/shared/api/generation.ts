@@ -31,9 +31,10 @@ export interface GenerateContentPayload {
 
 const HEADERS = { 'X-Provider': 'gemini' };
 
-async function postForImage(path: string, payload: unknown): Promise<Blob> {
+async function postForImage(path: string, payload: unknown, signal?: AbortSignal): Promise<Blob> {
   const res = await request(path, {
     method: 'POST',
+    signal,
     headers: { 'Content-Type': 'application/json', ...HEADERS },
     body: JSON.stringify(payload),
   });
@@ -41,11 +42,11 @@ async function postForImage(path: string, payload: unknown): Promise<Blob> {
 }
 
 /** Interactions API. Returns the generated image (Blob.type = the image's MIME type). */
-export function generateImage(payload: InteractionsPayload): Promise<Blob> {
-  return postForImage('/nano-banana-pro', payload);
+export function generateImage(payload: InteractionsPayload, signal?: AbortSignal): Promise<Blob> {
+  return postForImage('/nano-banana-pro', payload, signal);
 }
 
 /** generateContent API. Returns the generated image (Blob.type = the image's MIME type). */
-export function generateImageWithGenerateContent(payload: GenerateContentPayload): Promise<Blob> {
-  return postForImage('/nano-banana-pro/generate-content', payload);
+export function generateImageWithGenerateContent(payload: GenerateContentPayload, signal?: AbortSignal): Promise<Blob> {
+  return postForImage('/nano-banana-pro/generate-content', payload, signal);
 }

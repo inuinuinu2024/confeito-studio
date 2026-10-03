@@ -1,6 +1,7 @@
 # テストと検証
 
 変更後は該当する検証を必ず実行する。実際の Gemini API・ユーザーの `archives/`・`.env` には触れない。
+バックエンドのファイル選択ダイアログ（画像読み込み）も実際には開かない（デスクトップに出て、閉じるまで止まるため）。
 
 | 対象 | コマンド | 内容 |
 |---|---|---|
@@ -15,6 +16,7 @@
 - `conftest.py` が import 前に `CONFEITO_ENV_FILE` を存在しないファイルに向け、テストごとに
   `archives_dir` / `settings_dir` / `env_file` を `tmp_path` に差し替える（実データ・API キーを読まない）。
 - Gemini 呼び出しは `monkeypatch` で `gemini.generate_content` や `requests.post` を差し替える。
+- ファイル選択ダイアログは `file_dialog_service._ask_open_filename` を差し替える（`tests/test_file_dialog.py`）。
 - `client` フィクスチャ（`TestClient`）で HTTP 契約（ステータスコードと `detail` 形式）を検証する。
 
 ## E2E スモークテスト（`frontend/e2e/smoke.mts`）
@@ -28,4 +30,6 @@
 - 時刻は `2026-01-01 10:00:00` に固定され、`observations.json` 内のタイムスタンプは `<STAMP>` / `<DATETIME>` に置換される。
   リファクタリング前後で `observations.json` を比較すれば振る舞いの差分を検出できる。
 - オプション: `--headed`（ブラウザを表示）, `--keep`（一時データを残す）, `--out <dir>`, `--backend-port`, `--frontend-port`, `--root`, `--python`。
+- `POST /api/local-files/pick-image`（ファイル選択ダイアログ）は常にブラウザ側で差し替える。シナリオは `stubFileDialog` で答えを決め、
+  差し替えていない呼び出しはエラーになる（実際のダイアログは開かない）。
 - 新しい UI を追加したら、その操作をシナリオに追加する。

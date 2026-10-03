@@ -1,18 +1,31 @@
 /**
  * 画像読み込み — imports an image file as a new archive "<YYYYMMDD_HHMMSS>_<name>" (a "_2" ...
- * suffix when taken) containing only the file, then selects it. Canvas drag & drop runs the
- * same tool (`importImageTool`).
+ * suffix when taken) containing only the file, then selects it.
+ * The file is chosen in the OS file dialog, which the backend opens in the folder set in the tool
+ * window (the browser's picker cannot start in a given folder). Canvas drag & drop runs the same
+ * import (`importImageTool`). Spec: docs/specs/tools/image-loader.md
  */
 import { saveResult } from '../../shared/api/archives';
-import { IMAGE_ACCEPT, IMAGE_EXTENSIONS } from '../../shared/config';
+import { ApiError } from '../../shared/api/http';
+import { checkFolder, pickImageFile } from '../../shared/api/local-files';
 import { emit } from '../../shared/events';
-import { type Tool, ToolCancelled } from '../../shared/types/tool';
+import { toolSettings } from '../../shared/state/tool-settings';
+import { type Tool, ToolCancelled, type ToolContext, ToolNotReady } from '../../shared/types/tool';
+import { h } from '../../shared/ui/dom';
+import { field } from '../../shared/ui/form';
 import { fileStamp } from '../../shared/utils/datetime';
+import { discardIfStopped } from './result';
 
 const NAME = '画像読み込み';
 
+const FOLDER_HELP = [
+  'ファイル選択のダイアログを最初に開くフォルダ（絶対パス。例: D:\\manga\\raw）。',
+  '空欄ならこのアプリのフォルダ（プロジェクトのフォルダ）で開きます。',
+  'ダイアログはバックエンドを動かしている PC に開きます。',
+].join('\n');
+
 /** Creates the archive for `file` and selects the image. Returns the result summary. */
-async function importImageFile(file: File): Promise<string> {
+async function importImageFile(file: File, signal: AbortSignal): Promise<string> {
   const baseName = (file.name.replace(/\.[^/.]+$/, '') || file.name).replace(/[\\/:*?"<>|]/g, '_');
   // The archive is the page itself: no info.json (the original file name stays as the image name).
   const archive = await saveResult({
@@ -21,6 +34,7 @@ async function importImageFile(file: File): Promise<string> {
     info: null,
     files: [{ blob: file, path: file.name }],
   });
+  await discardIfStopped(signal, archive);
 
   emit('archives:changed', { autoSelectKey: `${archive}/${file.name}` });
   return `「${archive}」を作成し、${file.name} を読み込みました`;
@@ -28,45 +42,40 @@ async function importImageFile(file: File): Promise<string> {
 
 /** The 画像読み込み tool for a file that is already chosen (canvas drag & drop). */
 export function importImageTool(file: File): Pick<Tool, 'name' | 'execute'> {
-  return { name: NAME, execute: () => importImageFile(file) };
-}
-
-/** Native file picker when available, otherwise a hidden <input type=file>. Null if cancelled. */
-async function pickImageFile(): Promise<File | null> {
-  if (window.showOpenFilePicker) {
-    try {
-      const [handle] = await window.showOpenFilePicker({
-        multiple: false,
-        types: [{ description: 'Image Files', accept: { 'image/*': IMAGE_EXTENSIONS } }],
-      });
-      return await handle.getFile();
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') return null;
-      console.warn('showOpenFilePicker failed, falling back to input:', err);
-    }
-  }
-  return new Promise(resolve => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = IMAGE_ACCEPT;
-    input.style.display = 'none';
-    document.body.appendChild(input);
-    input.onchange = () => {
-      input.remove();
-      resolve(input.files?.[0] ?? null);
-    };
-    input.click();
-  });
+  return { name: NAME, execute: context => importImageFile(file, context.signal) };
 }
 
 export class ImageLoaderTool implements Tool {
   id = 'image-loader';
   name = NAME;
   icon = '';
+  executeIcon = 'folder_open';
 
-  async execute(): Promise<string> {
-    const file = await pickImageFile();
+  settingsPrefix = 'imageLoader';
+  private settings = toolSettings(this.settingsPrefix);
+
+  renderSettings(container: HTMLElement): void {
+    const input = h('input', {
+      class: 'cs-input',
+      type: 'text',
+      placeholder: '未指定（このアプリのフォルダ）',
+      value: this.settings.get('initialDir', ''),
+    });
+    input.addEventListener('input', () => this.settings.set('initialDir', input.value));
+    container.append(field('最初に開くフォルダ', input, FOLDER_HELP));
+  }
+
+  async execute(context: ToolContext): Promise<string> {
+    const folder = this.settings.get('initialDir', '');
+    try {
+      await checkFolder(folder);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) throw new ToolNotReady(err.message);
+      throw err;
+    }
+    context.ready();
+    const file = await pickImageFile(folder, context.signal);
     if (!file) throw new ToolCancelled();
-    return importImageFile(file);
+    return importImageFile(file, context.signal);
   }
 }

@@ -67,7 +67,7 @@ frontend/src/
   Vite 開発サーバー（`vite.config.mts` の `noStorePlugin`）は全応答に `Cache-Control: no-store` を付ける。
 
 ### API 層（`shared/api/`）
-- エンドポイントごとに型付き関数を用意する（`archives.ts`, `image.ts`, `generation.ts`, `settings.ts`, `system.ts`）。
+- エンドポイントごとに型付き関数を用意する（`archives.ts`, `image.ts`, `generation.ts`, `local-files.ts`, `settings.ts`, `system.ts`）。
 - 失敗時は `ApiError`（`message`, `status`, `detail`, `body`, `rawResponse`）を投げる。
   バックエンドのエラー形式は常に `{"detail": string | {message, raw_response}}`（message は日本語、raw_response は原文）。
 - ツールの結果は `features/tools/result.ts` の `saveToolResult()`（中で `saveResult()` → `POST /archives/results`）で保存する。
@@ -94,8 +94,12 @@ frontend/src/
 1. `features/tools/<id>.ts`（大きいツールは `features/tools/<id>/<id>.ts` + 部品）に `Tool`（`shared/types/tool.ts`）を実装する。
    - 設定が必要なら `renderSettings(container)` を実装し `shared/ui/form.ts` の部品で組む。設定値は `toolSettings('<prefix>')` で、
      同じ接頭辞を `settingsPrefix` に宣言する（実行開始時に変更分が保存される。宣言しないと保存されない）。
+   - ウィンドウを開く前に状態を整える必要があれば `beforeOpen()` を実装する（設定を読み直した後に呼ばれる。例: Nano Banana画像生成が表示中の画像を原画に入れる）。
    - `execute()` は結果の要約（日本語）を返す。共通処理（`ai-panel/tool-runner.ts`）が「<ツール名>: <要約>」のトーストを出すので、ツール自身は成功トーストを出さない。
    - 入力が足りない（画像未選択など）ときは `execute()` の先頭で `throw new ToolNotReady('案内')`（注意トーストになり、失敗扱いにしない）。
+     確認が済んだら `context.ready()` を呼ぶ（ツールウィンドウがそこで閉じ、処理は裏で続く。呼ばないと成功するまで閉じない）。
+   - 停止（▶ の ⏸）に対応する: 結果をフロントで保存するリクエストには `context.signal` を渡し、結果を保存した直後に
+     `discardIfStopped(context.signal, 結果フォルダ)` を呼ぶ（停止されていれば保存した結果を消して中断する。バックエンドが保存するツールも同じ）。
      キャンセルは `throw new ToolCancelled()`。失敗は `AppMessageError` を投げるか `ApiError` をそのまま通す。ログファイルは書かない。
    - バックエンド呼び出しは `shared/api/` に関数を追加して使う。
    - 結果は `saveToolResult(ツール名, files, { source, settings })` で保存する（選択中アーカイブの中の `<日時>_<ツール名>/` と info.json。

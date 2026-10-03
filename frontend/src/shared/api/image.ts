@@ -9,7 +9,11 @@ export interface RemoveBackgroundOptions {
 }
 
 /** Returns a PNG with a transparent background (rembg, runs locally). */
-export async function removeBackground(image: Blob, opts: RemoveBackgroundOptions): Promise<Blob> {
+export async function removeBackground(
+  image: Blob,
+  opts: RemoveBackgroundOptions,
+  signal?: AbortSignal,
+): Promise<Blob> {
   const form = formData({
     image: [image, 'image.png'],
     alpha_matting: opts.alphaMatting,
@@ -17,7 +21,7 @@ export async function removeBackground(image: Blob, opts: RemoveBackgroundOption
     alpha_matting_background_threshold: opts.backgroundThreshold,
     alpha_matting_erode_size: opts.erodeSize,
   });
-  return (await request('/image/remove-bg', { method: 'POST', body: form })).blob();
+  return (await request('/image/remove-bg', { method: 'POST', body: form, signal })).blob();
 }
 
 export interface PanelSplitOptions {

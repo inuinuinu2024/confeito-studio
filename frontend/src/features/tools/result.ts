@@ -3,7 +3,13 @@
  * "<selected archive>/<YYYYMMDD_HHMMSS>_<tool name>/" — or a new archive of that name when
  * nothing is selected — with info.json. The backend picks a free name ("_2", ...).
  */
-import { type ResultInfo, saveResult, splitArchiveKey } from '../../shared/api/archives';
+import {
+  deleteArchive,
+  deleteArchiveContents,
+  type ResultInfo,
+  saveResult,
+  splitArchiveKey,
+} from '../../shared/api/archives';
 import { fileStamp } from '../../shared/utils/datetime';
 import { DocumentManager } from '../document/DocumentManager';
 
@@ -26,4 +32,17 @@ export function saveToolResult(
     info: { tool: toolName, ...info },
     files,
   });
+}
+
+/**
+ * When the run was stopped, removes the result already saved at `folder` (a result folder key or a
+ * new archive; moved to .trash like a deletion in ARCHIVES) and throws the abort reason.
+ * Call it right after a result is saved, before announcing it (docs/specs/ai-panel.md 「実行の停止」).
+ */
+export async function discardIfStopped(signal: AbortSignal, folder: string): Promise<void> {
+  if (!signal.aborted) return;
+  const [archive, rest] = splitArchiveKey(folder);
+  if (rest) await deleteArchiveContents(archive, [rest]);
+  else await deleteArchive(archive);
+  signal.throwIfAborted();
 }

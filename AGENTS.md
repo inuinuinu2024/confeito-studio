@@ -26,13 +26,16 @@
 | 整形 | `cd frontend && npm run format` / `cd backend && uv run ruff format .` |
 
 ## ルール
-1. **仕様の決定事項は `docs/specs/` の該当ファイルに記録する。** ユーザーの要望・指摘で仕様が決まった場合は、指示がなくても更新する。
+1. **指示にわからない点があれば、推測で進めず聞き返して仕様を固める。** 解釈が複数ある・対象や範囲がはっきりしない・既存の仕様と食い違う・
+   決まっていない細部（表示・既定値・エラー時の動きなど）が結果を左右する、といった場合は、作業の前に質問する。
+   質問には選択肢と推奨案を添え、決まった内容は次のルールに従って記録する。
+2. **仕様の決定事項は `docs/specs/` の該当ファイルに記録する。** ユーザーの要望・指摘で仕様が決まった場合は、指示がなくても更新する。
    構造を変えたら `docs/architecture/` の表（イベント一覧・API 一覧など）も更新する。
-2. **変更したら検証する。** 上の表の検証を実行し、UI に関わる変更は E2E を回してスクリーンショットを確認する。
+3. **変更したら検証する。** 上の表の検証を実行し、UI に関わる変更は E2E を回してスクリーンショットを確認する。
    新しい UI 操作を作ったら `frontend/e2e/smoke.mts` にシナリオを足す。
-3. **ユーザーのデータを守る。** `archives/`・`.env`・`models/`・`settings/user_settings.json`・`settings/prompts.json` を削除・上書きしない。テストと E2E は一時ディレクトリを使う。
+4. **ユーザーのデータを守る。** `archives/`・`.env`・`models/`・`settings/user_settings.json`・`settings/prompts.json` を削除・上書きしない。テストと E2E は一時ディレクトリを使う。
    テストや確認で実際の Gemini API を呼ばない（課金と外部送信が発生する）。
-4. **フロントエンドの決まり**
+5. **フロントエンドの決まり**
    - バックエンド呼び出しは `shared/api/` の関数経由（`fetch` を直接書かない）。
    - 機能間の通知は `shared/events.ts` の `emit` / `on`（`window.dispatchEvent` を直接使わない）。新しいイベントは `AppEventMap` に追加する。
    - 表示モードは `shared/state/view-mode.ts`、現在の画像と保存先フォルダは `DocumentManager`。
@@ -41,14 +44,14 @@
      ツールの設定はウィンドウを開く時に読み、実行開始時に保存する（設定を持つツールは `settingsPrefix` を宣言する）。
    - DOM は `shared/ui/dom.ts` の `h()` と `shared/ui/form.ts` の部品で組み、見た目は CSS クラスで書く（インラインスタイルを増やさない）。
    - `shared/` から `features/` を import しない。純粋なロジックは関数に切り出して `*.test.ts` を書く。
-5. **バックエンドの決まり**
+6. **バックエンドの決まり**
    - ルーターは薄く保ち、ロジックは `services/` に置く。失敗は `errors.py` の `AppError` 系を投げる（ルーターで try/except しない）。
      メッセージは日本語で書き、例外の文言や外部 API の応答は `raw_response` に分ける。
    - ファイルパス・環境変数は `config.settings` から取る（`__file__` からパスを組み立てない）。
    - 時間のかかる同期処理は `run_in_threadpool` で実行する。
-6. UI の文言とドキュメントは日本語、コードの識別子・コメントは英語。
-7. フォーマットは Python が `ruff format`、TypeScript / CSS が Prettier（`frontend/.prettierrc.json`）。
-8. **エージェント向けの指示はこのファイルにまとめる。** `CLAUDE.md` や `CLAUDE.local.md` は作らない（あると Claude Code がこのファイルを読まなくなる）。
+7. UI の文言とドキュメントは日本語、コードの識別子・コメントは英語。
+8. フォーマットは Python が `ruff format`、TypeScript / CSS が Prettier（`frontend/.prettierrc.json`）。
+9. **エージェント向けの指示はこのファイルにまとめる。** `CLAUDE.md` や `CLAUDE.local.md` は作らない（あると Claude Code がこのファイルを読まなくなる）。
    `.agents/AGENTS.md` も作らない（Antigravity が内容を二重に読み込む）。
 
 ## 作業の入口

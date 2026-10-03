@@ -47,17 +47,21 @@ async function fromFile(file: File, key: string | null = null): Promise<Original
   }
 }
 
-/** The image shown on the canvas as an original; null (with a warning toast) when nothing is shown. */
-async function fromCanvas(): Promise<OriginalImage | null> {
+/** The current image (the one tools process) as an original; null when there is none. */
+export async function originalFromCanvas(): Promise<OriginalImage | null> {
   const docManager = DocumentManager.getInstance();
   const canvas = docManager.getCurrentCanvas();
   const blob = canvas ? await canvasToBlob(canvas) : null;
-  if (!canvas || !blob) {
-    showToast('キャンバスに画像が表示されていません。ARCHIVES で画像を選択してください。', 'warning');
-    return null;
-  }
+  if (!canvas || !blob) return null;
   const file = new File([blob], docManager.getCurrentFilename() || 'canvas.png', { type: 'image/png' });
   return { file, width: canvas.width, height: canvas.height, key: docManager.getCurrentKey() };
+}
+
+/** 「表示中の画像を原画にする」: like originalFromCanvas, with a warning toast when nothing is shown. */
+async function fromCanvas(): Promise<OriginalImage | null> {
+  const original = await originalFromCanvas();
+  if (!original) showToast('キャンバスに画像が表示されていません。ARCHIVES で画像を選択してください。', 'warning');
+  return original;
 }
 
 /**

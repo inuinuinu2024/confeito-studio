@@ -19,6 +19,7 @@ backend/src/app/
 │   ├── image_service.py     # rembg 背景除去（初回呼び出し時に import）
 │   ├── settings_service.py  # API キー(.env) とツール設定(JSON)
 │   ├── prompt_service.py    # 登録したプロンプト（ツールごと、settings/prompts.json）
+│   ├── file_dialog_service.py # バックエンドの PC のファイル選択ダイアログ（tkinter。画像読み込み）
 │   ├── json_file.py         # settings/ の JSON の読み書き（壊れたファイルの退避・一時ファイル経由の書き込み）
 │   └── system_service.py    # シャットダウン
 └── providers/       # 外部 AI の差し替え層
@@ -56,6 +57,7 @@ backend/src/app/
 | `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブ保存先（ゴミ箱 `.trash/` を含む） |
 | `CONFEITO_SETTINGS_DIR` | `<repo>/settings` | `default_settings.json`（初期設定）、`user_settings.json`（ユーザー設定）、`prompts.json`（登録したプロンプト） |
 | `GEMINI_API_KEY` | （.env） | Gemini API キー。リクエストの `X-API-Key` ヘッダーが優先 |
+| `CONFEITO_PROJECT_DIR` | `<repo>` | 画像読み込みのファイル選択ダイアログを、フォルダの指定がない時に開く場所 |
 | `CONFEITO_MODELS_DIR` | `<repo>/models` | rembg モデルの場所。起動時に `U2NET_HOME` の既定値にする（.env に書く必要はない） |
 | `U2NET_HOME` | （未設定） | 環境変数か .env で指定した場合はそちらが優先（.env の相対パスは .env の場所基準） |
 
@@ -80,6 +82,8 @@ backend/src/app/
 | POST | `/image/merge-panels` | コマ結合 |
 | POST | `/nano-banana-pro` | 画像生成・Interactions API（応答は画像そのもの） |
 | POST | `/nano-banana-pro/generate-content` | 画像生成・generateContent API（応答は上と同じ） |
+| POST | `/local-files/check-folder` | `{path}` が絶対パスの既存フォルダか（空欄は可）。違えば 404（画像読み込み） |
+| POST | `/local-files/pick-image` | `{initial_dir}`（空欄ならプロジェクトのフォルダ）でファイル選択ダイアログを開く。選んだ画像そのもの（名前は `X-File-Name`、URL エンコード）、キャンセルは 204、ダイアログが開いていれば 400 |
 | GET/POST | `/settings/gemini` | API キーの有無 / 保存（.env） |
 | GET/POST | `/settings/tools` | ツール設定の取得（初期設定 + ユーザー設定、`{values, warnings}`）/ ユーザー設定への追加・更新（`{values}` を重ねる） |
 | GET/POST | `/prompts/{tool}` | 登録したプロンプトの一覧（`{prompts, warnings}`）/ 登録（`{name, text}` → `{prompt, warnings}`。同名は 400） |

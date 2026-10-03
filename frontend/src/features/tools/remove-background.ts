@@ -11,7 +11,7 @@ import { button, field, slider, switchRow } from '../../shared/ui/form';
 import { AppMessageError } from '../../shared/utils/error-message';
 import { canvasToBlob } from '../../shared/utils/image';
 import { DocumentManager } from '../document/DocumentManager';
-import { saveToolResult } from './result';
+import { discardIfStopped, saveToolResult } from './result';
 import { imageTargetCard } from './target-card';
 
 const DEFAULTS = { alpha_matting: 'true', fg_threshold: '240', bg_threshold: '10', erode_size: '10' };
@@ -83,15 +83,20 @@ export class RemoveBackgroundTool implements Tool {
   async execute(context: ToolContext): Promise<string> {
     const canvas = await context.getSelectedImage();
     if (!canvas) throw new ToolNotReady('ARCHIVES で対象の画像を選択してください。');
+    context.ready();
     const input = await canvasToBlob(canvas, 'image/png');
     if (!input) throw new AppMessageError('画像を PNG に変換できませんでした。');
 
-    const result = await removeBackground(input, {
-      alphaMatting: this.get('alpha_matting'),
-      foregroundThreshold: this.get('fg_threshold'),
-      backgroundThreshold: this.get('bg_threshold'),
-      erodeSize: this.get('erode_size'),
-    });
+    const result = await removeBackground(
+      input,
+      {
+        alphaMatting: this.get('alpha_matting'),
+        foregroundThreshold: this.get('fg_threshold'),
+        backgroundThreshold: this.get('bg_threshold'),
+        erodeSize: this.get('erode_size'),
+      },
+      context.signal,
+    );
 
     const folder = await saveToolResult(this.name, [{ blob: result, path: 'nobg.png' }], {
       source: DocumentManager.getInstance().getCurrentKey(),
@@ -102,6 +107,7 @@ export class RemoveBackgroundTool implements Tool {
         erode_size: Number(this.get('erode_size')),
       },
     });
+    await discardIfStopped(context.signal, folder);
     emit('archives:changed', { autoSelectKey: `${folder}/nobg.png` });
     return `「${folder}」に保存しました`;
   }

@@ -20,7 +20,8 @@ import {
 } from '../../../shared/api/generation';
 import { emit } from '../../../shared/events';
 import { toolSettings } from '../../../shared/state/tool-settings';
-import { type Tool, ToolNotReady } from '../../../shared/types/tool';
+import { isViewMode } from '../../../shared/state/view-mode';
+import { type Tool, type ToolContext, ToolNotReady } from '../../../shared/types/tool';
 import { openJsonPreview } from '../../../shared/ui/dialogs';
 import { h } from '../../../shared/ui/dom';
 import { button, field, helpIcon, note, select } from '../../../shared/ui/form';
@@ -31,7 +32,8 @@ import { imageHeading, imageInput, inputFiles, startProgress, uploadImage } from
 import { promptField } from '../gemini-image/prompt-field';
 import { createReferenceList, type ReferenceImage } from '../gemini-image/reference-images';
 import { fitImagesToModel, totalLimit } from '../gemini-image/reference-list';
-import { saveToolResult } from '../result';
+import { DocumentManager } from '../../document/DocumentManager';
+import { discardIfStopped, saveToolResult } from '../result';
 import { DEFAULT_MODEL_ID, findModel, IMAGE_MODELS, type ImageModel, outputSize } from './models';
 import {
   APIS,
@@ -61,7 +63,13 @@ import {
   originalLayout,
   type Padding,
 } from './original';
-import { buildSentImage, createOriginalSection, type OriginalImage, restoreImage } from './original-image';
+import {
+  buildSentImage,
+  createOriginalSection,
+  type OriginalImage,
+  originalFromCanvas,
+  restoreImage,
+} from './original-image';
 import { generateContentRequest, interactionsRequest, redactImageData } from './request';
 import './nano-banana-pro.css';
 
@@ -124,6 +132,21 @@ export class NanoBananaProTool implements Tool {
     const target = expectedOutputSize(model, aspectRatio, effectiveValue(sizeSetting(), this.read, model, api));
     if (!target) return null;
     return { image, aspectRatio, target, layout: originalLayout(image.width, image.height, target) };
+  }
+
+  /**
+   * Opens with the image on the canvas as the 原画 (docs/specs/tools/nano-banana-pro.md 「原画」): only in the
+   * normal view mode, and not when the reference images already fill the limit (adding it would drop one).
+   * Without an image the previous 原画 stays.
+   */
+  async beforeOpen(): Promise<void> {
+    if (!isViewMode('normal')) return;
+    const docManager = DocumentManager.getInstance();
+    if (!docManager.getCurrentCanvas()) return;
+    if (!this.original && this.images.length > totalLimit(this.model.zones) - 1) return;
+    const key = docManager.getCurrentKey();
+    if (key && this.original?.key === key) return; // already this image
+    this.original = (await originalFromCanvas()) ?? this.original;
   }
 
   /**
@@ -379,16 +402,17 @@ export class NanoBananaProTool implements Tool {
     }
   }
 
-  async execute(): Promise<string> {
+  async execute(context: ToolContext): Promise<string> {
     if (!this.settings.get('prompt', '').trim()) throw new ToolNotReady('プロンプトを入力してください');
+    context.ready();
     const request = await this.buildRequest();
     const stopProgress = startProgress(s => emit('tool:progress', { message: `Generating image... (${s}s elapsed)` }));
     try {
       // On failure the ApiError carries the upstream response (safety blocks etc.); the error toast shows it.
       const blob =
         request.api === 'generateContent'
-          ? await generateImageWithGenerateContent(request.payload)
-          : await generateImage(request.payload);
+          ? await generateImageWithGenerateContent(request.payload, context.signal)
+          : await generateImage(request.payload, context.signal);
 
       // The backend answers with the image's real MIME type, which decides the extension.
       const mimeType = blob.type.startsWith('image/') ? blob.type : 'image/png';
@@ -425,6 +449,7 @@ export class NanoBananaProTool implements Tool {
         files.unshift({ blob, path: imagePath });
       }
       const folder = await saveToolResult(this.name, files, { source, settings }, stamp);
+      await discardIfStopped(context.signal, folder);
       emit('archives:changed', { autoSelectKey: `${folder}/${imagePath}` });
       return `「${folder}」に画像を保存しました`;
     } finally {
