@@ -1,4 +1,4 @@
-/** /api/local-files — the file dialog of the PC running the backend (backend/src/app/routers/local_files.py). */
+/** /api/local-files — the file / folder dialogs of the PC running the backend (backend/src/app/routers/local_files.py). */
 import { postJson, request } from './http';
 
 /** Resolves when `path` is an existing folder (or empty); ApiError 404 otherwise. */
@@ -18,4 +18,10 @@ export async function pickImageFile(initialDir: string, signal?: AbortSignal): P
   const blob = await res.blob();
   const name = decodeURIComponent(res.headers.get('X-File-Name') ?? 'image.png');
   return new File([blob], name, { type: blob.type });
+}
+
+/** Opens the OS folder dialog in `initialDir` (when it exists); the chosen folder's full path, or null when cancelled. */
+export async function pickFolder(initialDir: string): Promise<string | null> {
+  const { path } = await postJson<{ path: string | null }>('/local-files/pick-folder', { initial_dir: initialDir });
+  return path;
 }

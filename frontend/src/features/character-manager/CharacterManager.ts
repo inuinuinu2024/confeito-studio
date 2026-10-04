@@ -80,7 +80,7 @@ const savedFields = (c: SavedCharacter): EditorFields => ({
   name: c.name,
   category: c.category,
   text: c.text,
-  images: c.images.map(saved => ({ saved })),
+  images: c.images.map(saved => ({ saved, text: c.image_texts[saved] ?? '' })),
   icon: c.icon ? { saved: c.icon } : null,
 });
 
@@ -459,7 +459,9 @@ export function createCharacterManager(): { sidebar: HTMLElement; main: HTMLElem
       category: fields.category,
       text: fields.text,
       images: fields.images.map(image =>
-        'saved' in image ? { file: image.saved } : { blob: image.file, name: image.file.name },
+        'saved' in image
+          ? { file: image.saved, text: image.text }
+          : { blob: image.file, name: image.file.name, text: image.text },
       ),
       icon: fields.icon === null ? 'none' : 'saved' in fields.icon ? 'keep' : fields.icon.blob,
     };

@@ -56,11 +56,15 @@ describe('original image', () => {
 
   it('describes the original and its padding in the prompt', () => {
     expect(originalHeading(3, 'vertical')).toBe(
-      '# Image 3（原画）\n' +
+      '# 画像3（原画）\n' +
         'この画像を原画とする。出力はこの原画を書き直した画像にすること。構図・輪郭・各要素の位置と大きさは原画と一致させること。\n' +
         '画像の上下にある白い余白は縦横比を合わせるための詰め物なので、何も描かず白のままにすること。\n\n',
     );
     expect(originalHeading(1, 'horizontal')).toContain('画像の左右にある白い余白');
     expect(originalHeading(1, 'none')).not.toContain('余白');
+    expect(originalHeading(1, 'none', true)).toContain(
+      '画像2 以降の参照画像は書き直しの参考として使い、構図は原画に従うこと。\n\n',
+    );
+    expect(originalHeading(1, 'none')).not.toContain('参照画像');
   });
 });

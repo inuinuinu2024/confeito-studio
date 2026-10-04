@@ -4,10 +4,11 @@
 - アプリ名は「ConfeitO Studio」。上部バー左端・ブラウザのタブのタイトル・起動中画面・起動用ショートカット（`setup/ConfeitO Studio.lnk`）に出す。
   リポジトリ名・パッケージ名（`confeito-studio`）・環境変数（`CONFEITO_*`）などの識別子は小文字のまま。
 - CSS Grid（`.manga-grid`）で 4 列 × 3 行: 上段 = トップバー（全幅）、中段 = 表示モードボタン | ARCHIVES | キャンバス | AI パネル、下段 = ステータスバー（全幅）。
-- 左端の列（`features/tool-bar/ToolBar.ts`）は上から 3 つのグループ: Normal Mode / Batch Mode、Parallel View / Overlay View、
-  マネージャー（Prompt Manager: chat / Character Manager: person / Object Manager: eyeglasses / Style Manager: brush のアイコン）。
+- 左端の列（`features/tool-bar/ToolBar.ts`）は上から 4 つのグループ: Normal Mode / Batch Mode、Parallel View / Overlay View、
+  マネージャー（Prompt Manager: chat / Character Manager: person / Object Manager: eyeglasses / Style Manager: brush のアイコン）、
+  モニター（Cost Monitor: browse_activity のアイコン）。
   グループの間には細い仕切り線（1px）を引く。
-  Prompt Manager と Character Manager は表示モードの 1 つ（[prompt-manager.md](./prompt-manager.md)・[character-manager.md](./character-manager.md)）。
+  Prompt Manager・Character Manager・Cost Monitor は表示モードの 1 つ（[prompt-manager.md](./prompt-manager.md)・[character-manager.md](./character-manager.md)・[cost-monitor.md](./cost-monitor.md)）。
   ほかのマネージャー（Object / Style）は未実装で、押すと「開発中」トースト（「「Object Manager」は現在開発中です」など）を出すだけ（表示モードは変わらない）。
 - 左サイドバーは ARCHIVES 専用（レイヤーツリーは廃止）。左右のサイドバーは端のドラッグで 150〜600px に変更できる。
 - 右サイドバーは AI パネル。Parallel / Overlay モード中は右サイドバーを閉じてキャンバスを広げる
@@ -20,19 +21,20 @@
     キャンバスの背景色は設定ウィンドウ。画像の保存・閉じる機能と、前回保存した画像を起動時に開き直す機能は廃止
     （Ctrl+S / Ctrl+Shift+S もアプリでは扱わない）。画像の取り込みは「画像読み込み」ツールとキャンバスへの D&D で行い、結果は ARCHIVES に残る。
 - 右上のアイコン: 設定（下の「設定ウィンドウ」）、クラウド同期・アカウント（未実装、「開発中」トースト）。
-- ショートカット: Ctrl+Z（Undo。ウィンドウ・ダイアログを開いている間は効かない）、Ctrl+B（設定ウィンドウを「表示」のページで開く）。
+- ショートカット: Ctrl+Z（Undo。ウィンドウ・ダイアログを開いている間は効かない）、Ctrl+B（設定ウィンドウを「背景色指定」のページで開く）。
 
 ## 設定ウィンドウ（`features/top-bar/components/SettingsWindow.ts`）
 - 右上の歯車で開く、アプリ内の大きなウィンドウ（760 × 520px。画面が小さい時は縮む）。左にページの一覧（ページ名だけ。アイコンは付けない）、右に選んだページの設定項目を出す。
   - 開いている間は背景を暗くし、ほかの操作はできない。閉じ方は右上の ×、Esc、背景（暗い部分）のクリック。
-  - 歯車で開いた時は先頭のページ（API）、Ctrl+B で開いた時は「表示」のページを出す。開いている間に Ctrl+B を押すと「表示」に切り替える。
+  - 歯車で開いた時は先頭のページ（API）、Ctrl+B で開いた時は「背景色指定」のページを出す。開いている間に Ctrl+B を押すと「背景色指定」に切り替える。
   - ウィンドウ全体の Save / Cancel はない。項目ごとに下の方法で保存する。
-- ページ（今後の設定も、このどちらかか新しいページに足す）:
+- ページ（今後の設定も、このどれかか新しいページに足す）:
   | ページ | 項目 | 保存 |
   |---|---|---|
   | API | Gemini API Key（パスワード欄。説明「Gemini を使うツールで使います。」） | 「保存」ボタン（入力が空の間は押せない）か Enter で `.env` に書く。成功するとトースト「Gemini API Key を .env に保存しました」、欄を空に戻す。失敗はエラートースト「設定を保存できませんでした」。欄の下に状態「保存済み（.env）」「未設定」（取得できない時「状態を取得できませんでした」） |
-  | 表示 | キャンバスの背景色（[canvas.md](./canvas.md)） | 色を押した時点で反映し、ユーザー設定に書く |
-- 開くたびに状態を読み直す（API キーの有無・保存済みの背景色。API キーの入力欄は空にする）。
+  | 背景色指定 | キャンバスの背景色（[canvas.md](./canvas.md)） | 色を押した時点で反映し、ユーザー設定に書く |
+  | 保存先 | ARCHIVES のフォルダ（フルパスの入力欄＋「参照…」、「既定に戻す」「変更」。[archives.md](./archives.md)「保存先」） | 「変更」か Enter でその場で切り替え、ユーザー設定に書く |
+- 開くたびに状態を読み直す（API キーの有無・保存済みの背景色・ARCHIVES のフォルダ。API キーの入力欄は空にする）。
 
 ### Gemini API キーの扱い（将来の Web 版を含む方針）
 - 将来 Web アプリにした時は **利用者が自分のキーを持ち込む方式（BYOK）** にする（運営者のキーで全員分を払う方式にはしない）。
@@ -56,6 +58,7 @@
 ## 設定の保存（`shared/state/tool-settings.ts`、`backend/src/app/services/settings_service.py`）
 ツールの設定値（パラメータ・プロンプト欄の内容）と画面の状態（ツールの並び順など）は、フラットな文字列マップとして 2 つのファイルに置く。
 ユーザーが登録したプロンプトは別のファイル `assets/prompts/prompts.json`、キャラクターは `assets/characters/`（どちらも全ツール共通・git 管理外。仕様は [prompt-manager.md](./prompt-manager.md)・[character-manager.md](./character-manager.md)）。
+Gemini の利用記録は `data/usage.db`（SQLite・git 管理外。[cost-monitor.md](./cost-monitor.md)）。
 
 | ファイル | 内容 | git | 書き込み |
 |---|---|---|---|

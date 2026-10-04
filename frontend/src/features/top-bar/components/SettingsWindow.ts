@@ -2,17 +2,27 @@
  * SettingsWindow (gear icon, Ctrl+B) — modal window with the setting pages listed on the left and
  * the chosen page on the right (docs/specs/app-shell.md 「設定ウィンドウ」):
  *   API  — Gemini API key, written to the project .env with the page's 保存 button.
- *   表示 — canvas background colour, applied and saved as soon as a swatch is clicked.
+ *   背景色指定 — canvas background colour, applied and saved as soon as a swatch is clicked.
+ *   保存先 — the ARCHIVES folder (full path or the folder dialog), switched with the page's 変更 button;
+ *            nothing is moved (docs/specs/archives.md 「保存先」).
  * While it is open the app behind it is dimmed and inert; ×, Esc and a click on the backdrop close it.
  */
-import { getGeminiKeyStatus, saveGeminiKey } from '../../../shared/api/settings';
+import { pickFolder } from '../../../shared/api/local-files';
+import {
+  getArchivesLocation,
+  getGeminiKeyStatus,
+  saveGeminiKey,
+  setArchivesLocation,
+  type ArchivesLocation,
+} from '../../../shared/api/settings';
 import { emit } from '../../../shared/events';
 import { BG_COLORS, loadBgColor, saveBgColor } from '../../../shared/state/canvas-background';
+import { confirmDialog } from '../../../shared/ui/dialogs';
 import { h, icon } from '../../../shared/ui/dom';
 import { button } from '../../../shared/ui/form';
 import { showError, showToast } from '../../../shared/ui/toast';
 
-export type SettingsPage = 'api' | 'display';
+export type SettingsPage = 'api' | 'display' | 'storage';
 
 export interface SettingsWindow {
   /** Opens the window on `page` (the first page when omitted); switches pages when already open. */
@@ -110,7 +120,7 @@ function createDisplayPage(): { element: HTMLElement; refresh: () => void } {
   const element = h(
     'div',
     { class: 'settings-window__page' },
-    h('h2', { class: 'settings-window__page-title', text: '表示' }),
+    h('h2', { class: 'settings-window__page-title', text: '背景色指定' }),
     section(
       'キャンバスの背景色',
       '画像の周囲（透明部分）を塗る色です。選ぶとすぐ反映し、次回の起動でも使います。',
@@ -121,12 +131,125 @@ function createDisplayPage(): { element: HTMLElement; refresh: () => void } {
   return { element, refresh: () => markSelected(loadBgColor()) };
 }
 
+function createStoragePage(): { element: HTMLElement; refresh: () => Promise<void> } {
+  const input = h('input', {
+    class: 'cs-input',
+    type: 'text',
+    placeholder: 'フォルダのフルパス（例: D:\\manga\\archives）',
+    spellcheck: false,
+  });
+  const current = h('p', { class: 'settings-window__status' });
+  const notice = h('p', { class: 'settings-window__status settings-window__status--warning' });
+  const browseButton = button('参照…', () => void browse(), { variant: 'outline', size: 'dialog' });
+  const applyButton = button('変更', () => void apply(input.value), { variant: 'primary', size: 'dialog' });
+  const resetButton = button('既定に戻す', () => void apply(''), { variant: 'outline', size: 'dialog' });
+  let location: ArchivesLocation | null = null;
+  let busy = false;
+
+  const sync = () => {
+    const typed = input.value.trim();
+    applyButton.disabled = busy || !typed || typed === location?.path;
+    resetButton.disabled = busy || !location || location.is_default;
+    browseButton.disabled = busy;
+  };
+
+  const show = (next: ArchivesLocation) => {
+    location = next;
+    input.value = next.path;
+    current.textContent = next.is_default
+      ? `使用中: ${next.path}（既定）`
+      : `使用中: ${next.path}　／　既定: ${next.default_path}`;
+    const notes = [
+      ...(next.exists ? [] : ['このフォルダは見つかりません。保存する時に作られます。']),
+      ...(next.ignored ? [next.ignored] : []),
+    ];
+    notice.textContent = notes.join(' ');
+    sync();
+  };
+
+  const refresh = async () => {
+    current.textContent = '';
+    notice.textContent = '';
+    try {
+      show(await getArchivesLocation());
+    } catch (err) {
+      console.error(err);
+      current.textContent = '状態を取得できませんでした';
+    }
+  };
+
+  const browse = async () => {
+    busy = true;
+    sync();
+    try {
+      const picked = await pickFolder(input.value.trim() || location?.path || '');
+      if (picked) input.value = picked;
+    } catch (err) {
+      showError('フォルダ選択のダイアログを開けませんでした', err);
+    } finally {
+      busy = false;
+      sync();
+    }
+  };
+
+  /** Switches to `path` ("" = the default); asks before creating a folder that does not exist. */
+  const apply = async (path: string) => {
+    busy = true;
+    sync();
+    try {
+      let result = await setArchivesLocation(path);
+      if (result.missing) {
+        const create = await confirmDialog({
+          title: 'フォルダがありません',
+          message: `「${result.requested_path}」は存在しません。作成して ARCHIVES の保存先にしますか？`,
+          confirmLabel: '作成して変更',
+        });
+        if (!create) return;
+        result = await setArchivesLocation(path, true);
+      }
+      show(result);
+      if (result.changed) {
+        emit('archives:location-changed');
+        showToast(`ARCHIVES の保存先を「${result.path}」に変更しました`, 'success');
+      }
+    } catch (err) {
+      showError('ARCHIVES の保存先を変更できませんでした', err);
+    } finally {
+      busy = false;
+      sync();
+    }
+  };
+
+  input.addEventListener('input', sync);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !applyButton.disabled) void apply(input.value);
+  });
+
+  const element = h(
+    'div',
+    { class: 'settings-window__page' },
+    h('h2', { class: 'settings-window__page-title', text: '保存先' }),
+    section(
+      'ARCHIVES のフォルダ',
+      'ツールの結果や読み込んだ画像を保存するフォルダです。フルパスで入力するか「参照…」で選びます。' +
+        '変えても今のフォルダの中身は移動しません（元のフォルダに戻すと、また表示されます）。',
+      h('div', { class: 'settings-window__row' }, input, browseButton),
+      h('div', { class: 'settings-window__row settings-window__row--end' }, resetButton, applyButton),
+      current,
+      notice,
+    ),
+  );
+  return { element, refresh };
+}
+
 export function createSettingsWindow(): SettingsWindow {
   const apiPage = createApiPage();
   const displayPage = createDisplayPage();
+  const storagePage = createStoragePage();
   const pages: { id: SettingsPage; label: string; element: HTMLElement }[] = [
     { id: 'api', label: 'API', element: apiPage.element },
-    { id: 'display', label: '表示', element: displayPage.element },
+    { id: 'display', label: '背景色指定', element: displayPage.element },
+    { id: 'storage', label: '保存先', element: storagePage.element },
   ];
 
   const navItems = pages.map(page =>
@@ -190,6 +313,7 @@ export function createSettingsWindow(): SettingsWindow {
     returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     void apiPage.refresh();
     displayPage.refresh();
+    void storagePage.refresh();
 
     overlay.classList.remove('settings-window-overlay--open');
     document.body.appendChild(overlay);

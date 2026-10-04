@@ -69,10 +69,11 @@ describe('reference list', () => {
 
   it('puts the description under the image heading', () => {
     expect(imageHeading(1, { zoneTitle: OBJECT, isImportant: true, description: '主人公の線画。形を保つこと。' })).toBe(
-      '# Image 1\nこの画像を高精度反映オブジェクト画像とする。\nこれはユーザにより重要画像に設定されている。\n主人公の線画。形を保つこと。\n\n',
+      '# 画像1\nこの画像は高精度反映オブジェクトの参照画像。この画像の物体・要素の形とデザインを正確に反映すること。\n' +
+        'この画像は重要。ほかの参照画像より優先して反映すること。\n主人公の線画。形を保つこと。\n\n',
     );
     expect(imageHeading(2, { zoneTitle: STYLE, description: '  ' })).toBe(
-      '# Image 2\nこの画像をスタイル参照画像とする。\n\n',
+      '# 画像2\nこの画像はスタイル参照の参照画像。この画像の画風・色使い・タッチを参考にすること（描かれている内容は写さない）。\n\n',
     );
   });
 

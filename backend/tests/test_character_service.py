@@ -290,3 +290,57 @@ def test_missing_icon_file_means_no_icon(characters_dir: Path) -> None:
     a = create_c("a", "", "", [], [], "upload", make_png(256, 256)).character
     (characters_dir / a["id"] / a["icon"]).unlink()
     assert svc.list_characters().characters[0]["icon"] is None
+
+
+def test_each_image_has_its_own_text(characters_dir: Path) -> None:
+    a = create_c(
+        "花子", "", "黒髪", [{"upload": 0, "text": "正面"}, {"upload": 1, "text": ""}], [upload(), upload()]
+    ).character
+    first, second = a["images"]
+    assert a["image_texts"] == {first: "正面"}  # empty texts are not stored
+
+    # Reordered, one text changed, one added; a removed image takes its text with it.
+    b = update_c(
+        a["id"],
+        "花子",
+        "",
+        "黒髪",
+        [{"file": second, "text": "横顔"}, {"upload": 0, "text": "後ろ"}],
+        [upload()],
+    ).character
+    assert b["images"][0] == second
+    assert b["image_texts"] == {second: "横顔", b["images"][1]: "後ろ"}
+    assert read(characters_dir / "characters.json")["characters"][0]["image_texts"] == b["image_texts"]
+
+    with pytest.raises(BadRequestError, match="画像の本文"):
+        update_c(a["id"], "花子", "", "", [{"file": second, "text": 1}], [])
+
+
+def test_image_texts_follow_duplicates_and_outside_edits(characters_dir: Path) -> None:
+    a = create_c("花子", "", "", [{"upload": 0, "text": "正面"}], [upload()]).character
+    copy = svc.duplicate_character(a["id"]).character
+    assert copy["image_texts"] == {copy["images"][0]: "正面"}
+
+    # Texts of images that are not in the list, and texts that are not strings, are dropped on reading.
+    path = characters_dir / "characters.json"
+    data = read(path)
+    data["characters"][0]["image_texts"] = {a["images"][0]: "正面", "gone.png": "x", "other": 3}
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert svc.list_characters().characters[0]["image_texts"] == {a["images"][0]: "正面"}
+
+    # An old file without image_texts has none.
+    del data["characters"][0]["image_texts"]
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert svc.list_characters().characters[0]["image_texts"] == {}
+
+
+def test_image_texts_in_export_and_import(characters_dir: Path) -> None:
+    create_c("花子", "", "", [{"upload": 0, "text": "正面"}, {"upload": 1}], [upload(), upload()])
+    _name, data = svc.export_zip()
+    for character in svc.list_characters().characters:
+        svc.delete_character(character["id"])
+
+    svc.import_zip(data, "skip")
+
+    [imported] = svc.list_characters().characters
+    assert imported["image_texts"] == {imported["images"][0]: "正面"}

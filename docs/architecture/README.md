@@ -17,15 +17,16 @@
 
 | パス | 内容 | git |
 |---|---|---|
-| `archives/` | ユーザーの作業データ（アーカイブ = フォルダ）。`.trash/` はゴミ箱（削除したアーカイブと `.items/` に削除したファイル。バックエンド起動時に空にする） | 除外（**消さないこと**） |
+| `archives/` | ユーザーの作業データ（アーカイブ = フォルダ。設定ウィンドウの「保存先」で別のフォルダに変えられる）。`.trash/` はゴミ箱（削除したアーカイブと `.items/` に削除したファイル。バックエンド起動時に空にする） | 除外（**消さないこと**） |
 | `settings/default_settings.json` | 各ツールの設定の初期値（フラットな文字列マップ。アプリは書かない） | 管理対象 |
 | `settings/user_settings.json` | ユーザーが変えた設定値（初期値の上に重ねる。壊れていたら `user_settings.broken-*.json` に退避） | 除外（**消さないこと**） |
 | `assets/prompts/prompts.json` | ユーザーが登録したプロンプト（全ツール共通。壊れていたら `prompts.broken-*.json` に退避） | 除外（**消さないこと**） |
 | `assets/characters/` | ユーザーが登録したキャラクター（`characters.json` ＋ キャラクターごとの画像フォルダ `<id>/`。全ツール共通。壊れていたら `characters.broken-*.json` に退避） | 除外（**消さないこと**） |
+| `data/usage.db` | アプリが自分で付ける記録の置き場 `data/` の、Cost Monitor の Gemini の利用記録（SQLite） | 除外（**消さないこと**） |
 | `.env` | `GEMINI_API_KEY` | 除外（秘密情報） |
 | `models/` | rembg モデル（isnet-anime.onnx）、キャラクターのアイコン用のアニメ顔検出モデル（anime_face_detect_v1.4_s.onnx。初回使用時に自動でダウンロード） | 除外 |
 
-バックエンドの各パスは `CONFEITO_ARCHIVES_DIR` / `CONFEITO_SETTINGS_DIR` / `CONFEITO_ASSETS_DIR` / `CONFEITO_ENV_FILE` で差し替え可能（テストと E2E が一時ディレクトリを使うため）。
+バックエンドの各パスは `CONFEITO_ARCHIVES_DIR` / `CONFEITO_SETTINGS_DIR` / `CONFEITO_ASSETS_DIR` / `CONFEITO_DATA_DIR` / `CONFEITO_ENV_FILE` で差し替え可能（テストと E2E が一時ディレクトリを使うため）。
 
 ## 技術選定理由
 - **Vite 5**: 高速な開発体験とビルドのため。

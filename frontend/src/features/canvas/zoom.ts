@@ -187,7 +187,6 @@ export function createZoomController(
     button(icon('fit_screen', 16), 'Fit to Screen', fitToScreen),
     button(icon('width', 16), 'Fit Width', fitWidth),
     button(icon('height', 16), 'Fit Height', fitHeight),
-    button(icon('home', 16), 'Zoom 100%', resetTo100),
   );
 
   return { bar, apply, resetTo100, fitToScreen, zoomBy, syncScroll, relayout };

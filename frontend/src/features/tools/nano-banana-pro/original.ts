@@ -91,15 +91,21 @@ export function restoreCrop(rect: Rect, width: number, height: number): Rect {
 
 const PADDING_SIDES: Record<Exclude<Padding, 'none'>, string> = { vertical: '上下', horizontal: '左右' };
 
-/** Prompt heading of the original, sent as image `index` (after the reference images). */
-export function originalHeading(index: number, padding: Padding): string {
+/**
+ * Prompt heading of the original, sent as image `index` (画像1, before the reference images). With reference
+ * images it says how they relate to the original.
+ */
+export function originalHeading(index: number, padding: Padding, hasReferences = false): string {
   const pad =
     padding === 'none'
       ? ''
       : `画像の${PADDING_SIDES[padding]}にある白い余白は縦横比を合わせるための詰め物なので、何も描かず白のままにすること。\n`;
+  const references = hasReferences
+    ? `画像${index + 1} 以降の参照画像は書き直しの参考として使い、構図は原画に従うこと。\n`
+    : '';
   return (
-    `# Image ${index}（原画）\n` +
+    `# 画像${index}（原画）\n` +
     'この画像を原画とする。出力はこの原画を書き直した画像にすること。構図・輪郭・各要素の位置と大きさは原画と一致させること。\n' +
-    `${pad}\n`
+    `${pad}${references}\n`
   );
 }

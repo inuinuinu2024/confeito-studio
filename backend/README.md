@@ -31,8 +31,9 @@ uv run ruff format --check .  # 整形は uv run ruff format .
 |---|---|---|
 | `GEMINI_API_KEY` | （`.env`） | Gemini API キー。設定画面から `.env` に保存できる |
 | `CONFEITO_ENV_FILE` | `<repo>/.env` | 起動時に読み込む .env |
-| `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブ保存先 |
+| `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブの既定の保存先（設定ウィンドウの「保存先」で選んだフォルダがあればそちら） |
 | `CONFEITO_SETTINGS_DIR` | `<repo>/settings` | ツール設定（初期設定 `default_settings.json`、ユーザー設定 `user_settings.json`） |
 | `CONFEITO_ASSETS_DIR` | `<repo>/assets` | ユーザーの素材。登録したプロンプト（`prompts/prompts.json`）、登録したキャラクター（`characters/`） |
+| `CONFEITO_DATA_DIR` | `<repo>/data` | アプリが自分で付ける記録。Cost Monitor の Gemini の利用記録（`usage.db`、SQLite） |
 | `CONFEITO_MODELS_DIR` | `<repo>/models` | rembg のモデルと、アニメ顔検出のモデル（初回使用時に自動でダウンロード）の置き場（`.env` に書く必要はない） |
 | `U2NET_HOME` | （未設定） | 設定した場合はこちらが優先（rembg 本来の変数。`.env` の相対パスは .env の場所基準） |

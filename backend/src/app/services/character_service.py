@@ -5,6 +5,7 @@ Kept in ``assets/characters/`` (not in git)::
     characters.json   {"categories": ["主要キャラ"],
                        "characters": [{"id": "<hex>", "name": "花子", "category": "主要キャラ",
                                        "text": "...", "images": ["<hex>.png", ...],
+                                       "image_texts": {"<hex>.png": "..."},
                                        "icon": "icon-<hex>.png" | null}, ...]}
     <character id>/   the character's images, named "<hex><ext>" and ordered by ``images``, and its icon
                       (a 256x256 PNG shown in the lists; never one of the images, so tools do not send it)
@@ -12,6 +13,7 @@ Kept in ``assets/characters/`` (not in git)::
 The categories and the order work like the registered prompts (categorized_store.py). The file can be
 edited outside the app, so every call reads it again (``_load``): entries without a usable id / name are
 skipped and image names that are invalid or have no file are dropped (both disappear on the next write).
+``image_texts`` holds the prompt text of each image (only non-empty texts of images in ``images``).
 Files and folders the JSON does not mention are left alone. ``characters.json`` is written atomically;
 new image files are written before it and removed image files deleted after it.
 
@@ -118,6 +120,13 @@ def _valid_icon_name(value: Any) -> bool:
     return isinstance(value, str) and bool(_ICON_NAME_RE.match(value))
 
 
+def _image_texts(raw: Any, images: list[str]) -> dict[str, str]:
+    """The non-empty texts of ``images`` in ``raw`` (``{image name: text}``), in image order."""
+    if not isinstance(raw, dict):
+        return {}
+    return {name: raw[name] for name in images if isinstance(raw.get(name), str) and raw[name] != ""}
+
+
 def image_extension(data: bytes) -> str | None:
     """The extension for PNG / JPEG / WebP data (by content), or None for anything else."""
     try:
@@ -160,20 +169,22 @@ def _load() -> Store:
             if not isinstance(item, dict) or not _valid_id(item.get("id")) or not isinstance(item.get("name"), str):
                 continue
             folder = _folder(item["id"])
-            images = item.get("images")
+            raw_images = item.get("images")
             text = item.get("text")
             icon = item.get("icon")
+            images = [
+                name
+                for name in dict.fromkeys(raw_images if isinstance(raw_images, list) else [])
+                if _valid_image_name(name) and (folder / name).is_file()
+            ]
             store.items.append(
                 {
                     "id": item["id"],
                     "name": item["name"],
                     "category": stored_category(item.get("category")),
                     "text": text if isinstance(text, str) else "",
-                    "images": [
-                        name
-                        for name in dict.fromkeys(images if isinstance(images, list) else [])
-                        if _valid_image_name(name) and (folder / name).is_file()
-                    ],
+                    "images": images,
+                    "image_texts": _image_texts(item.get("image_texts"), images),
                     "icon": icon if _valid_icon_name(icon) and (folder / icon).is_file() else None,
                 }
             )
@@ -292,15 +303,22 @@ def _upload_extensions(uploads: list[Upload]) -> list[str]:
 
 def _resolve_images(
     character_id: str, refs: list[Any], current: list[str], uploads: list[Upload], extensions: list[str]
-) -> tuple[list[str], list[str]]:
-    """Writes the uploads ``refs`` use and returns (the images in order, the new files written).
+) -> tuple[list[str], dict[str, str], list[str]]:
+    """Writes the uploads ``refs`` use and returns (the images in order, their texts, the new files written).
 
-    A ``{"file": name}`` ref must be one of the character's ``current`` images.
+    A ``{"file": name}`` ref must be one of the character's ``current`` images; ``{"upload": index}`` is a new one.
+    Either may have the image's prompt ``text``.
     """
     images: list[str] = []
+    texts: dict[str, str] = {}
     written: list[str] = []
     try:
         for ref in refs:
+            text = ref.get("text", "") if isinstance(ref, dict) else ""
+            if not isinstance(text, str):
+                raise BadRequestError(
+                    "画像の本文が正しくありません。", raw_response=json.dumps(ref, ensure_ascii=False)
+                )
             if isinstance(ref, dict) and isinstance(ref.get("file"), str):
                 if ref["file"] not in current:
                     raise NotFoundError(f"画像「{ref['file']}」が見つかりません（削除された可能性があります）。")
@@ -314,10 +332,13 @@ def _resolve_images(
                 raise BadRequestError(
                     "画像の指定が正しくありません。", raw_response=json.dumps(ref, ensure_ascii=False)
                 )
+            if text:
+                texts[images[-1]] = text
     except AppError:
         _remove_images(character_id, written)
         raise
-    return list(dict.fromkeys(images)), written
+    images = list(dict.fromkeys(images))
+    return images, _image_texts(texts, images), written
 
 
 def list_characters() -> Store:
@@ -332,7 +353,7 @@ def create_character(fields: Fields, uploads: list[Upload], icon: bytes | None =
     store = _load()
     store.check_unique(name)
     character_id = new_id()
-    images, _written = _resolve_images(character_id, fields.images, [], uploads, extensions)
+    images, image_texts, _written = _resolve_images(character_id, fields.images, [], uploads, extensions)
     icon_name = _write_icon(character_id, png) if png else None
     character = {
         "id": character_id,
@@ -340,6 +361,7 @@ def create_character(fields: Fields, uploads: list[Upload], icon: bytes | None =
         "category": category,
         "text": text,
         "images": images,
+        "image_texts": image_texts,
         "icon": icon_name,
     }
     store.items.append(character)
@@ -363,7 +385,7 @@ def update_character(
     store.check_unique(name, character_id)
     current = store.items[i]["images"]
     current_icon = store.items[i]["icon"]
-    images, written = _resolve_images(character_id, fields.images, current, uploads, extensions)
+    images, image_texts, written = _resolve_images(character_id, fields.images, current, uploads, extensions)
     icon_name = current_icon if fields.icon == "keep" else None
     if png:
         icon_name = _write_icon(character_id, png)
@@ -374,6 +396,7 @@ def update_character(
         "category": category,
         "text": text,
         "images": images,
+        "image_texts": image_texts,
         "icon": icon_name,
     }
     store.replace(i, character)
@@ -431,6 +454,11 @@ def duplicate_character(character_id: str) -> CharacterResult:
         "id": copy_id,
         "name": store.free_name(source["name"], " のコピー"),
         "images": images,
+        "image_texts": {
+            copy: source["image_texts"][name]
+            for name, copy in zip(source["images"], images, strict=True)
+            if name in source["image_texts"]
+        },
         "icon": icon_name,
     }
     store.items.insert(i + 1, copy)
@@ -492,7 +520,7 @@ def export_zip() -> tuple[str, bytes]:
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             data = {
                 "format": EXPORT_FORMAT,
-                "version": 1,
+                "version": 2,  # 2: image_texts
                 "categories": store.categories,
                 "characters": store.characters,
             }
@@ -511,8 +539,8 @@ class _ImportEntry:
     name: str
     category: str
     text: str
-    #: Image data read from the zip, with its extension.
-    images: list[tuple[bytes, str]]
+    #: Image data read from the zip, with its extension and its prompt text.
+    images: list[tuple[bytes, str, str]]
     #: The icon as a 256x256 PNG.
     icon: bytes | None
     skipped_images: int
@@ -567,7 +595,8 @@ def _import_entry(store: Store, zf: zipfile.ZipFile, item: Any) -> _ImportEntry 
         except KeyError:
             return None
 
-    images: list[tuple[bytes, str]] = []
+    raw_texts = item.get("image_texts") if isinstance(item.get("image_texts"), dict) else {}
+    images: list[tuple[bytes, str, str]] = []
     skipped = 0
     for ref in refs:
         data = read(ref, _valid_image_name(ref))
@@ -575,7 +604,8 @@ def _import_entry(store: Store, zf: zipfile.ZipFile, item: Any) -> _ImportEntry 
         if data is None or extension is None:
             skipped += 1
         else:
-            images.append((data, extension))
+            image_text = raw_texts.get(ref) if isinstance(ref, str) else None
+            images.append((data, extension, image_text if isinstance(image_text, str) else ""))
     icon = None
     if item.get("icon") is not None:
         data = read(item["icon"], _valid_icon_name(item["icon"]))
@@ -612,12 +642,13 @@ def import_zip(data: bytes, on_conflict: OnConflict) -> ImportResult:
     written: list[tuple[str, list[str]]] = []
     removed: list[tuple[str, list[str]]] = []
 
-    def write_all(character_id: str, entry: _ImportEntry) -> tuple[list[str], str | None]:
-        """Writes the images and the icon; returns their names."""
-        names = [_write_image(character_id, image, extension) for image, extension in entry.images]
+    def write_all(character_id: str, entry: _ImportEntry) -> tuple[list[str], dict[str, str], str | None]:
+        """Writes the images and the icon; returns their names and the images' texts."""
+        names = [_write_image(character_id, image, extension) for image, extension, _text in entry.images]
+        texts = {name: text for name, (_image, _extension, text) in zip(names, entry.images, strict=True) if text}
         icon = _write_icon(character_id, entry.icon) if entry.icon else None
         written.append((character_id, [*names, *([icon] if icon else [])]))
-        return names, icon
+        return names, texts, icon
 
     try:
         with zf:
@@ -634,16 +665,24 @@ def import_zip(data: bytes, on_conflict: OnConflict) -> ImportResult:
                 if taken and on_conflict == "overwrite":
                     i = store.index_of_name(entry.name)
                     old = store.items[i]
-                    images, icon = write_all(old["id"], entry)
+                    images, image_texts, icon = write_all(old["id"], entry)
                     removed.append((old["id"], [*old["images"], *([old["icon"]] if old["icon"] else [])]))
                     store.replace(
-                        i, {**old, "category": entry.category, "text": entry.text, "images": images, "icon": icon}
+                        i,
+                        {
+                            **old,
+                            "category": entry.category,
+                            "text": entry.text,
+                            "images": images,
+                            "image_texts": image_texts,
+                            "icon": icon,
+                        },
                     )
                     result.overwritten += 1
                 else:
                     character_id = new_id()
                     name = store.free_name(entry.name) if taken else entry.name
-                    images, icon = write_all(character_id, entry)
+                    images, image_texts, icon = write_all(character_id, entry)
                     store.items.append(
                         {
                             "id": character_id,
@@ -651,6 +690,7 @@ def import_zip(data: bytes, on_conflict: OnConflict) -> ImportResult:
                             "category": entry.category,
                             "text": entry.text,
                             "images": images,
+                            "image_texts": image_texts,
                             "icon": icon,
                         }
                     )

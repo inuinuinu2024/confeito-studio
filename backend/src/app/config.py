@@ -5,11 +5,14 @@ derive paths from ``__file__``. Each value can be overridden with a ``CONFEITO_*
 environment variable (the tests and the E2E harness point them at temp dirs):
 
     CONFEITO_ENV_FILE      .env loaded into os.environ at startup (default: <repo>/.env)
-    CONFEITO_ARCHIVES_DIR  archive storage (default: <repo>/archives)
+    CONFEITO_ARCHIVES_DIR  the default archive storage (default: <repo>/archives). The user can set another
+                           folder in the settings window (保存先; services/archives_location.py), which wins
     CONFEITO_SETTINGS_DIR  tool settings: default_settings.json (initial values, in git) and
                            user_settings.json (the user's values, not in git) (default: <repo>/settings)
     CONFEITO_ASSETS_DIR    the user's assets, not in git: prompts/prompts.json (registered prompts) and
                            characters/ (registered characters and their images) (default: <repo>/assets)
+    CONFEITO_DATA_DIR      records the app keeps by itself, not in git: usage.db (Gemini usage of the
+                           Cost Monitor, SQLite) (default: <repo>/data)
     CONFEITO_MODELS_DIR    rembg model and the anime face detector (downloaded on first use) (default: <repo>/models)
     CONFEITO_PROJECT_DIR   where 画像読み込み's file dialog opens when no folder is set (default: <repo>)
 
@@ -21,6 +24,7 @@ already set, except ``GEMINI_API_KEY`` (read from the file by services/secret_st
 import os
 from pathlib import Path
 
+from pydantic import Field, PrivateAttr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/src/app/config.py -> repository root
@@ -31,11 +35,22 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CONFEITO_")
 
     env_file: Path = PROJECT_ROOT / ".env"
-    archives_dir: Path = PROJECT_ROOT / "archives"
+    default_archives_dir: Path = Field(PROJECT_ROOT / "archives", validation_alias="CONFEITO_ARCHIVES_DIR")
     settings_dir: Path = PROJECT_ROOT / "settings"
     assets_dir: Path = PROJECT_ROOT / "assets"
+    data_dir: Path = PROJECT_ROOT / "data"
     models_dir: Path = PROJECT_ROOT / "models"
     project_dir: Path = PROJECT_ROOT
+    _archives_override: Path | None = PrivateAttr(default=None)
+
+    @property
+    def archives_dir(self) -> Path:
+        """The ARCHIVES folder in use: the one the user set (保存先), else ``default_archives_dir``."""
+        return self._archives_override or self.default_archives_dir
+
+    def use_archives_dir(self, folder: Path | None) -> None:
+        """Switches the ARCHIVES folder (None = back to the default). Only services/archives_location.py calls it."""
+        self._archives_override = folder
 
     @property
     def trash_dir(self) -> Path:
@@ -64,6 +79,11 @@ class Settings(BaseSettings):
     @property
     def characters_file(self) -> Path:
         return self.characters_dir / "characters.json"
+
+    @property
+    def usage_db_file(self) -> Path:
+        """Gemini calls made from this app and their costs, SQLite (Cost Monitor, services/usage_store.py, not in git)."""
+        return self.data_dir / "usage.db"
 
     @property
     def face_model_file(self) -> Path:

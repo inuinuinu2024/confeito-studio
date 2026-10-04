@@ -13,10 +13,10 @@ import {
 const store: CharacterStore = {
   categories: ['主要', 'モブ'],
   characters: [
-    { id: 'a', name: '花子', category: '主要', text: '黒髪ボブ', images: ['1.png'], icon: null },
-    { id: 'b', name: '太郎', category: '主要', text: '', images: [], icon: null },
-    { id: 'c', name: '店員', category: 'モブ', text: 'エプロン', images: [], icon: null },
-    { id: 'd', name: '猫', category: '', text: '', images: ['2.png', '3.jpg'], icon: null },
+    { id: 'a', name: '花子', category: '主要', text: '黒髪ボブ', images: ['1.png'], image_texts: {}, icon: null },
+    { id: 'b', name: '太郎', category: '主要', text: '', images: [], image_texts: {}, icon: null },
+    { id: 'c', name: '店員', category: 'モブ', text: 'エプロン', images: [], image_texts: {}, icon: null },
+    { id: 'd', name: '猫', category: '', text: '', images: ['2.png', '3.jpg'], image_texts: {}, icon: null },
   ],
 };
 
@@ -44,21 +44,44 @@ describe('nameCategoryError', () => {
 describe('sameImages', () => {
   it('compares saved files by name and new files by identity', () => {
     const file = new File(['x'], 'x.png', { type: 'image/png' });
-    const a: EditorImage[] = [{ saved: '1.png' }, { file }];
-    expect(sameImages(a, [{ saved: '1.png' }, { file }])).toBe(true);
-    expect(sameImages(a, [{ file }, { saved: '1.png' }])).toBe(false);
-    expect(sameImages(a, [{ saved: '1.png' }, { file: new File(['x'], 'x.png') }])).toBe(false);
-    expect(sameImages(a, [{ saved: '1.png' }])).toBe(false);
+    const a: EditorImage[] = [
+      { saved: '1.png', text: '' },
+      { file, text: '' },
+    ];
+    expect(
+      sameImages(a, [
+        { saved: '1.png', text: '' },
+        { file, text: '' },
+      ]),
+    ).toBe(true);
+    expect(
+      sameImages(a, [
+        { file, text: '' },
+        { saved: '1.png', text: '' },
+      ]),
+    ).toBe(false);
+    expect(
+      sameImages(a, [
+        { saved: '1.png', text: '' },
+        { file: new File(['x'], 'x.png'), text: '' },
+      ]),
+    ).toBe(false);
+    expect(sameImages(a, [{ saved: '1.png', text: '' }])).toBe(false);
+  });
+
+  it('compares the image texts too', () => {
+    expect(sameImages([{ saved: 'a.png', text: '正面' }], [{ saved: 'a.png', text: '' }])).toBe(false);
   });
 });
 
 describe('referenceDescriptions', () => {
-  it('labels every image and puts the text on the first one', () => {
-    expect(referenceDescriptions('花子', ' 黒髪 \n', 2)).toEqual([
-      'キャラクター「花子」\n黒髪',
+  it('labels every image, puts the text on the first one and each image text on its image', () => {
+    expect(referenceDescriptions('花子', ' 黒髪 \n', ['正面', '', ' 横顔 '])).toEqual([
+      'キャラクター「花子」\n黒髪\n正面',
       'キャラクター「花子」',
+      'キャラクター「花子」\n横顔',
     ]);
-    expect(referenceDescriptions('猫', '  ', 1)).toEqual(['キャラクター「猫」']);
+    expect(referenceDescriptions('猫', '  ', [''])).toEqual(['キャラクター「猫」']);
   });
 });
 

@@ -1,11 +1,21 @@
 # タスク管理 (TODO)
 
 ## 判断待ち（仕様と実装のずれ・既知の制約）
-- **ズームバーの Fit to Screen とホーム（100%）が同じ動きになっている**: 100% を「表示領域に収まる大きさ」と決めたため、
-  Fit to Screen（全体が見える最大倍率）も常に 100% になる（以前は大きい画像で 100% 未満に縮小していたのを仕様どおりに直した）。
-  どちらかを外すか、別の役割（例: 実寸 = 画像 1px を画面 1px で表示）に変えるかを決める（docs/specs/canvas.md「ズームとスクロール」）。
+- **Cost Monitor の Google 側の記録（次の段階）**: Cloud Billing の BigQuery エクスポートから API キー全体（プロジェクト単位）の利用額を読む連携。
+  前払い（Prepay）の利用分がエクスポートに載るかを実物で確かめてから作る。将来の Web 版（BYOK）では利用者ごとに GCP の許可が要る点も検討する（docs/specs/cost-monitor.md）。
 
 ## 完了タスク
+- [x] **Nano Banana画像生成の原画を Image 1 に**: 原画を参照画像より前に送り、原画がある間は参照画像カード・`Inputs/` の番号を Image 2 から。
+  送信テキストを見直し: 種類ごとの指示文、★ は「ほかの参照画像より優先して反映」、原画と参照画像の関係、見出し `# 指示`（docs/specs/tools/nano-banana-pro.md, gemini-image.md）。
+- [x] **Character Manager の画像ごとの本文と拡大表示**: 画像ごとに本文（`image_texts`）を持ち、ツールでは各画像の説明に入る。サムネイルのクリックで画像を大きく見るだけのウィンドウ（docs/specs/character-manager.md）。
+- [x] **ARCHIVES の保存先を設定ウィンドウで変更**: 「保存先」ページでフルパス / 参照…・既定に戻す。中身は移さない、ない時は確認して作る（docs/specs/archives.md「保存先」）。
+  設定の「表示」ページは「背景色指定」に改名。Cost Monitor のアイコンを browse_activity に。
+- [x] **ズームバーのホーム（100%）を削除**: Fit to Screen と同じ動き（どちらも 100%）だったため、ホームのボタンを外した（docs/specs/canvas.md「ズームとスクロール」）。
+- [x] **Cost Monitor（第 1 段階）**: 左端の列に仕切り線と Cost Monitor（browse_activity）を置き、表示モードに。このアプリからの Gemini 呼び出し（HTTP 200）を
+  `data/usage.db`（SQLite）に記録し（トークン数と記録時点の単価で計算した USD）、集計はバックエンドの SQL で行い、
+  円を優先して表示（USD を添える）。期間（7日 / 30日 / 90日 / 今月 / 全期間）を切り替えて、日ごとの利用料の推移（積み上げ棒）・
+  ツール別の合計と 1 回あたりの平均（横棒）・モデル別を表示し、棒をクリックした日の内訳（ツール別・モデル別・実行一覧）を出す。
+  円は画面で入力したレートで換算。残高は API で読めないため出さず、Google 側は「未接続」と AI Studio へのリンク（docs/specs/cost-monitor.md）。
 - [x] **キャラクターのアイコン**: キャラクターの画像からアニメ顔を検出し、256×256 の PNG アイコンを作って一覧の名前の横に表示（アイコンがなければ人のアイコン）。
   顔検出は YOLOv5s Anime（PyTorch・GPL-3.0）ではなく deepghs/anime_face_detection の YOLOv8s ONNX（MIT）を採用し、rembg と同じ onnxruntime で CPU 実行
   （1 枚 0.2 秒程度。モデルは初回使用時に models/ へ自動ダウンロード）。「アイコンの切り取り」ウィンドウで元画像の選択・顔の選択・枠の移動と拡大縮小ができ、

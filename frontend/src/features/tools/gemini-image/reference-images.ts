@@ -1,7 +1,7 @@
 /**
  * Reference image list of the Gemini tools (docs/specs/tools/gemini-image.md 「参照画像」).
  *
- * One add area (click to choose files, or drag & drop) and one card per image, in "# Image N"
+ * One add area (click to choose files, or drag & drop) and one card per image, in "# 画像N"
  * order. Each card sets the image's type (Object / Character / Style — any type the model has),
  * the ★ "important" flag and a description, and is reordered by dragging its handle.
  * Only the total number of images is limited; the per-type numbers are recommendations.
@@ -36,7 +36,7 @@ const TYPE_HELP = [
   'Object: 線画、衣装のデザイン画、特定のアイテム(剣や帽子)など、形やディテールを変えたくない画像。',
   'Character: キャラクターの三面図、顔のアップなど、人物のアイデンティティを固定したい画像。',
   'Style: 参考にするイラストレーターの絵、完成形の塗り方の参考画像など、画風を適用したい画像。',
-  '説明は Gemini に送る文章で、その画像の見出し（# Image N）の下に入ります。',
+  '説明は Gemini に送る文章で、その画像の見出し（# 画像N）の下に入ります。',
   '右の人のアイコンで、Character Manager に登録したキャラクターの画像を追加できます。',
 ].join('\n');
 
@@ -45,6 +45,8 @@ const EXTENSIONS: Record<string, string> = { 'image/png': '.png', 'image/jpeg': 
 export interface ReferenceListOptions {
   /** Appends a registered character's text to the prompt (a character without images). */
   appendPrompt?: (text: string) => void;
+  /** Number of the first card ("画像N"): 2 when another image (the 原画) is sent as 画像1. */
+  firstNumber?: number;
 }
 
 const objectUrls = new WeakMap<File, string>();
@@ -113,7 +115,11 @@ export function createReferenceList(
       showError(`キャラクター「${name}」の画像を読み込めませんでした`, err);
       return;
     }
-    const descriptions = referenceDescriptions(name, text, blobs.length);
+    const descriptions = referenceDescriptions(
+      name,
+      text,
+      character.images.slice(0, blobs.length).map(file => character.image_texts[file] ?? ''),
+    );
     blobs.forEach((blob, i) => {
       const file = new File([blob], `${name}_${i + 1}${EXTENSIONS[blob.type] ?? '.png'}`, { type: blob.type });
       images.push({ file, zoneTitle: zone.title, description: descriptions[i] });
@@ -182,7 +188,7 @@ export function createReferenceList(
           'div',
           { class: 'ref-card__head' },
           handle,
-          h('span', { class: 'ref-card__name', text: `Image ${index + 1}` }),
+          h('span', { class: 'ref-card__name', text: `画像${(opts.firstNumber ?? 1) + index}` }),
           star,
           remove,
         ),

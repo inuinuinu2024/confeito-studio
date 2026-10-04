@@ -196,6 +196,19 @@
   cursor: default;
 }
 
+.settings-window__row--end {
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.settings-window__status--warning {
+  color: var(--color-warning);
+}
+
+.settings-window__status--warning:empty {
+  display: none;
+}
+
 .settings-window__row .cs-input {
   flex: 1 1 auto;
   min-width: 0;

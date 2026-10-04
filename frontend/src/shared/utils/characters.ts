@@ -12,15 +12,19 @@ export function isCharacterImage(file: File): boolean {
   return CHARACTER_IMAGE_TYPES.includes(file.type);
 }
 
-/** An image of the character in the Character Manager's editor: a saved file of the character, or a new file. */
-export type EditorImage = { saved: string } | { file: File };
+/**
+ * An image of the character in the Character Manager's editor: a saved file of the character, or a new file;
+ * with the image's prompt text.
+ */
+export type EditorImage = ({ saved: string } | { file: File }) & { text: string };
 
-/** Same images in the same order (new files compared by identity). */
+/** Same images with the same texts in the same order (new files compared by identity). */
 export function sameImages(a: readonly EditorImage[], b: readonly EditorImage[]): boolean {
   return (
     a.length === b.length &&
     a.every((image, i) => {
       const other = b[i];
+      if (image.text !== other.text) return false;
       if ('saved' in image) return 'saved' in other && other.saved === image.saved;
       return 'file' in other && other.file === image.file;
     })
@@ -47,12 +51,15 @@ export function groupCharacters(
 }
 
 /**
- * Descriptions of a character's reference images in a tool: every image is labelled with the name,
- * the first one also carries the text (docs/specs/tools/gemini-image.md 「登録したキャラクター」).
+ * Descriptions of a character's reference images in a tool, one per text of `imageTexts` (the images in order):
+ * every image is labelled with the name, the first one also carries the character's text, and each image
+ * its own text (docs/specs/tools/gemini-image.md 「登録したキャラクター」). Empty texts are left out.
  */
-export function referenceDescriptions(name: string, text: string, count: number): string[] {
+export function referenceDescriptions(name: string, text: string, imageTexts: readonly string[]): string[] {
   const label = `キャラクター「${name}」`;
-  return Array.from({ length: count }, (_, i) => (i === 0 && text.trim() ? `${label}\n${text.trim()}` : label));
+  return imageTexts.map((imageText, i) =>
+    [label, i === 0 ? text.trim() : '', imageText.trim()].filter(Boolean).join('\n'),
+  );
 }
 
 /** The prompt with the text appended after a blank line (just the text when the prompt is empty). */

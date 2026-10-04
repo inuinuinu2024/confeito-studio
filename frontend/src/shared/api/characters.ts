@@ -13,6 +13,8 @@ export interface SavedCharacter {
   category: string;
   text: string;
   images: string[];
+  /** The prompt text of each image (only images with a text): `{file name: text}`. */
+  image_texts: Record<string, string>;
   /** File name of the icon, or null. */
   icon: string | null;
 }
@@ -24,8 +26,8 @@ export interface CharacterStore {
   characters: SavedCharacter[];
 }
 
-/** One image of a character being saved: a saved file of that character, or a new file to upload. */
-export type CharacterImageInput = { file: string } | { blob: Blob; name: string };
+/** One image of a character being saved: a saved file of that character, or a new file to upload; with its text. */
+export type CharacterImageInput = ({ file: string } | { blob: Blob; name: string }) & { text: string };
 
 export interface CharacterFields {
   name: string;
@@ -75,9 +77,9 @@ function characterForm(fields: CharacterFields): FormData {
   const form = new FormData();
   let uploads = 0;
   const images = fields.images.map(image => {
-    if ('file' in image) return { file: image.file };
+    if ('file' in image) return { file: image.file, text: image.text };
     form.append('files', image.blob, image.name);
-    return { upload: uploads++ };
+    return { upload: uploads++, text: image.text };
   });
   let icon: 'keep' | 'none' | 'upload';
   if (fields.icon instanceof Blob) {

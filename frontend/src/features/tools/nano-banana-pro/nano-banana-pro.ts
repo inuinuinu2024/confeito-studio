@@ -28,6 +28,7 @@ import { button, field, helpIcon, note, select } from '../../../shared/ui/form';
 import { showError, showToast } from '../../../shared/ui/toast';
 import { fileStamp } from '../../../shared/utils/datetime';
 import { imageExtension } from '../../../shared/utils/image';
+import { PROMPT_HEADING, PROMPT_LEAD } from '../gemini-image/constants';
 import { imageHeading, imageInput, inputFiles, startProgress, uploadImage } from '../gemini-image/payload';
 import { promptField } from '../gemini-image/prompt-field';
 import { createReferenceList, type ReferenceImage } from '../gemini-image/reference-images';
@@ -178,7 +179,11 @@ export class NanoBananaProTool implements Tool {
       );
       references.replaceChildren(
         this.originalSection(renderModelDependent),
-        createReferenceList(this.images, [...model.zones], limit, { appendPrompt: prompt.append }),
+        // With a 原画 (sent as 画像1) the reference images are numbered from 画像2.
+        createReferenceList(this.images, [...model.zones], limit, {
+          appendPrompt: prompt.append,
+          firstNumber: this.firstReferenceNumber(),
+        }),
       );
       parameters.replaceChildren(...this.parameterElements(renderModelDependent), previewButton);
     };
@@ -369,21 +374,28 @@ export class NanoBananaProTool implements Tool {
     );
   }
 
+  /** "画像N" of the first reference image: 2 when a 原画 is sent (always as 画像1), else 1. */
+  private firstReferenceNumber(): number {
+    return this.originalPlan(this.model, this.api) ? 2 : 1;
+  }
+
   private async buildRequest(): Promise<GenerationRequest> {
     const model = this.model;
     const api = this.api;
     let text = '';
-    this.images.forEach((image, i) => (text += imageHeading(i + 1, image)));
     const input: GenerationInput[] = [];
-    // Large reference images are scaled down for sending; Inputs/ keeps the files as added.
-    for (const image of this.images) input.push(await imageInput(await uploadImage(image.file)));
-    // The 原画 goes after the reference images, so their "# Image N" numbers stay as on the cards.
+    // The 原画 is 画像1; the reference images follow with the numbers shown on their cards.
     const original = this.originalPlan(model, api);
     if (original) {
       input.push(await imageInput(await buildSentImage(original.image, original.layout)));
-      text += originalHeading(this.images.length + 1, original.layout.padding);
+      text += originalHeading(1, original.layout.padding, this.images.length > 0);
     }
-    text += `# User prompt\n${this.settings.get('prompt', '')}`;
+    const first = this.firstReferenceNumber();
+    this.images.forEach((image, i) => (text += imageHeading(first + i, image)));
+    // Large reference images are scaled down for sending; Inputs/ keeps the files as added.
+    for (const image of this.images) input.push(await imageInput(await uploadImage(image.file)));
+    const lead = input.length > 0 ? `${PROMPT_LEAD}\n` : '';
+    text += `${PROMPT_HEADING}\n${lead}${this.settings.get('prompt', '')}`;
     input.push({ type: 'text', text });
 
     const options = resolveOptions(this.read, model, api);
@@ -421,7 +433,7 @@ export class NanoBananaProTool implements Tool {
       const imagePath = `${stamp}_${this.name}${extension}`;
       const savedPayload = redactImageData(request.payload, '[Image data omitted — see Image files in this folder]');
       const files = [
-        ...inputFiles(this.images, (_image, i) => `Image${i + 1}`),
+        ...inputFiles(this.images, (_image, i) => `Image${this.firstReferenceNumber() + i}`),
         {
           blob: new Blob([JSON.stringify(savedPayload, null, 2)], { type: 'application/json' }),
           path: 'Inputs/payload.json',

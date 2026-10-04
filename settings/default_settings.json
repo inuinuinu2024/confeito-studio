@@ -11,5 +11,7 @@
   "panelSplitter_thinking_level": "HIGH",
   "nanoBananaPro_model": "gemini-3-pro-image",
   "nanoBananaPro_api": "interactions",
-  "imageLoader_initialDir": ""
+  "imageLoader_initialDir": "",
+  "costMonitor_usdJpyRate": "150",
+  "costMonitor_range": "30d"
 }

@@ -17,6 +17,7 @@ from PIL import Image
 from ..errors import BadRequestError, exception_text
 from ..providers import gemini
 from . import panel_geometry as geo
+from . import usage_service
 from .archive_service import save_result
 
 TOOL_NAME = "コマ分割"
@@ -58,6 +59,14 @@ def detect_panels(
             raise PanelServiceError(e.message, raw_response=e.raw_response) from e
 
         response_json = resp.json()
+        usage_service.record_response(
+            tool=TOOL_NAME,
+            model=model,
+            api="generate_content",
+            service_tier=None,
+            status="success" if response_json.get("candidates") else "no_output",
+            response=response_json,
+        )
         if not response_json.get("candidates"):
             raise PanelServiceError("Gemini API から応答が返されませんでした。", raw_response=response_json)
         raw_text = geo.extract_response_text(response_json)

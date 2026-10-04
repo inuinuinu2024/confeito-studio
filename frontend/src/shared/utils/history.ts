@@ -41,6 +41,12 @@ class HistoryManager {
     });
   }
 
+  /** Forgets every entry (the ARCHIVES folder was switched: they belong to the previous one). */
+  clear(): void {
+    this.stack = [];
+    emit('history:changed');
+  }
+
   /** Reverts the latest entry (after the queued deletions / undos). */
   undo(): Promise<void> {
     return this.enqueue(async () => {

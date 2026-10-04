@@ -19,9 +19,13 @@ backend/src/app/
 │   ├── image_service.py     # rembg 背景除去（初回呼び出し時に import）
 │   ├── secret_store.py      # Gemini API キーの保存・読み出し（今は .env。Web 版では利用者ごとの暗号化保存に差し替える）
 │   ├── settings_service.py  # ツール設定(JSON)
+│   ├── archives_location.py # ARCHIVES のフォルダ（既定 / ユーザーが選んだフォルダ。起動時に読み、settings.use_archives_dir で切り替える）
 │   ├── categorized_store.py # カテゴリー付きの一覧の共通処理（並べ替え・カテゴリー名の変更・名前の一意チェック）
 │   ├── prompt_service.py    # 登録したプロンプト（全ツール共通、assets/prompts/prompts.json）
 │   ├── character_service.py # 登録したキャラクターと画像・アイコン（全ツール共通、assets/characters/。zip のエクスポート / インポート）
+│   ├── usage_service.py     # Gemini の利用記録（応答からトークン数を取り出し、額を計算して記録する。Cost Monitor）
+│   ├── usage_store.py       # 利用記録の保存と集計（SQLite data/usage.db。Web 版ではサーバーの DB に差し替える）
+│   ├── pricing.py           # Gemini の単価表（USD / 1M トークン、適用開始日・service tier ごと）と額の計算
 │   ├── face_service.py      # アニメ顔検出（YOLOv8s ONNX。初回使用時に models/ へダウンロード）
 │   ├── file_dialog_service.py # バックエンドの PC のファイル選択ダイアログ（tkinter。画像読み込み）
 │   ├── json_file.py         # settings/ の JSON の読み書き（壊れたファイルの退避・一時ファイル経由の書き込み）
@@ -58,9 +62,10 @@ backend/src/app/
 | 環境変数 | 既定値 | 用途 |
 |---|---|---|
 | `CONFEITO_ENV_FILE` | `<repo>/.env` | 起動時に os.environ へ読み込む（既存の環境変数が優先。`GEMINI_API_KEY` は読み込まず secret_store が毎回ファイルから読む） |
-| `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブ保存先（ゴミ箱 `.trash/` を含む。`.trash/` は起動時に `main.py` の lifespan が `archive_service.empty_trash` で空にする） |
+| `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブの既定の保存先（`settings.default_archives_dir`）。ユーザーが「保存先」で選んだフォルダがあればそちらを使う（`settings.archives_dir` が使用中のフォルダ。`archives_location.py`）。ゴミ箱 `.trash/` はその中にあり、起動時に `main.py` の lifespan が `archive_service.empty_trash` で空にする |
 | `CONFEITO_SETTINGS_DIR` | `<repo>/settings` | `default_settings.json`（初期設定）、`user_settings.json`（ユーザー設定） |
 | `CONFEITO_ASSETS_DIR` | `<repo>/assets` | `prompts/prompts.json`（登録したプロンプト）、`characters/`（登録したキャラクターと画像） |
+| `CONFEITO_DATA_DIR` | `<repo>/data` | アプリが自分で付ける記録。`usage.db`（Cost Monitor の Gemini の利用記録、SQLite） |
 | `GEMINI_API_KEY` | （.env） | Gemini API キー（`services/secret_store.py` だけが読み書きする）。優先順: リクエストの `X-API-Key` ヘッダー → .env → 環境変数。アプリは環境変数を書き換えない |
 | `CONFEITO_PROJECT_DIR` | `<repo>` | 画像読み込みのファイル選択ダイアログを、フォルダの指定がない時に開く場所 |
 | `CONFEITO_MODELS_DIR` | `<repo>/models` | rembg モデルの場所。起動時に `U2NET_HOME` の既定値にする（.env に書く必要はない） |
@@ -88,7 +93,12 @@ backend/src/app/
 | POST | `/nano-banana-pro` | 画像生成・Interactions API（応答は画像そのもの） |
 | POST | `/nano-banana-pro/generate-content` | 画像生成・generateContent API（応答は上と同じ） |
 | POST | `/local-files/check-folder` | `{path}` が絶対パスの既存フォルダか（空欄は可）。違えば 404（画像読み込み） |
+| POST | `/local-files/pick-folder` | `{initial_dir}` でフォルダ選択ダイアログを開く → `{path}`（キャンセルは null）（保存先） |
 | POST | `/local-files/pick-image` | `{initial_dir}`（空欄ならプロジェクトのフォルダ）でファイル選択ダイアログを開く。選んだ画像そのもの（名前は `X-File-Name`、URL エンコード）、キャンセルは 204、ダイアログが開いていれば 400 |
+| GET | `/usage/summary?now_ms&tz_offset_minutes&range` | Cost Monitor の集計 `{periods: {today, month, range}, range, latest, daily, by_tool, by_model, warnings, prices_checked_on}`（`range` = 7d / 30d / 90d / month / all。見ている人の暦日・暦月で区切る） |
+| GET | `/usage/day?date&tz_offset_minutes` | 1 日の内訳 `{day, total, by_tool, by_model, records, warnings}`（`date` = YYYY-MM-DD） |
+| GET | `/usage/records?offset&limit` | 利用記録を新しい順に 1 ページ `{records, total, warnings}`（`limit` ≤ 200）。仕様は [specs/cost-monitor.md](../specs/cost-monitor.md) |
+| GET/POST | `/settings/archives` | ARCHIVES のフォルダの状態 `{path, default_path, is_default, exists, ignored}` / 切り替え `{path, create}`（"" = 既定。ない時は `missing: true` で変えない。指定できないフォルダは 400。中身は移さない） |
 | GET/POST | `/settings/gemini` | API キーの有無 / 保存（secret_store。今は .env。空のキーは 400） |
 | GET/POST | `/settings/tools` | ツール設定の取得（初期設定 + ユーザー設定、`{values, warnings}`）/ ユーザー設定への追加・更新（`{values}` を重ねる） |
 | GET/POST | `/prompts` | 登録したプロンプトの一覧（`{categories, prompts, warnings}`）/ 作成（`{name, category, text}` → `{prompt, warnings}`。同名は 400） |

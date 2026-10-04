@@ -24,7 +24,7 @@
   display: none;
 }
 
-/* Manager modes: the manager's sidebar and main area take the ARCHIVES and canvas cells */
+/* Manager modes (and the Cost Monitor): the manager's sidebar and main area take the ARCHIVES and canvas cells */
 .manga-grid--manager > .layer-panel,
 .manga-grid--manager > .canvas-area {
   display: none;

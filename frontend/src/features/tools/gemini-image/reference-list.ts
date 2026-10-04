@@ -1,6 +1,6 @@
 /**
  * Reference images of the Gemini tools as one ordered list (pure, unit tested).
- * The position in the list is the "# Image N" index of the prompt; each image has its own
+ * The position in the list is the "# 画像N" index of the prompt; each image has its own
  * type (zone: Object / Character / Style), "important" flag and description.
  * Only the total number of images is limited (the sum of the model's per-type numbers); the
  * per-type numbers are recommendations that may be exceeded.

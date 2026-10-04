@@ -45,6 +45,8 @@ class GeminiNoImageError(AppError):
     def __init__(self, data: Any, *, status: str | None = None) -> None:
         message, raw = describe_no_image(data, status=status)
         super().__init__(message, raw_response=raw)
+        self.data = data
+        """The whole response (it is still billed: the Cost Monitor records its usage)."""
 
 
 def resolve_api_key(api_key: str | None = None) -> str | None:

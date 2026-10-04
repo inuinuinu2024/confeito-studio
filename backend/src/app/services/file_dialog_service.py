@@ -1,7 +1,8 @@
-"""File selection dialog of the PC running the backend (画像読み込み; docs/specs/tools/image-loader.md).
+"""File and folder selection dialogs of the PC running the backend (画像読み込み, docs/specs/tools/image-loader.md;
+the ARCHIVES folder in the settings window, docs/specs/archives.md 「保存先」).
 
-The browser's file picker cannot start in an arbitrary folder, so the backend opens the OS
-dialog (tkinter) in the folder set in the tool, or in the project folder when none is set.
+The browser's file picker cannot start in an arbitrary folder nor return a folder's full path, so the backend
+opens the OS dialog (tkinter): in the folder set in the tool, or in the project folder when none is set.
 Only one dialog is open at a time.
 """
 
@@ -49,6 +50,37 @@ def _ask_open_filename(initial_dir: Path) -> str:
         )
     finally:
         root.destroy()
+
+
+def _ask_directory(initial_dir: Path) -> str:
+    """Shows the folder dialog above other windows; "" when cancelled."""
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        return filedialog.askdirectory(parent=root, title="ARCHIVES の保存先を選択", initialdir=str(initial_dir))
+    finally:
+        root.destroy()
+
+
+def pick_folder(initial_dir: str | None) -> str | None:
+    """Lets the user choose a folder; its full path, or None when cancelled.
+
+    The dialog opens in ``initial_dir`` when it is an existing folder, else in the project folder.
+    """
+    text = (initial_dir or "").strip().strip('"').strip()
+    folder = Path(text) if text and Path(text).is_absolute() and Path(text).is_dir() else settings.project_dir
+    if not _dialog_lock.acquire(blocking=False):
+        raise BadRequestError("ファイル選択のダイアログがすでに開いています。先にそちらを閉じてください。")
+    try:
+        with unexpected_errors_as("フォルダ選択のダイアログを開けませんでした。"):
+            selected = _ask_directory(folder)
+    finally:
+        _dialog_lock.release()
+    return str(Path(selected)) if selected else None
 
 
 def pick_image_file(initial_dir: str | None) -> tuple[str, bytes] | None:

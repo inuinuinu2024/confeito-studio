@@ -1,0 +1,660 @@
+/* ── Cost Monitor (CostMonitor.ts): shown only in the cost view mode (.manga-grid--cost, app.ts),
+   in the ARCHIVES and canvas cells. ── */
+.cost-monitor {
+  display: none;
+  grid-column: 2 / 4;
+  grid-row: 2 / 3;
+  overflow: auto;
+  background-color: var(--color-surface);
+  /* Chart series colors (categorical slots 1–3, validated against the card surface) */
+  --cost-series-1: #3987e5;
+  --cost-series-2: #d95926;
+  --cost-series-3: #199e70;
+  --cost-series-none: var(--color-outline);
+}
+
+.manga-grid--cost > .cost-monitor {
+  display: block;
+}
+
+.cost-monitor__inner {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px 24px 32px;
+}
+
+/* While reloading, the previous numbers stay (dimmed) instead of jumping. */
+.cost-monitor--loading .cost-monitor__section,
+.cost-day--loading {
+  opacity: 0.6;
+  transition: opacity 150ms ease;
+}
+
+.cost-monitor__header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.cost-monitor__heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex: 1;
+}
+
+.cost-monitor__title {
+  margin: 0;
+  font-family: var(--font-headline);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+.cost-monitor__subtitle,
+.cost-monitor__muted {
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+}
+
+.cost-monitor__muted {
+  margin: 0;
+}
+
+.cost-monitor__rate {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+}
+
+.cost-monitor__rate-input {
+  width: 80px;
+  padding: 4px 8px;
+  text-align: right;
+}
+
+/* ── Period (one row above everything it scopes) ── */
+.cost-range {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.cost-range__label {
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+}
+
+.cost-range__group {
+  display: inline-flex;
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.cost-range__btn {
+  padding: 4px 14px;
+  border: none;
+  border-right: 1px solid var(--color-outline);
+  background: transparent;
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+}
+
+.cost-range__btn:last-child {
+  border-right: none;
+}
+
+.cost-range__btn:hover {
+  background-color: var(--color-surface-container-high);
+  color: var(--color-on-surface);
+}
+
+.cost-range__btn--active,
+.cost-range__btn--active:hover {
+  background-color: var(--color-secondary-container);
+  color: var(--color-on-surface);
+  font-weight: 600;
+}
+
+.cost-monitor__section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cost-monitor__section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cost-monitor__section-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+.cost-monitor__badge {
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-secondary-container);
+  font-size: 11px;
+  color: var(--color-on-surface);
+}
+
+.cost-monitor__badge--off {
+  background-color: transparent;
+  border: 1px solid var(--color-outline);
+  color: var(--color-on-surface-variant);
+}
+
+/* ── Amounts: yen first (large number), USD after it ── */
+.cost-amount {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-amount__jpy {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  color: var(--color-on-surface);
+}
+
+.cost-amount__approx,
+.cost-amount__unit {
+  font-size: 0.75em;
+  color: var(--color-on-surface-variant);
+}
+
+.cost-amount__usd {
+  font-size: 11px;
+  color: var(--color-on-surface-variant);
+}
+
+.cost-amount--large .cost-amount__yen {
+  font-family: var(--font-headline);
+  font-size: 30px;
+  font-weight: 600;
+}
+
+.cost-amount--large .cost-amount__approx,
+.cost-amount--large .cost-amount__unit {
+  font-size: 14px;
+}
+
+.cost-amount--large .cost-amount__usd {
+  font-size: 12px;
+}
+
+.cost-amount--medium .cost-amount__yen {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.cost-amount--small .cost-amount__yen {
+  font-size: 12px;
+}
+
+.cost-amount--small {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0;
+}
+
+/* ── Stat tiles ── */
+.cost-monitor__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.cost-monitor__tile,
+.cost-monitor__card {
+  padding: 14px 16px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-container-low);
+}
+
+.cost-monitor__tile--latest {
+  border-color: var(--color-outline);
+}
+
+.cost-monitor__tile-label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+}
+
+.cost-monitor__tile-none {
+  font-size: 30px;
+  color: var(--color-on-surface-variant);
+}
+
+.cost-monitor__tile-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-on-surface-variant);
+}
+
+.cost-monitor__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 32px 16px;
+  border: 1px dashed var(--color-outline-variant);
+  border-radius: var(--radius-md);
+  color: var(--color-on-surface);
+  font-size: 13px;
+}
+
+.cost-monitor__empty .material-symbols-outlined {
+  color: var(--color-on-surface-variant);
+}
+
+.cost-monitor__details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cost-monitor__pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  gap: 12px;
+}
+
+.cost-monitor__card-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 10px;
+}
+
+.cost-monitor__card-head .cost-monitor__card-title {
+  margin: 0;
+}
+
+.cost-monitor__card-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+/* ── Horizontal bars per tool (bar-list.ts) ── */
+.cost-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cost-bars__row {
+  display: grid;
+  grid-template-columns: minmax(110px, 160px) 1fr auto;
+  grid-template-areas:
+    'name track cost'
+    'name facts facts';
+  align-items: center;
+  gap: 2px 12px;
+}
+
+.cost-bars__name {
+  grid-area: name;
+  font-size: 12px;
+  color: var(--color-on-surface);
+}
+
+.cost-bars__track {
+  grid-area: track;
+  height: 10px;
+}
+
+.cost-bars__bar {
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+}
+
+.cost-bars__cost {
+  grid-area: cost;
+  text-align: right;
+}
+
+.cost-bars__facts {
+  grid-area: facts;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 11px;
+  color: var(--color-on-surface-variant);
+}
+
+.cost-bars__avg {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.cost-bars__avg .cost-amount--small {
+  flex-direction: row;
+  gap: 6px;
+}
+
+.cost-bars__overall {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-outline-variant);
+  font-size: 12px;
+}
+
+.cost-bars__overall-label {
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+/* ── Selected day (day-detail.ts) ── */
+.cost-day__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-bottom: 12px;
+}
+
+.cost-day__head .cost-monitor__card-title {
+  margin: 0;
+  font-size: 14px;
+}
+
+.cost-day__total {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.cost-day__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 16px 24px;
+  margin-bottom: 16px;
+}
+
+.cost-day__subtitle {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-on-surface-variant);
+}
+
+/* ── Tables ── */
+.cost-monitor__table-wrap {
+  overflow-x: auto;
+}
+
+.cost-monitor__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: var(--color-on-surface);
+}
+
+.cost-monitor__table th {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--color-outline-variant);
+  font-weight: 500;
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--color-on-surface-variant);
+}
+
+.cost-monitor__table th.cost-monitor__th-text {
+  text-align: left;
+}
+
+.cost-monitor__table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-outline-variant);
+  vertical-align: top;
+}
+
+.cost-monitor__table tbody tr:hover {
+  background-color: var(--color-surface-container);
+}
+
+.cost-monitor__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cost-monitor__name {
+  white-space: nowrap;
+}
+
+.cost-monitor__nowrap {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-monitor__tags {
+  white-space: nowrap;
+}
+
+.cost-monitor__tag {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  color: var(--color-on-surface-variant);
+}
+
+.cost-monitor__more {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+/* ── Google side (not connected) ── */
+.cost-monitor__google p {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-on-surface-variant);
+}
+
+.cost-monitor__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cost-monitor__notes {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--color-on-surface-variant);
+}
+
+/* ── Daily chart (daily-chart.ts) ── */
+.cost-chart {
+  position: relative;
+}
+
+.cost-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+}
+
+.cost-chart__legend:empty {
+  display: none;
+}
+
+.cost-chart__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cost-chart__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.cost-chart__plot {
+  height: 220px;
+}
+
+.cost-chart__svg {
+  display: block;
+}
+
+.cost-chart__grid {
+  stroke: var(--color-outline-variant);
+  stroke-width: 1;
+}
+
+.cost-chart__axis {
+  stroke: var(--color-outline);
+  stroke-width: 1;
+}
+
+.cost-chart__label {
+  fill: var(--color-on-surface-variant);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-chart__label--selected {
+  fill: var(--color-on-surface);
+  font-weight: 600;
+}
+
+.cost-chart__hover {
+  fill: transparent;
+}
+
+.cost-chart__hover--on {
+  fill: var(--color-surface-container-high);
+}
+
+/* The selected day keeps a visible column and outline. */
+.cost-chart__hover--selected,
+.cost-chart__hover--selected.cost-chart__hover--on {
+  fill: var(--color-surface-container-highest);
+  stroke: var(--color-outline);
+  stroke-width: 1;
+}
+
+.cost-chart__hit {
+  fill: transparent;
+  cursor: pointer;
+  outline: none;
+}
+
+.cost-chart__s1 {
+  fill: var(--cost-series-1);
+  background-color: var(--cost-series-1);
+}
+
+.cost-chart__s2 {
+  fill: var(--cost-series-2);
+  background-color: var(--cost-series-2);
+}
+
+.cost-chart__s3 {
+  fill: var(--cost-series-3);
+  background-color: var(--cost-series-3);
+}
+
+.cost-chart__s-none {
+  fill: var(--cost-series-none);
+  background-color: var(--cost-series-none);
+}
+
+.cost-chart__tooltip {
+  position: absolute;
+  top: 28px;
+  display: none;
+  min-width: 170px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-container-high);
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.cost-chart__tooltip--shown {
+  display: block;
+}
+
+.cost-chart__tip-total {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-on-surface);
+}
+
+.cost-chart__tip-day {
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--color-on-surface-variant);
+}
+
+.cost-chart__tip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Tooltip rows key their series with a short line, not a box. */
+.cost-chart__tip-key {
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.cost-chart__tip-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-on-surface);
+}
+
+.cost-chart__tip-name {
+  color: var(--color-on-surface-variant);
+}
+
+.cost-chart__tip-hint {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--color-on-surface-variant);
+}

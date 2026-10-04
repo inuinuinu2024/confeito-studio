@@ -24,6 +24,8 @@ archives/
 assets/prompts/
 # Registered characters (assets/characters/characters.json and one image folder per character)
 assets/characters/
+# Records the app keeps by itself (data/usage.db: Gemini usage of the Cost Monitor, SQLite)
+data/
 # The user's tool settings (initial values are settings/default_settings.json) and broken copies set aside;
 # settings/prompts.* is where registered prompts used to be (no longer read, kept if present)
 settings/user_settings.json

@@ -593,6 +593,7 @@ async function runScenarios(
   settingsDir: string,
   out: string,
   obs: Record<string, unknown>,
+  seedUsage: (records: object[]) => void,
 ): Promise<void> {
   let shot = 0;
   /** The registered prompts (CONFEITO_ASSETS_DIR is <dataDir>/assets). */
@@ -619,7 +620,7 @@ async function runScenarios(
     await screenshot('boot');
     return {
       topbarActions: await page.$$eval('.topbar__action-btn', els => els.map(e => e.getAttribute('title'))),
-      // Buttons top to bottom, with dividers between Batch and Parallel and before the managers.
+      // Buttons top to bottom, with dividers between Batch and Parallel, before the managers and before Cost Monitor.
       toolbarItems: await page.$$eval('.left-toolbar > *', els =>
         els.map(e => e.getAttribute('title') ?? (e.classList.contains('left-toolbar__divider') ? '---' : '?')),
       ),
@@ -845,7 +846,8 @@ async function runScenarios(
     await page.waitForTimeout(100);
     const fitWidthBox = await canvasBox();
     await screenshot('zoom-fit-width', '.canvas-area');
-    await page.locator('.canvas-zoom-bar button').last().click();
+    // Fit to Screen is 100% (there is no separate 100% button).
+    await page.locator('.canvas-zoom-bar button[title="Fit to Screen"]').click();
     const reset = await page.locator('.canvas-zoom-bar__label').textContent();
     await page.waitForTimeout(100);
     return {
@@ -1357,7 +1359,7 @@ async function runScenarios(
     const editor = {
       name: page.locator(`${M} .mgr-editor input[type="text"]`).first(),
       category: page.locator(`${M} .mgr-editor .cs-suggest input`),
-      text: page.locator(`${M} .mgr-editor textarea`),
+      text: page.locator(`${M} .mgr-editor textarea:not(.cm-image__text)`),
     };
     const editorButton = (label: string) => page.locator(`${M} .mgr-editor__actions button`, { hasText: label });
     const tiles = page.locator(`${M} .cm-image`);
@@ -1430,6 +1432,7 @@ async function runScenarios(
           category: string;
           text: string;
           images: string[];
+          image_texts: Record<string, string>;
           icon: string | null;
         }[];
       };
@@ -1600,6 +1603,42 @@ async function runScenarios(
     await editorButton('保存').click();
     await waitForToast(page, /キャラクター「花子」を保存しました/);
 
+    // Each image has its own text, saved with 保存 like the images.
+    // (after the save has refreshed the editor: the added image is no longer 新規)
+    await page.waitForFunction(M => !document.querySelector(`${M} .cm-image__new`), M);
+    await tiles.nth(1).locator('.cm-image__text').fill('正面を向いた全身');
+    const dirtyAfterImageText = (await view()).editor;
+    const valuesAfterFill = await tiles
+      .locator('.cm-image__text')
+      .evaluateAll(els => els.map(e => (e as HTMLTextAreaElement).value));
+    await editorButton('保存').click();
+    await waitForToast(page, /キャラクター「花子」を保存しました/);
+    const withImageText = saved().characters[0];
+    const imageTexts = {
+      dirtyAfterImageText,
+      valuesAfterFill,
+      saved: withImageText.image_texts,
+      onSecondImage: withImageText.image_texts[withImageText.images[1]],
+      shown: await tiles.locator('.cm-image__text').evaluateAll(els => els.map(e => (e as HTMLTextAreaElement).value)),
+    };
+
+    // Clicking an image shows it large in a window, only to look at it; Esc closes it and nothing changes.
+    await tiles.nth(1).locator('img').click();
+    await page.waitForSelector('.cs-image-viewer');
+    const viewer = {
+      title: await page.locator('.cs-image-viewer__title').textContent(),
+      imageBox: await page.locator('.cs-image-viewer__img').boundingBox(),
+    };
+    await screenshot('character-image-viewer');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.cs-image-viewer', { state: 'detached' });
+    const afterViewer = { editor: (await view()).editor, modeStillCharacter: (await view()).activeModes };
+    // A click outside the image closes it too.
+    await tiles.nth(0).locator('img').click();
+    await page.waitForSelector('.cs-image-viewer');
+    await page.mouse.click(5, 5);
+    await page.waitForSelector('.cs-image-viewer', { state: 'detached' });
+
     // A text-only character; leaving unsaved changes asks first.
     await page.locator(`${M} .mgr-list button`, { hasText: '+ 新規' }).click();
     await editor.name.fill('太郎');
@@ -1724,6 +1763,9 @@ async function runScenarios(
       createToast,
       afterCreate,
       imageEdit,
+      imageTexts,
+      viewer,
+      afterViewer,
       leaveMessage,
       duplicateNameToast,
       afterDuplicate,
@@ -1953,7 +1995,7 @@ async function runScenarios(
     await drag(right.x + right.width / 2, right.y + right.height / 2, -120, 60);
     const dragged = await parallelState(page);
     await screenshot('parallel-dragged', '.canvas-area');
-    await page.locator('.canvas-zoom-bar button[title="Zoom 100%"]').click();
+    await page.locator('.canvas-zoom-bar button[title="Fit to Screen"]').click();
     await page.waitForTimeout(200);
 
     // Unchecking R: a notice in the right pane, never the left image.
@@ -2174,7 +2216,7 @@ async function runScenarios(
   });
 
   await step('15-dialogs', async () => {
-    // The settings window (gear icon; Ctrl+B opens the 表示 page) lists its pages on the left
+    // The settings window (gear icon; Ctrl+B opens the 背景色指定 page) lists its pages on the left
     // (docs/specs/app-shell.md 「設定ウィンドウ」). A background swatch applies and saves the colour at once.
     const win = '.settings-window';
     const pageState = async () => ({
@@ -2208,10 +2250,10 @@ async function runScenarios(
       nav: await page.locator(`${win} .settings-window__nav-item`).allTextContents(),
       ...(await pageState()),
       keyStatus: await page.locator(`${win} .settings-window__status`).textContent(),
-      saveDisabled: await page.locator(`${win} button`, { hasText: '保存' }).isDisabled(),
+      saveDisabled: await page.locator(win).getByRole('button', { name: '保存', exact: true }).isDisabled(),
     };
     await screenshot('settings-api');
-    await page.locator(`${win} .settings-window__nav-item`, { hasText: '表示' }).click();
+    await page.locator(`${win} .settings-window__nav-item`, { hasText: '背景色指定' }).click();
     const displayPage = { ...(await pageState()), selected: await selectedSwatch() };
     await page.keyboard.press('Escape');
     await page.waitForSelector(win, { state: 'detached' });
@@ -2222,7 +2264,7 @@ async function runScenarios(
     await page.waitForFunction(() =>
       Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === 640),
     );
-    // Ctrl+B: opens on the 表示 page.
+    // Ctrl+B: opens on the 背景色指定 page.
     await page.keyboard.press('Control+b');
     await page.waitForSelector(win);
     const fromShortcut = await pageState();
@@ -2243,10 +2285,78 @@ async function runScenarios(
     // Reopening shows the chosen colour.
     await page.locator('.topbar__action-btn').first().click();
     await page.waitForSelector(win);
-    await page.locator(`${win} .settings-window__nav-item`, { hasText: '表示' }).click();
+    await page.locator(`${win} .settings-window__nav-item`, { hasText: '背景色指定' }).click();
     const reopenedSwatch = await selectedSwatch();
     await closeWindow();
     return { fromGear, displayPage, fromShortcut, toast, afterPick, canvas, reopenedSwatch };
+  });
+
+  await step('15b-archives-location', async () => {
+    // 保存先 (docs/specs/archives.md 「保存先」): another ARCHIVES folder by full path or the folder dialog;
+    // nothing is moved, and 既定に戻す shows the default folder's archives again.
+    const win = '.settings-window';
+    const input = page.locator(`${win} .settings-window__page input.cs-input`);
+    const statusLine = () => page.locator(`${win} .settings-window__status`).first().textContent();
+    const archiveNames = async () => (await archiveTree(page)).map(r => r.name);
+    const before = await archiveNames();
+
+    await page.locator('.topbar__action-btn').first().click();
+    await page.waitForSelector(win);
+    await page.locator(`${win} .settings-window__nav-item`, { hasText: '保存先' }).click();
+    await page.waitForFunction(() => !!document.querySelector('.settings-window__status')?.textContent);
+    const opened = {
+      nav: await page.locator(`${win} .settings-window__nav-item`).allTextContents(),
+      title: await page.locator(`${win} .settings-window__page-title`).textContent(),
+      status: await statusLine(),
+      input: await input.inputValue(),
+      resetDisabled: await page.locator(`${win} button`, { hasText: '既定に戻す' }).isDisabled(),
+      applyDisabled: await page.locator(`${win} button`, { hasText: '変更' }).isDisabled(),
+    };
+    await screenshot('settings-storage');
+
+    // 参照…: the folder dialog runs on the backend PC (tkinter) and is stubbed here.
+    const other = path.join(path.dirname(settingsDir), 'other-archives');
+    await page.route('**/api/local-files/pick-folder', route =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ path: other }) }),
+    );
+    await page.locator(`${win} button`, { hasText: '参照…' }).click();
+    await page.waitForFunction(
+      p => (document.querySelector('.settings-window__page input.cs-input') as HTMLInputElement)?.value === p,
+      other,
+    );
+    await page.unroute('**/api/local-files/pick-folder');
+
+    // The folder does not exist: asked before it is created.
+    await page.locator(`${win} button`, { hasText: '変更' }).click();
+    await page.waitForSelector('.cs-modal-overlay--open');
+    const confirmMessage = await page.locator('.cs-modal__message').textContent();
+    await page.locator('.cs-modal button', { hasText: '作成して変更' }).click();
+    const changedToast = await waitForToast(page, /保存先を/);
+    await page.waitForTimeout(500);
+    const afterChange = {
+      status: await statusLine(),
+      created: fs.existsSync(other),
+      archives: await archiveNames(),
+      saved: (
+        JSON.parse(fs.readFileSync(path.join(settingsDir, 'user_settings.json'), 'utf-8')) as Record<string, string>
+      ).app_archivesDir,
+    };
+
+    // A relative path is refused (folders inside the app too: backend/tests/test_archives_location.py).
+    await input.fill('relative-folder');
+    await page.locator(`${win} button`, { hasText: '変更' }).click();
+    const refused = await waitForToast(page, /変更できませんでした/);
+
+    // Back to the default: its archives are all there again.
+    await page.locator(`${win} button`, { hasText: '既定に戻す' }).click();
+    await waitForToast(page, /保存先を/);
+    await page.waitForTimeout(500);
+    const afterReset = { status: await statusLine(), archives: await archiveNames() };
+    await page.locator(`${win} .settings-window__close`).click();
+    await page.waitForSelector(win, { state: 'detached' });
+    await withVisibleToasts(page, () => page.locator('.toast--error .toast__close').last().click());
+    await page.waitForFunction(() => !document.querySelector('.toast--error'), undefined, { timeout: 10000 });
+    return { before, opened, confirmMessage, changedToast, afterChange, refused, afterReset };
   });
 
   await step('16-topbar', async () => {
@@ -2685,7 +2795,7 @@ async function runScenarios(
     await screenshot('nbp-original', middle);
     await screenshot('nbp-original-aspect', `${win} .nbp-parameters`);
 
-    // The request: the automatic aspect ratio, and the 原画 after the reference images with its heading.
+    // The request: the automatic aspect ratio, and the 原画 as 画像1 (before the reference images) with its heading.
     await page.locator(`${win} button`, { hasText: 'JSONプレビュー' }).click();
     const dialog = page.locator('dialog[open]');
     await dialog.waitFor();
@@ -2723,7 +2833,7 @@ async function runScenarios(
       const payload = route.request().postDataJSON() as { input: { type: string; data?: string }[] };
       const images = payload.input.filter(p => p.type === 'image').map(p => Buffer.from(p.data!, 'base64'));
       sentImages = images.map(b => ({ width: b.readUInt32BE(16), height: b.readUInt32BE(20) })); // PNG IHDR
-      const body = images.at(-1)!;
+      const body = images[0]; // the 原画 (always 画像1) comes back as the generated image
       await route.fulfill({ status: 200, contentType: 'image/png', headers: { 'Cache-Control': 'no-store' }, body });
     });
     await page.locator(`${win} .tool-window__run`).click();
@@ -3121,6 +3231,175 @@ async function runScenarios(
     };
   });
 
+  await step('19i-cost-monitor', async () => {
+    // docs/specs/cost-monitor.md. The tools above are stubbed in the browser, so nothing was recorded yet.
+    const costButton = page.locator('.left-toolbar__btn[title="Cost Monitor"]');
+    await costButton.click();
+    await page.waitForSelector('.cost-monitor__tile');
+    await page.waitForTimeout(300);
+    const emptyShown = await page.locator('.cost-monitor__empty').isVisible();
+    await screenshot('cost-monitor-empty');
+
+    // Records relative to the browser's fixed clock (2026-01-01 10:00, see main()): 3 days ago is last month.
+    // Stored with the backend's own usage_store.insert into the temporary data/usage.db (seedUsage in main()).
+    const now = new Date('2026-01-01T10:00:00');
+    const daysAgo = (days: number, hour: number) =>
+      new Date(now.getFullYear(), now.getMonth(), now.getDate() - days, hour, 0).toISOString();
+    const usage = (input: number, image: number, thought: number, images: number) => ({
+      input_tokens: input,
+      cached_tokens: 0,
+      output_text_tokens: 0,
+      output_image_tokens: image,
+      thought_tokens: thought,
+      search_queries: 0,
+      images,
+    });
+    const rec = (id: string, at: string, tool: string, model: string, cost: number | null, extra = {}) => ({
+      id,
+      at,
+      user: 'local',
+      tool,
+      model,
+      api: 'generate_content',
+      service_tier: 'standard',
+      status: 'success',
+      usage: tool === 'コマ分割' ? usage(1200, 0, 300, 0) : usage(500, 1120, 200, 1),
+      cost_usd: cost,
+      estimated: false,
+      prices_checked_on: '2026-10-04',
+      ...extra,
+    });
+    seedUsage([
+      rec('a', daysAgo(3, 10), 'Nano Banana画像生成', 'gemini-3.1-flash-image', 0.0672, { service_tier: 'flex' }),
+      rec('b', daysAgo(1, 11), 'Nano Banana画像生成', 'gemini-9-unknown', null),
+      rec('c', daysAgo(0, 0), 'コマ分割', 'gemini-3.8-flash', 0.002),
+      rec('d', daysAgo(0, 0), 'Nano Banana画像生成', 'gemini-3-pro-image', 0.24, { estimated: true }),
+      rec('e', daysAgo(0, 0), 'Nano Banana画像生成', 'gemini-3-pro-image', 0.0024, { status: 'no_output' }),
+    ]);
+
+    await page.locator('.cost-monitor__header .cs-icon-btn[title="再読み込み"]').click();
+    await page.waitForSelector('.cost-bars__row');
+    await page.waitForTimeout(300);
+    const texts = (selector: string) => page.$$eval(selector, els => els.map(e => (e as HTMLElement).innerText));
+    const rows = (selector: string) =>
+      page.$$eval(selector, trs => trs.map(r => Array.from(r.children).map(td => (td as HTMLElement).innerText)));
+    const read = async () => ({
+      range: await page.locator('.cost-range__btn--active').textContent(),
+      rangeDates: await page.locator('.cost-range > .cost-monitor__muted').textContent(),
+      tiles: await texts('.cost-monitor__tile'),
+      toolBars: await texts('.cost-monitor__pair .cost-bars__row'),
+      overall: await page.locator('.cost-bars__overall').innerText(),
+      models: await rows('.cost-monitor__pair .cost-monitor__table tbody tr'),
+      columns: await page.locator('.cost-chart__hit').count(),
+      selectedColumn: await page.$$eval('.cost-chart__hit', els =>
+        els.findIndex(e => e.getAttribute('aria-pressed') === 'true'),
+      ),
+    });
+    const before = await read();
+    const chart = {
+      title: await page.locator('.cost-monitor__details .cost-monitor__card-title').first().textContent(),
+      legend: await page.$$eval('.cost-chart__legend-item', els => els.map(e => e.textContent)),
+      segments: await page.$$eval('.cost-chart__svg [class^="cost-chart__s"]', els =>
+        els.map(e => e.getAttribute('class')),
+      ),
+      yLabels: await page.$$eval('.cost-chart__svg text[text-anchor="end"]', els => els.map(e => e.textContent)),
+    };
+    await page.locator('.cost-chart__hit').last().hover();
+    await page.waitForTimeout(200);
+    const tooltip = await page.locator('.cost-chart__tooltip--shown').innerText();
+    await screenshot('cost-monitor');
+    const readDay = async () => ({
+      head: await page.locator('.cost-day__head').innerText(),
+      tools: await texts('.cost-day .cost-bars__row'),
+      models: await rows('.cost-day .cost-day__grid .cost-monitor__table tbody tr'),
+      runs: await rows('.cost-day > .cost-monitor__table-wrap tbody tr'),
+      empty: await page.locator('.cost-day > p').count(),
+    });
+    const today = await readDay();
+
+    // Clicking a bar shows that day (3 days ago = 12/29) and marks its column.
+    const columns = page.locator('.cost-chart__hit');
+    await columns.nth(before.columns - 1 - 3).click();
+    await page.waitForFunction(() => document.querySelector('.cost-day__head')?.textContent?.includes('12/29'));
+    await page.waitForTimeout(500);
+    const clickedDay = await readDay();
+    const clickedColumn = await page.$$eval('.cost-chart__hit', els =>
+      els.findIndex(e => e.getAttribute('aria-pressed') === 'true'),
+    );
+    await screenshot('cost-monitor-day', '.cost-day');
+    // A day without use says so.
+    await columns.nth(before.columns - 1 - 2).click();
+    await page.waitForFunction(() => document.querySelector('.cost-day__head')?.textContent?.includes('12/30'));
+    const unusedDay = await readDay();
+
+    const historyRows = await rows('.cost-monitor__details > .cost-monitor__card:last-child tbody tr');
+    const google = await page.locator('.cost-monitor__section').nth(1).innerText();
+    const toasts = await toastStack(page);
+
+    // The period scopes the chart, the tool totals and the average; it is saved right away.
+    const pickRange = async (label: string) => {
+      await page.locator('.cost-range__btn', { hasText: label }).click();
+      await page.waitForFunction(
+        l =>
+          document.querySelector('.cost-range__btn--active')?.textContent === l &&
+          !document.querySelector('.cost-monitor--loading'),
+        label,
+      );
+      await page.waitForTimeout(200);
+      return read();
+    };
+    const week = await pickRange('7日');
+    const month = await pickRange('今月');
+    const savedRange = await page.evaluate(
+      async apiBase =>
+        ((await (await fetch(`${apiBase}/settings/tools`)).json()) as { values: Record<string, string> }).values
+          .costMonitor_range,
+      apiBase,
+    );
+    await pickRange('30日');
+
+    // The exchange rate is saved right away and converts every amount.
+    await page.locator('.cost-monitor__rate-input').fill('100');
+    await page.locator('.cost-monitor__rate-input').press('Enter');
+    await page.waitForTimeout(300);
+    const afterRate = await texts('.cost-monitor__tile .cost-amount');
+    const savedRate = await page.evaluate(
+      async apiBase =>
+        ((await (await fetch(`${apiBase}/settings/tools`)).json()) as { values: Record<string, string> }).values
+          .costMonitor_usdJpyRate,
+      apiBase,
+    );
+
+    // Clicking the active button returns to Normal mode.
+    await costButton.click();
+    await page.waitForTimeout(300);
+    const activeAfterLeave = await page.$$eval('.left-toolbar__btn--active', els =>
+      els.map(e => e.getAttribute('title')),
+    );
+    const shownAfterLeave = await page.locator('.cost-monitor').isVisible();
+    await page.waitForFunction(() => !document.querySelector('.toast--warning'), undefined, { timeout: 10000 });
+    return {
+      emptyShown,
+      before,
+      chart,
+      tooltip,
+      today,
+      clickedDay,
+      clickedColumn,
+      unusedDay,
+      historyRows,
+      google,
+      toasts,
+      week,
+      month,
+      savedRange,
+      afterRate,
+      savedRate,
+      activeAfterLeave,
+      shownAfterLeave,
+    };
+  });
+
   await step('20-browser-storage', async () => {
     // Nothing is kept in the browser (docs/specs/app-shell.md 「ブラウザに残すもの」).
     return page.evaluate(async () => ({
@@ -3162,6 +3441,7 @@ async function main(): Promise<void> {
         CONFEITO_ARCHIVES_DIR: path.join(dataDir, 'archives'),
         CONFEITO_SETTINGS_DIR: settingsDir,
         CONFEITO_ASSETS_DIR: path.join(dataDir, 'assets'),
+        CONFEITO_DATA_DIR: path.join(dataDir, 'data'),
         CONFEITO_ENV_FILE: path.join(dataDir, '.env'),
         GEMINI_API_KEY: '',
         PYTHONUTF8: '1',
@@ -3230,7 +3510,27 @@ async function main(): Promise<void> {
       });
     });
     await page.goto(`http://localhost:${opts.frontendPort}/`);
-    await runScenarios(page, apiBase, settingsDir, opts.out, obs);
+    /** Stores Cost Monitor records with the backend's code (services/usage_store.py) in the temporary data dir. */
+    const seedUsage = (records: object[]) => {
+      const script = [
+        'import json, sys',
+        'from src.app.services import usage_store',
+        'for r in json.load(sys.stdin): usage_store.insert(r)',
+      ].join('\n');
+      const result = spawnSync(opts.python, ['-c', script], {
+        cwd: path.join(opts.root, 'backend'),
+        input: JSON.stringify(records),
+        encoding: 'utf-8',
+        env: {
+          ...process.env,
+          CONFEITO_DATA_DIR: path.join(dataDir, 'data'),
+          CONFEITO_ENV_FILE: path.join(dataDir, '.env'),
+          PYTHONUTF8: '1',
+        },
+      });
+      if (result.status !== 0) throw new Error(`seedUsage failed: ${result.stderr}`);
+    };
+    await runScenarios(page, apiBase, settingsDir, opts.out, obs, seedUsage);
   } finally {
     obs.storableResponses = [...storableResponses].sort();
     obs.console = consoleMessages;

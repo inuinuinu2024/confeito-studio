@@ -17,9 +17,9 @@ from . import (
     config,  # imported first: loads .env into os.environ
 )
 from .errors import UNEXPECTED_ERROR_MESSAGE, AppError, exception_text
-from .routers import archives, characters, generate, health, image, local_files, prompts
+from .routers import archives, characters, generate, health, image, local_files, prompts, usage
 from .routers import settings as settings_router
-from .services import archive_service
+from .services import archive_service, archives_location
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,8 @@ NO_STORE = {"Cache-Control": "no-store"}
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    # The ARCHIVES folder the user chose (docs/specs/archives.md 「保存先」), before anything uses it.
+    await run_in_threadpool(archives_location.load)
     # Deleted items are only undoable within one session (docs/specs/archives.md 「削除と Undo」).
     await run_in_threadpool(archive_service.empty_trash)
     # Where the registered prompts are kept (docs/specs/prompt-manager.md 「保存先」), there from the start.
@@ -73,7 +75,7 @@ def create_app() -> FastAPI:
         # Returned outside the middleware stack, so the no-store header is added here too.
         return JSONResponse(status_code=500, content={"detail": detail}, headers=NO_STORE)
 
-    for module in (health, archives, image, generate, settings_router, prompts, characters, local_files):
+    for module in (health, archives, image, generate, settings_router, prompts, characters, local_files, usage):
         app.include_router(module.router, prefix="/api")
     return app
 

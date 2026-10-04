@@ -7,10 +7,11 @@
 |---|---|
 | [app-shell.md](./app-shell.md) | 画面構成、上部バー、ショートカット、設定ウィンドウ、ブラウザに残すもの（キャッシュ・保存しない）、ステータスバー、起動・終了 |
 | [notifications.md](./notifications.md) | トーストの種類と出し方、エラー表示（メッセージと原文）、ツール実行時の通知、ログを書かないこと |
-| [archives.md](./archives.md) | ARCHIVES パネルと保存形式、ツールの結果の保存（保存先・名前・info.json）、選択と保存先フォルダ、削除と Undo |
+| [archives.md](./archives.md) | ARCHIVES パネルと保存形式、保存先（ARCHIVES のフォルダの指定）、ツールの結果の保存（保存先・名前・info.json）、選択と保存先フォルダ、削除と Undo |
 | [canvas.md](./canvas.md) | 表示ルール、ズーム、テキスト表示、Parallel / Overlay / Batch モード、背景色、D&D |
 | [prompt-manager.md](./prompt-manager.md) | 登録プロンプト（全ツール共通・保存先 assets/prompts/）、Prompt Manager（カテゴリー・並べ替え・編集・エクスポート / インポート） |
 | [character-manager.md](./character-manager.md) | 登録キャラクター（名前・カテゴリー・本文・複数の画像、保存先 assets/characters/）、Character Manager（Prompt Manager との違い・画像の編集・zip のエクスポート / インポート） |
+| [cost-monitor.md](./cost-monitor.md) | Cost Monitor（Gemini API の利用料。課金の仕組み、このアプリで使った分の記録と表示、単価、保存先 data/usage.db） |
 | [ai-panel.md](./ai-panel.md) | ツール一覧（並び替え）、ツールウィンドウ（モーダル）、実行、設定の保存 |
 | [tools/image-loader.md](./tools/image-loader.md) | 画像読み込み |
 | [tools/panel-split-merge.md](./tools/panel-split-merge.md) | コマ分割 / コマ結合 |

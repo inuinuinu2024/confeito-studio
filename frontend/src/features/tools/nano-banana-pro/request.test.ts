@@ -4,7 +4,7 @@ import { generateContentRequest, interactionsRequest, redactImageData } from './
 
 const INPUT: GenerationInput[] = [
   { type: 'image', mime_type: 'image/png', data: 'AAAA' },
-  { type: 'text', text: '# User prompt\nhi' },
+  { type: 'text', text: '# 指示\nhi' },
 ];
 
 describe('interactionsRequest', () => {
@@ -55,7 +55,7 @@ describe('generateContentRequest', () => {
       contents: [
         {
           role: 'user',
-          parts: [{ inlineData: { mimeType: 'image/png', data: 'AAAA' } }, { text: '# User prompt\nhi' }],
+          parts: [{ inlineData: { mimeType: 'image/png', data: 'AAAA' } }, { text: '# 指示\nhi' }],
         },
       ],
     });

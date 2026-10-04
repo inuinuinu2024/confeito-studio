@@ -15,15 +15,19 @@ frontend/src/
 │   ├── state/                # view-mode.ts（表示モード）, tool-settings.ts（ツール設定の永続化）, canvas-background.ts（キャンバスの背景色）
 │   ├── types/                # ArchiveEntry, Tool / ToolContext / ToolNotReady / ToolCancelled
 │   ├── ui/                   # h() / icon(), form 部品, dialogs, toast（showToast / showError）, resizer, drag-sort（ドラッグで並べ替え）,
+│   │                         # image-viewer（画像を大きく見るだけのウィンドウ）,
 │   │                         # category-sidebar（マネージャー共通のカテゴリー一覧）
 │   ├── utils/                # datetime, error-message(describeError), image(Blob/Canvas 変換), history(削除の Undo。削除と Undo を 1 つずつ順に実行),
 │   │                         # categories(カテゴリー付き一覧の共通処理), prompts(登録プロンプトの入力チェック・絞り込み・エクスポート形式),
-│   │                         # characters(登録キャラクターの絞り込み・ツールで使う時の説明文), icon-crop(アイコンの切り取り枠の計算)
+│   │                         # characters(登録キャラクターの絞り込み・ツールで使う時の説明文), icon-crop(アイコンの切り取り枠の計算),
+│   │                         # usage(Cost Monitor の期間・グラフの系列・1 回あたりの平均・円 / USD の表示。集計はバックエンド)
 │   └── styles/               # variables(トークン), base, components(cs-*), layout(グリッド), manager(マネージャー共通の mgr-*)
 └── features/
     ├── top-bar/              # アプリ名・アイコン, 設定ウィンドウ（API・表示）, ショートカット
-    ├── tool-bar/             # 左端の表示モード切替ボタン（Prompt Manager / Character Manager も表示モード）
+    ├── tool-bar/             # 左端の表示モード切替ボタン（Prompt Manager / Character Manager / Cost Monitor も表示モード）
     ├── prompt-manager/       # Prompt Manager（カテゴリー一覧 = 左サイドバー、一覧と編集欄 = キャンバスの場所。transfer.ts = エクスポート / インポート）
+    ├── cost-monitor/         # Cost Monitor（ARCHIVES とキャンバスの場所のダッシュボード。daily-chart.ts = 日別の積み上げ棒（SVG・日の選択）、
+    │                         # bar-list.ts = ツール別の横棒、day-detail.ts = 選んだ日の内訳、parts.ts = 金額（円優先）・表の部品）
     ├── character-manager/    # Character Manager（Prompt Manager と同じ構成。image-list.ts = 編集欄の画像、icon-cropper.ts = アイコンの切り取り、transfer.ts = zip のエクスポート / インポート）
     ├── archive-panel/        # ARCHIVES ツリー（archive-tree.ts = 純粋関数）
     ├── canvas/               # 表示領域（canvas-state / render / zoom / toolbars）
@@ -50,11 +54,12 @@ frontend/src/
 | `archive:selection-cleared` | ArchivePanel → Canvas | 選択解除（キャンバスを空に） |
 | `archive:selection-summary` | ArchivePanel → Canvas | フォルダ・複数選択（Batch 以外。画像を出さず、案内文で選択内容を示す） |
 | `archive:batch-selected` | ArchivePanel → Canvas | Batch モードでの選択（グリッド表示する画像の一覧） |
+| `archives:location-changed` | 設定ウィンドウ（保存先）→ ArchivePanel | ARCHIVES のフォルダを切り替えた。選択・L/R・U/T のチェック・Undo の履歴を外して読み直す |
 | `archives:changed` | ツール/削除処理 → ArchivePanel, Canvas | 一覧を再取得。`autoSelectKey` があれば展開して選択。Canvas は L/R・U/T を読み直す |
-| `<mode>-mode:toggle` | view-mode.ts → 各機能 | 表示モードの ON/OFF（normal/parallel/overlay/batch/prompt/character）。prompt は Prompt Manager、character は Character Manager（app.ts が ARCHIVES・キャンバスと入れ替える） |
+| `<mode>-mode:toggle` | view-mode.ts → 各機能 | 表示モードの ON/OFF（normal/parallel/overlay/batch/prompt/character/cost）。prompt は Prompt Manager、character は Character Manager、cost は Cost Monitor（app.ts が ARCHIVES・キャンバスと入れ替える） |
 | `view:layer-selected` | ArchivePanel → Canvas, ArchivePanel / Canvas → ArchivePanel | チェック列での Parallel の L / R、Overlay の U（下絵）/ T（上絵）の選択・解除。読めない・削除された時は Canvas が `key: null` を送りチェックを外させる |
 | `document:loaded` / `document:redraw` | DocumentManager → Canvas | 現在画像の変更 / 再描画要求 |
-| `tool:start` / `tool:progress` / `tool:end` | tool-runner, ツール → StatusBar | 実行状況 |
+| `tool:start` / `tool:progress` / `tool:end` | tool-runner, ツール → StatusBar（`tool:end` は Cost Monitor も受けて読み直す） | 実行状況 |
 | `canvas:bg-color`, `settings:updated`, `history:changed` | 設定ウィンドウ, history | 背景色 / API キー保存 / Undo できるかが変わった（ARCHIVES の元に戻すボタン） |
 
 ### 状態の持ち場所

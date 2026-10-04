@@ -1,6 +1,6 @@
 /**
  * Global keyboard shortcuts (ignored while typing in an input / textarea / select).
- *   Ctrl+Z undo the latest ARCHIVES deletion · Ctrl+B settings window (表示 page)
+ *   Ctrl+Z undo the latest ARCHIVES deletion · Ctrl+B settings window (背景色指定 page)
  * Ctrl+Z is ignored while a window or dialog is open and when the key repeats (held down).
  * Arrow keys in Overlay mode are handled by the canvas (features/canvas/Canvas.ts).
  */

@@ -410,6 +410,17 @@ export function createArchivePanel(): HTMLElement {
   });
 
   on('archives:changed', detail => void reload(detail?.autoSelectKey, true));
+  // Another ARCHIVES folder: nothing selected or checked, nothing to undo (folders keep their open / closed state).
+  on('archives:location-changed', () => {
+    selected.clear();
+    lastSelected = null;
+    for (const layer of Object.keys(layerKeys) as ViewLayer[]) {
+      if (layerKeys[layer]) selectLayer(layer, null, null);
+    }
+    historyManager.clear();
+    emit('archive:selection-cleared');
+    void reload(undefined, true);
+  });
   // Back from Batch mode: show the current selection the Normal way (Batch only drew a grid).
   on('batch-mode:toggle', ({ enabled }) => {
     if (!enabled) void publishSelection();

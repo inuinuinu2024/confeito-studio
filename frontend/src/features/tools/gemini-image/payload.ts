@@ -4,19 +4,23 @@
  */
 import type { GenerationInput } from '../../../shared/api/generation';
 import { blobToBase64, canvasToBlob, imageExtension, loadImage } from '../../../shared/utils/image';
-import { IMPORTANT_IMAGE_NOTE, MAX_UPLOAD_SIDE } from './constants';
-import { type ReferenceImage, zoneLabel } from './reference-list';
+import { IMPORTANT_IMAGE_NOTE, MAX_UPLOAD_SIDE, ZONE_INSTRUCTIONS } from './constants';
+import { type ReferenceImage, zoneLabel, zoneShortName } from './reference-list';
 
 /**
- * "# Image N\nこの画像を<zone>画像とする。\n" (+ the important note, + the image's description)
- * and a blank line, for one reference image.
+ * "# 画像N\nこの画像は<type>の参照画像。<what to take from it>\n" (+ the important note, + the image's
+ * description) and a blank line, for one reference image.
  */
 export function imageHeading(
   index: number,
   image: Pick<ReferenceImage, 'zoneTitle' | 'isImportant' | 'description'>,
 ): string {
+  const instruction = ZONE_INSTRUCTIONS[zoneShortName(image.zoneTitle)] ?? '';
   const description = image.description?.trim() ? `${image.description.trim()}\n` : '';
-  return `# Image ${index}\nこの画像を${zoneLabel(image.zoneTitle)}画像とする。\n${image.isImportant ? IMPORTANT_IMAGE_NOTE : ''}${description}\n`;
+  return (
+    `# 画像${index}\nこの画像は${zoneLabel(image.zoneTitle)}の参照画像。${instruction}\n` +
+    `${image.isImportant ? IMPORTANT_IMAGE_NOTE : ''}${description}\n`
+  );
 }
 
 export async function imageInput(blob: Blob, mimeType = blob.type || 'image/png'): Promise<GenerationInput> {

@@ -4,7 +4,8 @@
  * Waits for the backend (/api/health) behind the splash screen, loads tool settings,
  * then builds the shell grid: TopBar / ToolBar / ARCHIVES / Canvas / AI panel / StatusBar.
  * Parallel and Overlay mode hide the AI panel (they only compare images); the managers (Prompt Manager,
- * Character Manager) also replace ARCHIVES and the canvas with their own sidebar and main area.
+ * Character Manager) also replace ARCHIVES and the canvas with their own sidebar and main area, and the
+ * Cost Monitor with its dashboard.
  */
 import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
@@ -23,6 +24,7 @@ import { createAIPanel } from './features/ai-panel/AIPanel';
 import { createArchivePanel } from './features/archive-panel/ArchivePanel';
 import { createCanvas } from './features/canvas/Canvas';
 import { createCharacterManager } from './features/character-manager/CharacterManager';
+import { createCostMonitor } from './features/cost-monitor/CostMonitor';
 import { createPromptManager } from './features/prompt-manager/PromptManager';
 import { createStatusBar } from './features/status-bar/StatusBar';
 import { createToolBar } from './features/tool-bar/ToolBar';
@@ -59,21 +61,26 @@ async function initApp(): Promise<void> {
   workspace.className = 'manga-grid';
 
   // Parallel / Overlay mode only compare images: no tools, the canvas gets the right sidebar's width.
-  // The managers have no tools either and cover ARCHIVES and the canvas.
+  // The managers and the Cost Monitor have no tools either and cover ARCHIVES and the canvas.
   // Registered before the canvas so its mode handlers measure the resized area. The mode is read from the
   // store: switching between two modes emits one mode's "on" before the other's "off".
   const syncLayout = () => {
     const mode = getViewMode();
-    workspace.classList.toggle('manga-grid--no-tools', ['parallel', 'overlay', 'prompt', 'character'].includes(mode));
-    workspace.classList.toggle('manga-grid--manager', ['prompt', 'character'].includes(mode));
+    workspace.classList.toggle(
+      'manga-grid--no-tools',
+      ['parallel', 'overlay', 'prompt', 'character', 'cost'].includes(mode),
+    );
+    workspace.classList.toggle('manga-grid--manager', ['prompt', 'character', 'cost'].includes(mode));
     workspace.classList.toggle('manga-grid--prompt', mode === 'prompt');
     workspace.classList.toggle('manga-grid--character', mode === 'character');
+    workspace.classList.toggle('manga-grid--cost', mode === 'cost');
   };
   for (const event of [
     'parallel-mode:toggle',
     'overlay-mode:toggle',
     'prompt-mode:toggle',
     'character-mode:toggle',
+    'cost-mode:toggle',
   ] as const) {
     on(event, syncLayout);
   }
@@ -93,6 +100,7 @@ async function initApp(): Promise<void> {
     promptManager.main,
     characterManager.sidebar,
     characterManager.main,
+    createCostMonitor(),
   );
 
   app.appendChild(workspace);

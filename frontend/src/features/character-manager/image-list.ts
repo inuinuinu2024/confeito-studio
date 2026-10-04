@@ -1,12 +1,14 @@
 /**
  * The images of the character in the editor (docs/specs/character-manager.md 「編集欄」): an add area
- * (click to choose files, or drag & drop) and the thumbnails, reordered by dragging and removed with ×.
+ * (click to choose files, or drag & drop) and one card per image: the thumbnail (reordered by dragging,
+ * removed with ×, shown large in a window when clicked) and the image's own prompt text.
  * Changes stay in the editor until 保存: an image is a saved file of the character or a new file.
  * `sources()` gives the images to the icon cropper; `onAdded` reports the index of the first added image.
  */
 import { characterImageUrl, fetchCharacterImage } from '../../shared/api/characters';
 import { h, icon } from '../../shared/ui/dom';
 import { enableDragSort } from '../../shared/ui/drag-sort';
+import { openImageViewer } from '../../shared/ui/image-viewer';
 import { showToast } from '../../shared/ui/toast';
 import { CHARACTER_IMAGE_TYPES, type EditorImage, isCharacterImage } from '../../shared/utils/characters';
 import type { CropSource } from './icon-cropper';
@@ -53,25 +55,49 @@ export function createImageList(onChange: () => void, onAdded: (firstIndex: numb
     grid.replaceChildren(
       ...images.map((image, i) => {
         const name = nameOf(image, i);
+        const text = h('textarea', {
+          class: 'cm-image__text',
+          rows: 3,
+          value: image.text,
+          placeholder: 'この画像の本文（任意）',
+          title: `${name}の本文（ツールで使う時、この画像の説明に入ります）`,
+        });
         const tile = h(
           'div',
-          { class: 'cm-image', draggable: true, title: `${name}（ドラッグで並べ替え）` },
-          h('img', { src: urlOf(image), alt: name, draggable: false }),
-          'file' in image ? h('span', { class: 'cm-image__new', text: '新規' }) : null,
+          { class: 'cm-image', draggable: true },
           h(
-            'button',
-            {
-              class: 'cm-image__remove',
-              title: '外す',
-              onclick: () => {
-                images.splice(images.indexOf(image), 1);
-                render();
-                onChange();
+            'div',
+            { class: 'cm-image__thumb', title: `${name}（クリックで拡大・ドラッグで並べ替え）` },
+            h('img', {
+              src: urlOf(image),
+              alt: name,
+              draggable: false,
+              onclick: () => openImageViewer(urlOf(image), name),
+            }),
+            'file' in image ? h('span', { class: 'cm-image__new', text: '新規' }) : null,
+            h(
+              'button',
+              {
+                class: 'cm-image__remove',
+                title: '外す',
+                onclick: () => {
+                  images.splice(images.indexOf(image), 1);
+                  render();
+                  onChange();
+                },
               },
-            },
-            icon('close', 14),
+              icon('close', 14),
+            ),
           ),
+          text,
         );
+        // Typing or selecting in the text must not start dragging the card.
+        text.addEventListener('focus', () => (tile.draggable = false));
+        text.addEventListener('blur', () => (tile.draggable = true));
+        text.addEventListener('input', () => {
+          image.text = text.value;
+          onChange();
+        });
         tiles.set(tile, image);
         return tile;
       }),
@@ -87,7 +113,7 @@ export function createImageList(onChange: () => void, onAdded: (firstIndex: numb
     }
     if (accepted.length === 0) return;
     const firstIndex = images.length;
-    images.push(...accepted.map(file => ({ file })));
+    images.push(...accepted.map(file => ({ file, text: '' })));
     render();
     onChange();
     onAdded(firstIndex);
@@ -129,10 +155,11 @@ export function createImageList(onChange: () => void, onAdded: (firstIndex: numb
       for (const url of objectUrls.values()) URL.revokeObjectURL(url);
       objectUrls = new Map();
       characterId = id;
-      images = [...next];
+      // Copies: typing changes the texts here, never the saved state the editor compares with.
+      images = next.map(image => ({ ...image }));
       render();
     },
-    get: () => [...images],
+    get: () => images.map(image => ({ ...image })),
     sources: () =>
       images.map((image, i) => {
         const id = characterId ?? '';

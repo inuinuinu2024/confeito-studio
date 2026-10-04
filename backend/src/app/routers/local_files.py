@@ -1,4 +1,4 @@
-"""/api/local-files — files on the PC running the backend (画像読み込み's file dialog)."""
+"""/api/local-files — files on the PC running the backend (画像読み込み's file dialog, the 保存先 folder dialog)."""
 
 import mimetypes
 from urllib.parse import quote
@@ -8,7 +8,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from ..services.file_dialog_service import normalize_folder, pick_image_file
+from ..services.file_dialog_service import normalize_folder, pick_folder, pick_image_file
 
 router = APIRouter(prefix="/local-files", tags=["local-files"])
 
@@ -26,6 +26,12 @@ async def api_check_folder(body: FolderBody) -> dict:
     """404 unless the folder exists (an empty path is fine: the dialog's default)."""
     normalize_folder(body.path)
     return {"ok": True}
+
+
+@router.post("/pick-folder")
+async def api_pick_folder(body: PickImageBody) -> dict:
+    """Opens the folder dialog in ``initial_dir``: ``{path}`` of the chosen folder, ``null`` when cancelled."""
+    return {"path": await run_in_threadpool(pick_folder, body.initial_dir)}
 
 
 @router.post("/pick-image")

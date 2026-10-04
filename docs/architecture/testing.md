@@ -14,7 +14,7 @@
 
 ## バックエンドのテスト（`backend/tests/`）
 - `conftest.py` が import 前に `CONFEITO_ENV_FILE` を存在しないファイルに向け、テストごとに
-  `archives_dir` / `settings_dir` / `assets_dir` / `env_file` を `tmp_path` に差し替える（実データ・API キーを読まない）。
+  `archives_dir` / `settings_dir` / `assets_dir` / `data_dir` / `env_file` を `tmp_path` に差し替える（実データ・API キーを読まない）。
 - Gemini 呼び出しは `monkeypatch` で `gemini.generate_content` や `requests.post` を差し替える。
 - ファイル選択ダイアログは `file_dialog_service._ask_open_filename` を差し替える（`tests/test_file_dialog.py`）。
 - `client` フィクスチャ（`TestClient`）で HTTP 契約（ステータスコードと `detail` 形式）を検証する。

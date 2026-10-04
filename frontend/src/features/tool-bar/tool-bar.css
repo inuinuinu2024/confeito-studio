@@ -34,7 +34,7 @@
   color: var(--color-primary);
 }
 
-/* Thin line between the groups: Normal / Batch, the comparison views (Parallel / Overlay), the managers */
+/* Thin line between the groups: Normal / Batch, the comparison views (Parallel / Overlay), the managers, the monitors */
 .left-toolbar__divider {
   flex-shrink: 0;
   width: 28px;

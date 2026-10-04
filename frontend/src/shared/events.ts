@@ -55,6 +55,8 @@ export interface AppEventMap {
   'prompt-mode:toggle': { enabled: boolean };
   /** The Character Manager (features/character-manager/) replaces ARCHIVES and the canvas. */
   'character-mode:toggle': { enabled: boolean };
+  /** The Cost Monitor (features/cost-monitor/) replaces ARCHIVES and the canvas. */
+  'cost-mode:toggle': { enabled: boolean };
 
   // ── Current document (features/document/DocumentManager.ts) ──
   'document:loaded': DocumentLoadedDetail;
@@ -70,6 +72,11 @@ export interface AppEventMap {
   'archive:batch-selected': { items: ArchiveSelection[] };
   /** Files changed on disk → panels reload and optionally select `autoSelectKey`. */
   'archives:changed': { autoSelectKey?: string } | undefined;
+  /**
+   * The ARCHIVES folder was switched (settings window 保存先): ARCHIVES drops its selection, the layer
+   * checks and the deletions to undo, and shows the new folder.
+   */
+  'archives:location-changed': undefined;
 
   // ── Overlay / Parallel mode ──
   /**

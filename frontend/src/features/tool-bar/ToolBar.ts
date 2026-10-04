@@ -2,7 +2,7 @@
  * ToolBar — left column of view mode buttons (state lives in shared/state/view-mode.ts), in groups
  * separated by thin dividers: Normal, Batch | the comparison views Parallel, Overlay | the managers
  * (Prompt Manager / Character Manager are the "prompt" / "character" view modes; Object / Style are not
- * implemented yet).
+ * implemented yet) | the monitors (Cost Monitor is the "cost" view mode).
  */
 import './tool-bar.css';
 import { on } from '../../shared/events';
@@ -10,37 +10,64 @@ import { getViewMode, toggleViewMode, type ViewMode } from '../../shared/state/v
 import { h, icon } from '../../shared/ui/dom';
 import { showToast } from '../../shared/ui/toast';
 
-const MODES: { mode: ViewMode; title: string; icon: string }[] = [
-  { mode: 'normal', title: 'Normal Mode', icon: 'image' },
-  { mode: 'batch', title: 'Batch Mode', icon: 'grid_view' },
-  { mode: 'parallel', title: 'Parallel View', icon: 'compare' },
-  { mode: 'overlay', title: 'Overlay View', icon: 'photo_library' },
-  { mode: 'prompt', title: 'Prompt Manager', icon: 'chat' },
-  { mode: 'character', title: 'Character Manager', icon: 'person' },
-];
-/** A divider goes before each of these modes (the comparison views, then the managers). */
-const DIVIDER_BEFORE: ViewMode[] = ['parallel', 'prompt'];
-/** Managers after Character Manager (not implemented yet: they show a "開発中" toast). */
-const MANAGERS: { title: string; icon: string }[] = [
+interface ButtonDef {
+  title: string;
+  icon: string;
+}
+
+const MODES: Record<ViewMode, ButtonDef> = {
+  normal: { title: 'Normal Mode', icon: 'image' },
+  batch: { title: 'Batch Mode', icon: 'grid_view' },
+  parallel: { title: 'Parallel View', icon: 'compare' },
+  overlay: { title: 'Overlay View', icon: 'photo_library' },
+  prompt: { title: 'Prompt Manager', icon: 'chat' },
+  character: { title: 'Character Manager', icon: 'person' },
+  cost: { title: 'Cost Monitor', icon: 'browse_activity' },
+};
+
+/** Top to bottom: a view mode, a divider, or a button that is not implemented yet (shows a "開発中" toast). */
+const ITEMS: (ViewMode | 'divider' | ButtonDef)[] = [
+  'normal',
+  'batch',
+  'divider',
+  'parallel',
+  'overlay',
+  'divider',
+  'prompt',
+  'character',
   { title: 'Object Manager', icon: 'eyeglasses' },
   { title: 'Style Manager', icon: 'brush' },
+  'divider',
+  'cost',
 ];
 
 export function createToolBar(): HTMLElement {
-  const buttons = MODES.map(m =>
-    h(
+  const modeButtons = new Map<ViewMode, HTMLElement>();
+  const items = ITEMS.map(item => {
+    if (item === 'divider') return h('div', { class: 'left-toolbar__divider' });
+    if (typeof item === 'object') {
+      return h(
+        'div',
+        { class: 'left-toolbar__btn', title: item.title, onclick: () => showToast(item.title, 'mock') },
+        icon(item.icon, 24),
+      );
+    }
+    const def = MODES[item];
+    const btn = h(
       'div',
-      { class: 'left-toolbar__btn', title: m.title, onclick: () => void toggleViewMode(m.mode) },
-      icon(m.icon, 24),
-    ),
-  );
+      { class: 'left-toolbar__btn', title: def.title, onclick: () => void toggleViewMode(item) },
+      icon(def.icon, 24),
+    );
+    modeButtons.set(item, btn);
+    return btn;
+  });
   // Batch mode still opens, with a notice that it is being reworked.
   on('batch-mode:toggle', ({ enabled }) => {
     if (enabled) showToast('Batch モードは現在修正中です', 'info');
   });
   const render = () => {
     const current = getViewMode();
-    buttons.forEach((btn, i) => btn.classList.toggle('left-toolbar__btn--active', MODES[i].mode === current));
+    modeButtons.forEach((btn, mode) => btn.classList.toggle('left-toolbar__btn--active', mode === current));
   };
   for (const event of [
     'normal-mode:toggle',
@@ -49,18 +76,10 @@ export function createToolBar(): HTMLElement {
     'batch-mode:toggle',
     'prompt-mode:toggle',
     'character-mode:toggle',
+    'cost-mode:toggle',
   ] as const) {
     on(event, render);
   }
   render();
-  const managers = MANAGERS.map(m =>
-    h(
-      'div',
-      { class: 'left-toolbar__btn', title: m.title, onclick: () => showToast(m.title, 'mock') },
-      icon(m.icon, 24),
-    ),
-  );
-  const divider = () => h('div', { class: 'left-toolbar__divider' });
-  const modeItems = buttons.flatMap((btn, i) => (DIVIDER_BEFORE.includes(MODES[i].mode) ? [divider(), btn] : [btn]));
-  return h('div', { class: 'left-toolbar' }, ...modeItems, ...managers);
+  return h('div', { class: 'left-toolbar' }, ...items);
 }
