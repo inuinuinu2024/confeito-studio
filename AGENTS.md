@@ -33,7 +33,8 @@
    構造を変えたら `docs/architecture/` の表（イベント一覧・API 一覧など）も更新する。
 3. **変更したら検証する。** 上の表の検証を実行し、UI に関わる変更は E2E を回してスクリーンショットを確認する。
    新しい UI 操作を作ったら `frontend/e2e/smoke.mts` にシナリオを足す。
-4. **ユーザーのデータを守る。** `archives/`・`.env`・`models/`・`settings/user_settings.json`・`assets/prompts/` を削除・上書きしない。テストと E2E は一時ディレクトリを使う。
+4. **ユーザーのデータを守る。** `archives/`・`.env`・`models/`・`settings/user_settings.json`・`assets/prompts/`・`assets/characters/` を削除・上書きしない。テストと E2E は一時ディレクトリを使う。
+   E2E は顔検出（`/api/characters/detect-faces`）を必ずスタブにする（スタブしないと `models/` にモデルをダウンロードする）。
    テストや確認で実際の Gemini API を呼ばない（課金と外部送信が発生する）。
 5. **フロントエンドの決まり**
    - バックエンド呼び出しは `shared/api/` の関数経由（`fetch` を直接書かない）。
@@ -60,6 +61,8 @@
 | AI ツールを追加・修正 | `frontend/src/features/tools/`（一覧は `index.ts`）、手順は frontend.md「ツールを追加する」 |
 | 登録プロンプト・Prompt Manager | `features/prompt-manager/`（純粋な処理は `shared/utils/prompts.ts`）、ツール側は `features/tools/gemini-image/prompt-library.ts`、`backend/src/app/services/prompt_service.py`、仕様は docs/specs/prompt-manager.md |
 | Gemini に送る内容を変える | `features/tools/gemini-image/`（参照画像・プロンプトの共通部品）、`features/tools/nano-banana-pro/`（モデル・API ごとの設定項目とリクエスト）、`backend/src/app/services/panel_geometry.py`（コマ検出） |
+| 登録キャラクター・Character Manager | `features/character-manager/`（純粋な処理は `shared/utils/characters.ts`、アイコンの切り取りは `icon-cropper.ts` と `shared/utils/icon-crop.ts`、顔検出は `backend/src/app/services/face_service.py`）、ツール側は `features/tools/gemini-image/character-picker.ts`、`backend/src/app/services/character_service.py`、仕様は docs/specs/character-manager.md |
+| マネージャー共通（カテゴリー一覧・見た目） | `shared/ui/category-sidebar.ts`・`shared/styles/manager.css`・`shared/utils/categories.ts`、`backend/src/app/services/categorized_store.py` |
 | ARCHIVES の表示・選択 | `features/archive-panel/`（ツリー計算は `archive-tree.ts`） |
 | キャンバスの描画・モード | `features/canvas/`（描画 `render.ts`、状態 `canvas-state.ts`、ズーム `zoom.ts`） |
 | API の追加 | `backend/src/app/routers/` + `services/` → `frontend/src/shared/api/`、手順は backend.md |
@@ -81,5 +84,5 @@
   `backend/.venv` は python.org 公式版（`%LOCALAPPDATA%\Programs\Python\Python313`）で作る（手順は setup/README.md）。
 - backend の import ルートは `src.app`（`uvicorn src.app.main:app`、テストも `from src.app...`）。
 - `settings/default_settings.json` は初期設定（git 管理対象、アプリは書かない）。ユーザーが変えた値は `settings/user_settings.json`、
-  ユーザーが登録したプロンプトは `assets/prompts/prompts.json`（全ツール共通。どちらも git 管理外）。
+  ユーザーが登録したプロンプトは `assets/prompts/prompts.json`、キャラクターは `assets/characters/`（全ツール共通。いずれも git 管理外）。
 - 未対応の課題・判断待ちの項目はリポジトリ直下の `task.md` にある。

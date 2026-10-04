@@ -1,7 +1,7 @@
 /* ============================================================
    ConfeitO Studio — App shell grid (app.ts)
-   Columns: mode toolbar | ARCHIVES | canvas | AI panel (hidden in Parallel / Overlay / Prompt Manager mode)
-   The Prompt Manager (features/prompt-manager/) replaces ARCHIVES and the canvas in its mode.
+   Columns: mode toolbar | ARCHIVES | canvas | AI panel (hidden in Parallel / Overlay / the managers' modes)
+   The managers (features/prompt-manager/, features/character-manager/) replace ARCHIVES and the canvas in their modes.
    Rows:    top bar | workspace | status bar
    Feature styles live next to each feature (features/<name>/<name>.css).
    ============================================================ */
@@ -15,7 +15,7 @@
   background-color: var(--color-outline-variant);
 }
 
-/* Parallel / Overlay / Prompt Manager mode: no right sidebar (tools do not run), the canvas takes its width */
+/* Parallel / Overlay / manager modes: no right sidebar (tools do not run), the canvas takes its width */
 .manga-grid--no-tools {
   grid-template-columns: var(--left-toolbar-width) var(--left-sidebar-width) 1fr;
 }
@@ -24,8 +24,8 @@
   display: none;
 }
 
-/* Prompt Manager mode: its sidebar and main area take the ARCHIVES and canvas cells */
-.manga-grid--prompt > .layer-panel,
-.manga-grid--prompt > .canvas-area {
+/* Manager modes: the manager's sidebar and main area take the ARCHIVES and canvas cells */
+.manga-grid--manager > .layer-panel,
+.manga-grid--manager > .canvas-area {
   display: none;
 }

@@ -1,88 +1,60 @@
 /**
  * Pure helpers for the registered prompts (docs/specs/prompt-manager.md), used by the Prompt Manager
- * and the tools' prompt field. The backend checks the same input rules.
+ * and the tools' prompt field. The category rules are shared with the characters (categories.ts);
+ * the backend checks the same input rules.
  */
 import type { PromptStore, SavedPrompt } from '../api/prompts';
+import {
+  type CategoryFilter,
+  displayCategories as categoriesInUse,
+  countByCategory as countItems,
+  groupByCategory,
+  MAX_NAME_LENGTH,
+  matchesQuery,
+  nameCategoryError,
+} from './categories';
 
-export const MAX_NAME_LENGTH = 100;
-export const MAX_CATEGORY_LENGTH = 50;
-export const UNCATEGORIZED_LABEL = '未分類';
-
-/** A category filter: one category ("" = 未分類), or null for すべて. */
-export type CategoryFilter = string | null;
+export {
+  type CategoryFilter,
+  categoryLabel,
+  findByName,
+  isSortable,
+  MAX_CATEGORY_LENGTH,
+  MAX_NAME_LENGTH,
+  matchesQuery,
+  normalizeCategory,
+  previewText,
+  UNCATEGORIZED_LABEL,
+} from './categories';
 
 export interface PromptGroup {
   category: string;
   prompts: SavedPrompt[];
 }
 
-/** A category as stored: trimmed, "" for 未分類 (also when the label itself is typed). */
-export function normalizeCategory(category: string): string {
-  const trimmed = category.trim();
-  return trimmed === UNCATEGORIZED_LABEL ? '' : trimmed;
-}
-
-export function categoryLabel(category: string): string {
-  return category || UNCATEGORIZED_LABEL;
-}
-
 /** The message to show when the input cannot be saved, or null when it can. */
 export function promptInputError(name: string, category: string, text: string): string | null {
-  const trimmed = name.trim();
-  if (!trimmed) return '名前を入力してください。';
-  if (trimmed.length > MAX_NAME_LENGTH) return `名前は ${MAX_NAME_LENGTH} 文字以内にしてください。`;
-  if (normalizeCategory(category).length > MAX_CATEGORY_LENGTH) {
-    return `カテゴリーは ${MAX_CATEGORY_LENGTH} 文字以内にしてください。`;
-  }
+  const error = nameCategoryError(name, category);
+  if (error) return error;
   if (!text.trim()) return 'プロンプトの本文を入力してください。';
   return null;
 }
 
-/** The registered prompt with `name` (compared trimmed), other than `exceptId`. */
-export function findByName(prompts: readonly SavedPrompt[], name: string, exceptId?: string): SavedPrompt | undefined {
-  const trimmed = name.trim();
-  return prompts.find(p => p.name === trimmed && p.id !== exceptId);
-}
-
-/** The first `lines` non-blank lines of the text, with "…" when more follows. */
-export function previewText(text: string, lines = 2): string {
-  const all = text.split(/\r?\n/).filter(line => line.trim() !== '');
-  const head = all.slice(0, lines).join('\n');
-  return all.length > lines ? `${head}…` : head;
-}
-
-/** Search: the query (case-insensitive) in the name or the text. */
-export function matchesQuery(prompt: SavedPrompt, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  return !q || prompt.name.toLowerCase().includes(q) || prompt.text.toLowerCase().includes(q);
-}
-
 /** Every category in display order: the store's order, then 未分類 when a prompt has none. */
 export function displayCategories(store: PromptStore): string[] {
-  const used = new Set(store.prompts.map(p => p.category));
-  return [...store.categories.filter(c => used.has(c)), ...(used.has('') ? [''] : [])];
+  return categoriesInUse(store.categories, store.prompts);
 }
 
 export function countByCategory(store: PromptStore): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const p of store.prompts) counts.set(p.category, (counts.get(p.category) ?? 0) + 1);
-  return counts;
+  return countItems(store.prompts);
 }
 
 /** The prompts shown for a filter and a query, grouped by category in display order (empty groups left out). */
 export function groupPrompts(store: PromptStore, filter: CategoryFilter, query: string): PromptGroup[] {
-  const categories = filter === null ? displayCategories(store) : [filter];
-  return categories
-    .map(category => ({
-      category,
-      prompts: store.prompts.filter(p => p.category === category && matchesQuery(p, query)),
-    }))
-    .filter(group => group.prompts.length > 0);
-}
-
-/** Prompts can be dragged into a new order only within one category and without a search. */
-export function isSortable(filter: CategoryFilter, query: string): boolean {
-  return filter !== null && !query.trim();
+  return groupByCategory(store.categories, store.prompts, filter, p => matchesQuery(p, query)).map(g => ({
+    category: g.category,
+    prompts: g.items,
+  }));
 }
 
 // ── Export / import ──

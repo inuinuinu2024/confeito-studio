@@ -3,8 +3,8 @@
  *
  * Waits for the backend (/api/health) behind the splash screen, loads tool settings,
  * then builds the shell grid: TopBar / ToolBar / ARCHIVES / Canvas / AI panel / StatusBar.
- * Parallel and Overlay mode hide the AI panel (they only compare images); the Prompt Manager mode
- * also replaces ARCHIVES and the canvas with its own sidebar and main area.
+ * Parallel and Overlay mode hide the AI panel (they only compare images); the managers (Prompt Manager,
+ * Character Manager) also replace ARCHIVES and the canvas with their own sidebar and main area.
  */
 import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
@@ -22,6 +22,7 @@ import './shared/styles/layout.css';
 import { createAIPanel } from './features/ai-panel/AIPanel';
 import { createArchivePanel } from './features/archive-panel/ArchivePanel';
 import { createCanvas } from './features/canvas/Canvas';
+import { createCharacterManager } from './features/character-manager/CharacterManager';
 import { createPromptManager } from './features/prompt-manager/PromptManager';
 import { createStatusBar } from './features/status-bar/StatusBar';
 import { createToolBar } from './features/tool-bar/ToolBar';
@@ -58,21 +59,29 @@ async function initApp(): Promise<void> {
   workspace.className = 'manga-grid';
 
   // Parallel / Overlay mode only compare images: no tools, the canvas gets the right sidebar's width.
-  // The Prompt Manager has no tools either and covers ARCHIVES and the canvas.
+  // The managers have no tools either and cover ARCHIVES and the canvas.
   // Registered before the canvas so its mode handlers measure the resized area. The mode is read from the
   // store: switching between two modes emits one mode's "on" before the other's "off".
   const syncLayout = () => {
     const mode = getViewMode();
-    workspace.classList.toggle('manga-grid--no-tools', ['parallel', 'overlay', 'prompt'].includes(mode));
+    workspace.classList.toggle('manga-grid--no-tools', ['parallel', 'overlay', 'prompt', 'character'].includes(mode));
+    workspace.classList.toggle('manga-grid--manager', ['prompt', 'character'].includes(mode));
     workspace.classList.toggle('manga-grid--prompt', mode === 'prompt');
+    workspace.classList.toggle('manga-grid--character', mode === 'character');
   };
-  for (const event of ['parallel-mode:toggle', 'overlay-mode:toggle', 'prompt-mode:toggle'] as const) {
+  for (const event of [
+    'parallel-mode:toggle',
+    'overlay-mode:toggle',
+    'prompt-mode:toggle',
+    'character-mode:toggle',
+  ] as const) {
     on(event, syncLayout);
   }
   const promptManager = createPromptManager();
+  const characterManager = createCharacterManager();
 
   // Grid order: topbar (row 1), toolbar | archives | canvas | right sidebar (row 2), statusbar (row 3).
-  // The Prompt Manager's two parts place themselves in the archives / canvas cells (hidden outside its mode).
+  // Each manager's two parts place themselves in the archives / canvas cells (hidden outside its mode).
   workspace.append(
     createTopBar(),
     createToolBar(),
@@ -82,6 +91,8 @@ async function initApp(): Promise<void> {
     createStatusBar(),
     promptManager.sidebar,
     promptManager.main,
+    characterManager.sidebar,
+    characterManager.main,
   );
 
   app.appendChild(workspace);

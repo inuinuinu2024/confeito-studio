@@ -5,14 +5,20 @@
  * order. Each card sets the image's type (Object / Character / Style — any type the model has),
  * the ★ "important" flag and a description, and is reordered by dragging its handle.
  * Only the total number of images is limited; the per-type numbers are recommendations.
+ * A registered character can be added from the picker (character-picker.ts): its images as Character
+ * images described with its name and text, or — without images — its text appended to the prompt.
  * The images live in an array owned by the tool instance, so they survive closing the tool window.
  */
 import './reference-images.css';
+import { fetchCharacterImage, type SavedCharacter } from '../../../shared/api/characters';
 import { h, icon } from '../../../shared/ui/dom';
 import { enableDragSort } from '../../../shared/ui/drag-sort';
-import { helpIcon } from '../../../shared/ui/form';
-import { showToast } from '../../../shared/ui/toast';
+import { helpIcon, iconButton } from '../../../shared/ui/form';
+import { showError, showToast } from '../../../shared/ui/toast';
+import { referenceDescriptions } from '../../../shared/utils/characters';
+import { openCharacterPicker } from './character-picker';
 import {
+  characterZone,
   countInZone,
   type ReferenceImage,
   reorderImages,
@@ -31,7 +37,15 @@ const TYPE_HELP = [
   'Character: キャラクターの三面図、顔のアップなど、人物のアイデンティティを固定したい画像。',
   'Style: 参考にするイラストレーターの絵、完成形の塗り方の参考画像など、画風を適用したい画像。',
   '説明は Gemini に送る文章で、その画像の見出し（# Image N）の下に入ります。',
+  '右の人のアイコンで、Character Manager に登録したキャラクターの画像を追加できます。',
 ].join('\n');
+
+const EXTENSIONS: Record<string, string> = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp' };
+
+export interface ReferenceListOptions {
+  /** Appends a registered character's text to the prompt (a character without images). */
+  appendPrompt?: (text: string) => void;
+}
 
 const objectUrls = new WeakMap<File, string>();
 function previewUrl(file: File): string {
@@ -51,6 +65,7 @@ export function createReferenceList(
   images: ReferenceImage[],
   zones: ZoneDef[],
   limit = totalLimit(zones),
+  opts: ReferenceListOptions = {},
 ): HTMLElement {
   const counts = h('div', { class: 'ref-list__counts' });
   const addArea = h('div', { class: 'cs-dropzone__area ref-list__add' });
@@ -68,6 +83,47 @@ export function createReferenceList(
     if (skipped)
       showToast(`参照画像の上限（合計 ${limit} 枚）に達したため、${skipped} 枚は追加しませんでした`, 'warning');
     render();
+  };
+
+  /** Adds a registered character (docs/specs/tools/gemini-image.md 「登録したキャラクター」). */
+  const addCharacter = async (character: SavedCharacter) => {
+    const { name, text } = character;
+    if (character.images.length === 0) {
+      if (text.trim() && opts.appendPrompt) {
+        opts.appendPrompt(text);
+        showToast(`キャラクター「${name}」の本文をプロンプトに追加しました`, 'success');
+      } else {
+        showToast(`キャラクター「${name}」には画像も本文もありません`, 'warning');
+      }
+      return;
+    }
+    const space = limit - images.length;
+    const zone = characterZone(zones);
+    if (space <= 0 || !zone) {
+      showToast(
+        `参照画像の上限（合計 ${limit} 枚）に達しているため、キャラクター「${name}」の画像を追加できません`,
+        'warning',
+      );
+      return;
+    }
+    let blobs: Blob[];
+    try {
+      blobs = await Promise.all(character.images.slice(0, space).map(file => fetchCharacterImage(character.id, file)));
+    } catch (err) {
+      showError(`キャラクター「${name}」の画像を読み込めませんでした`, err);
+      return;
+    }
+    const descriptions = referenceDescriptions(name, text, blobs.length);
+    blobs.forEach((blob, i) => {
+      const file = new File([blob], `${name}_${i + 1}${EXTENSIONS[blob.type] ?? '.png'}`, { type: blob.type });
+      images.push({ file, zoneTitle: zone.title, description: descriptions[i] });
+    });
+    render();
+    const skipped = character.images.length - blobs.length;
+    if (skipped) {
+      showToast(`参照画像の上限（合計 ${limit} 枚）に達したため、${skipped} 枚は追加しませんでした`, 'warning');
+    }
+    showToast(`キャラクター「${name}」の画像 ${blobs.length} 枚を参照画像に追加しました`, 'success');
   };
 
   const card = (item: ReferenceImage, index: number) => {
@@ -196,9 +252,14 @@ export function createReferenceList(
     { class: 'ref-section' },
     h(
       'div',
-      { class: 'cs-field__label-row' },
-      h('label', { class: 'cs-field__label', text: '参照画像' }),
-      helpIcon(TYPE_HELP),
+      { class: 'cs-field__label-row cs-field__label-row--spread' },
+      h(
+        'div',
+        { class: 'cs-field__label-row' },
+        h('label', { class: 'cs-field__label', text: '参照画像' }),
+        helpIcon(TYPE_HELP),
+      ),
+      iconButton('person_add', '登録したキャラクターから追加', () => openCharacterPicker(c => void addCharacter(c))),
     ),
     counts,
     addArea,

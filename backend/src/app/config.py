@@ -8,9 +8,9 @@ environment variable (the tests and the E2E harness point them at temp dirs):
     CONFEITO_ARCHIVES_DIR  archive storage (default: <repo>/archives)
     CONFEITO_SETTINGS_DIR  tool settings: default_settings.json (initial values, in git) and
                            user_settings.json (the user's values, not in git) (default: <repo>/settings)
-    CONFEITO_ASSETS_DIR    the user's assets, not in git: prompts/prompts.json (registered prompts)
-                           (default: <repo>/assets)
-    CONFEITO_MODELS_DIR    rembg model directory (default: <repo>/models)
+    CONFEITO_ASSETS_DIR    the user's assets, not in git: prompts/prompts.json (registered prompts) and
+                           characters/ (registered characters and their images) (default: <repo>/assets)
+    CONFEITO_MODELS_DIR    rembg model and the anime face detector (downloaded on first use) (default: <repo>/models)
     CONFEITO_PROJECT_DIR   where 画像読み込み's file dialog opens when no folder is set (default: <repo>)
 
 Values from the .env file are copied into ``os.environ`` without overriding variables that are
@@ -55,6 +55,20 @@ class Settings(BaseSettings):
     def prompts_file(self) -> Path:
         """The prompts the user registered, shared by every tool (not in git)."""
         return self.assets_dir / "prompts" / "prompts.json"
+
+    @property
+    def characters_dir(self) -> Path:
+        """The characters the user registered: characters.json and one image folder per character (not in git)."""
+        return self.assets_dir / "characters"
+
+    @property
+    def characters_file(self) -> Path:
+        return self.characters_dir / "characters.json"
+
+    @property
+    def face_model_file(self) -> Path:
+        """Anime face detector for character icons (services/face_service.py), downloaded on first use."""
+        return self.models_dir / "anime_face_detect_v1.4_s.onnx"
 
 
 def read_env_file(path: Path) -> dict[str, str]:

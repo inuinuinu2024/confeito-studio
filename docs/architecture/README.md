@@ -21,8 +21,9 @@
 | `settings/default_settings.json` | 各ツールの設定の初期値（フラットな文字列マップ。アプリは書かない） | 管理対象 |
 | `settings/user_settings.json` | ユーザーが変えた設定値（初期値の上に重ねる。壊れていたら `user_settings.broken-*.json` に退避） | 除外（**消さないこと**） |
 | `assets/prompts/prompts.json` | ユーザーが登録したプロンプト（全ツール共通。壊れていたら `prompts.broken-*.json` に退避） | 除外（**消さないこと**） |
+| `assets/characters/` | ユーザーが登録したキャラクター（`characters.json` ＋ キャラクターごとの画像フォルダ `<id>/`。全ツール共通。壊れていたら `characters.broken-*.json` に退避） | 除外（**消さないこと**） |
 | `.env` | `GEMINI_API_KEY` | 除外（秘密情報） |
-| `models/` | rembg モデル（isnet-anime.onnx） | 除外 |
+| `models/` | rembg モデル（isnet-anime.onnx）、キャラクターのアイコン用のアニメ顔検出モデル（anime_face_detect_v1.4_s.onnx。初回使用時に自動でダウンロード） | 除外 |
 
 バックエンドの各パスは `CONFEITO_ARCHIVES_DIR` / `CONFEITO_SETTINGS_DIR` / `CONFEITO_ASSETS_DIR` / `CONFEITO_ENV_FILE` で差し替え可能（テストと E2E が一時ディレクトリを使うため）。
 
@@ -32,6 +33,7 @@
 - **Vanilla CSS**: フレームワークに依存せず、デザイントークン（CSS Custom Properties）で一元管理。
 - **FastAPI**: 型安全で高速なバックエンド API の構築。
 - **rembg (isnet-anime)**: ローカルで完結する背景除去。
+- **アニメ顔検出（deepghs/anime_face_detection・YOLOv8s ONNX）**: キャラクターのアイコンの切り取り枠を置くための顔検出。rembg と同じ onnxruntime で CPU 実行する。
 - **Gemini API**: 画像生成（Interactions API）とコマ検出（generateContent + JSON スキーマ）。
 
 ## ドキュメントの構成

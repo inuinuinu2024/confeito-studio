@@ -1,25 +1,38 @@
 /**
  * Drag & drop reordering of the items matching `itemSelector` inside a container (the TOOLS list,
  * the reference images of the Gemini tools). Only items with `draggable = true` can be picked up.
- * `onReorder` receives the items in their new order.
+ * `onReorder` receives the items in their new order. Items are compared top / bottom halves, or left / right
+ * halves with `axis: 'x'` (a row of thumbnails, which may wrap).
  */
 
 function clearIndicators(container: HTMLElement): void {
   for (const child of Array.from(container.children) as HTMLElement[]) {
-    child.style.borderTop = '';
-    child.style.borderBottom = '';
-    child.style.transform = '';
+    clearIndicator(child);
   }
+}
+
+function clearIndicator(item: HTMLElement): void {
+  item.style.borderTop = '';
+  item.style.borderBottom = '';
+  item.style.borderLeft = '';
+  item.style.borderRight = '';
+  item.style.transform = '';
 }
 
 export function enableDragSort(
   container: HTMLElement,
   itemSelector: string,
   onReorder: (items: HTMLElement[]) => void,
+  axis: 'x' | 'y' = 'y',
 ): void {
   let dragged: HTMLElement | null = null;
   const itemOf = (target: EventTarget | null) =>
     (target as HTMLElement | null)?.closest<HTMLElement>(itemSelector) ?? null;
+  /** Whether the pointer is on the second half (below / right of the middle) of the item. */
+  const isAfter = (item: HTMLElement, e: DragEvent) => {
+    const rect = item.getBoundingClientRect();
+    return axis === 'x' ? e.clientX > rect.x + rect.width / 2 : e.clientY > rect.y + rect.height / 2;
+  };
 
   container.addEventListener('dragstart', e => {
     const item = itemOf(e.target);
@@ -47,11 +60,16 @@ export function enableDragSort(
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
     const item = itemOf(e.target);
     if (!item || !dragged || item === dragged || !container.contains(item)) return;
-    const rect = item.getBoundingClientRect();
-    const below = e.clientY > rect.y + rect.height / 2;
-    item.style.borderTop = below ? '' : '2px solid var(--color-primary)';
-    item.style.borderBottom = below ? '2px solid var(--color-primary)' : '';
-    item.style.transform = below ? 'translateY(-1px)' : 'translateY(1px)';
+    const after = isAfter(item, e);
+    const line = '2px solid var(--color-primary)';
+    if (axis === 'x') {
+      item.style.borderLeft = after ? '' : line;
+      item.style.borderRight = after ? line : '';
+    } else {
+      item.style.borderTop = after ? '' : line;
+      item.style.borderBottom = after ? line : '';
+      item.style.transform = after ? 'translateY(-1px)' : 'translateY(1px)';
+    }
   });
 
   container.addEventListener('dragleave', e => {
@@ -59,9 +77,7 @@ export function enableDragSort(
     if (!item) return;
     const rect = item.getBoundingClientRect();
     if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
-      item.style.borderTop = '';
-      item.style.borderBottom = '';
-      item.style.transform = '';
+      clearIndicator(item);
     }
   });
 
@@ -71,8 +87,7 @@ export function enableDragSort(
     if (!dragged) return;
     const item = itemOf(e.target);
     if (item && item !== dragged && container.contains(item)) {
-      const rect = item.getBoundingClientRect();
-      if (e.clientY > rect.y + rect.height / 2) item.after(dragged);
+      if (isAfter(item, e)) item.after(dragged);
       else item.before(dragged);
     } else if (e.target === container) {
       container.appendChild(dragged);

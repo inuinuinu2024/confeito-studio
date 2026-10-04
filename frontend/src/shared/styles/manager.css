@@ -1,0 +1,275 @@
+/* ── Managers (Prompt Manager, Character Manager): the category sidebar (shared/ui/category-sidebar.ts) in the
+   ARCHIVES column, list | editor in the canvas column. Each manager shows its own .mgr-sidebar / .mgr-main
+   only in its view mode (the feature's CSS). ── */
+.mgr-sidebar,
+.mgr-main {
+  display: none;
+  grid-row: 2 / 3;
+}
+
+.mgr-sidebar {
+  grid-column: 2 / 3;
+  position: relative;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface-container-low);
+}
+
+.mgr-main {
+  grid-column: 3 / 4;
+  grid-template-columns: minmax(220px, 320px) 1fr;
+  gap: var(--panel-gap);
+  overflow: hidden;
+  background-color: var(--color-outline-variant);
+}
+
+.mgr-sidebar__resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 10;
+}
+
+.mgr-sidebar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding: 12px;
+  border-bottom: 1px solid var(--color-outline-variant);
+}
+
+.mgr-sidebar__title {
+  font-family: var(--font-label);
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: var(--color-on-surface-variant);
+}
+
+.mgr-sidebar__actions {
+  display: flex;
+  gap: 4px;
+}
+
+.mgr-sidebar__action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  color: var(--color-on-surface-variant);
+  transition: background-color 150ms ease;
+}
+
+.mgr-sidebar__action-btn:hover {
+  background: var(--color-surface-container-highest);
+}
+
+/* Category rows */
+.mgr-categories {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  overflow-y: auto;
+}
+
+.mgr-category {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+}
+
+.mgr-category:hover {
+  background: var(--color-surface-container-highest);
+}
+
+.mgr-category--active {
+  background: var(--color-secondary-container);
+  color: var(--color-on-surface);
+}
+
+.mgr-category--drop {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.mgr-category__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mgr-category__input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+}
+
+.mgr-category__edit {
+  display: none;
+  align-items: center;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  color: var(--color-on-surface-variant);
+}
+
+.mgr-category:hover .mgr-category__edit {
+  display: flex;
+}
+
+.mgr-category__edit:hover {
+  background: var(--color-surface-container);
+}
+
+.mgr-category__count {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-outline);
+}
+
+/* Item list */
+.mgr-list,
+.mgr-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-surface-container-low);
+}
+
+.mgr-list__toolbar {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--color-outline-variant);
+}
+
+.mgr-list__search {
+  flex: 1;
+  min-width: 0;
+}
+
+.mgr-list__items {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.mgr-list__group {
+  flex-shrink: 0;
+  padding: 10px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-outline);
+}
+
+.mgr-list__empty,
+.mgr-editor__empty {
+  padding: 16px 8px;
+  font-size: 13px;
+  color: var(--color-on-surface-variant);
+}
+
+.mgr-item {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--color-on-surface);
+  cursor: pointer;
+}
+
+.mgr-item:hover {
+  background: var(--color-surface-container-highest);
+}
+
+.mgr-item--active {
+  background: var(--color-secondary-container);
+}
+
+.mgr-item--sortable > .material-symbols-outlined {
+  color: var(--color-outline);
+  cursor: grab;
+}
+
+.mgr-item__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Editor */
+.mgr-editor {
+  padding: 16px;
+}
+
+.mgr-editor__form {
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.mgr-editor__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mgr-editor__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+.mgr-editor__dirty {
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--color-warning);
+  border: 1px solid var(--color-warning);
+}
+
+.mgr-editor__text-field {
+  flex: 1;
+  min-height: 0;
+}
+
+.mgr-editor__text {
+  flex: 1;
+  min-height: 160px;
+  resize: none;
+  font-family: var(--font-body);
+  line-height: 1.6;
+}
+
+.mgr-editor__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

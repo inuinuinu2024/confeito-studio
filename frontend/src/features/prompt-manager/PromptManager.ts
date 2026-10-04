@@ -20,11 +20,11 @@ import {
   updatePrompt,
 } from '../../shared/api/prompts';
 import { isViewMode, setLeaveGuard } from '../../shared/state/view-mode';
+import { createCategorySidebar } from '../../shared/ui/category-sidebar';
 import { choiceDialog, confirmDialog } from '../../shared/ui/dialogs';
 import { enableDragSort } from '../../shared/ui/drag-sort';
 import { h, icon, setShown } from '../../shared/ui/dom';
 import { button, field, suggestInput } from '../../shared/ui/form';
-import { createResizer } from '../../shared/ui/resizer';
 import { showError, showToast } from '../../shared/ui/toast';
 import {
   type CategoryFilter,
@@ -71,44 +71,46 @@ export function createPromptManager(): { sidebar: HTMLElement; main: HTMLElement
   let saving = false;
 
   // ── Sidebar: categories ──
-  const sidebar = h('aside', { class: 'pm-sidebar' });
-  const categoryList = h('div', { class: 'pm-categories' });
-  const actionButton = (iconName: string, title: string, onClick: () => void) =>
-    h('button', { class: 'pm-sidebar__action-btn', title, onclick: onClick }, icon(iconName, 16));
-  sidebar.append(
-    createResizer(sidebar, '--left-sidebar-width', 'right', 'pm-sidebar__resizer'),
-    h(
-      'div',
-      { class: 'pm-sidebar__header' },
-      h('span', { class: 'pm-sidebar__title', text: 'PROMPTS' }),
-      h(
-        'div',
-        { class: 'pm-sidebar__actions' },
-        actionButton('refresh', '再読み込み', () => void load()),
-        actionButton(
-          'upload',
-          'インポート',
-          () => void chooseImportFile().then(changed => (changed ? load() : undefined)),
-        ),
-        actionButton('download', 'エクスポート', () => void exportPrompts()),
-      ),
-    ),
-    categoryList,
-  );
+  const categorySidebar = createCategorySidebar({
+    title: 'PROMPTS',
+    className: 'mgr-sidebar--prompt',
+    itemNoun: 'プロンプト',
+    itemMime: PROMPT_MIME,
+    actions: [
+      { icon: 'refresh', title: '再読み込み', onClick: () => void load() },
+      {
+        icon: 'upload',
+        title: 'インポート',
+        onClick: () => void chooseImportFile().then(changed => (changed ? load() : undefined)),
+      },
+      { icon: 'download', title: 'エクスポート', onClick: () => void exportPrompts() },
+    ],
+    onSelect: value => {
+      filter = value;
+      renderList();
+    },
+    onReorder: order => void change(() => reorderCategories(order), 'カテゴリーを並べ替えられませんでした'),
+    onDropItem: (id, target) => {
+      const moved = prompt(id);
+      if (moved && moved.category !== target) void moveTo(moved, target);
+    },
+    onRename: (old, next) => void rename(old, next),
+  });
+  const sidebar = categorySidebar.el;
 
   // ── Main: prompt list | editor ──
-  const search = h('input', { type: 'search', class: 'cs-input pm-list__search', placeholder: '名前・本文で検索' });
+  const search = h('input', { type: 'search', class: 'cs-input mgr-list__search', placeholder: '名前・本文で検索' });
   search.addEventListener('input', () => {
     query = search.value;
     renderList();
   });
-  const promptList = h('div', { class: 'pm-list__items' });
+  const promptList = h('div', { class: 'mgr-list__items' });
   const listPane = h(
     'div',
-    { class: 'pm-list' },
+    { class: 'mgr-list' },
     h(
       'div',
-      { class: 'pm-list__toolbar' },
+      { class: 'mgr-list__toolbar' },
       search,
       button('+ 新規', () => void startNew(), { variant: 'primary', size: 'small' }),
     ),
@@ -122,33 +124,33 @@ export function createPromptManager(): { sidebar: HTMLElement; main: HTMLElement
     placeholder: UNCATEGORIZED_LABEL,
     maxLength: MAX_CATEGORY_LENGTH,
   });
-  const textarea = h('textarea', { class: 'cs-textarea pm-editor__text' });
-  const editorTitle = h('span', { class: 'pm-editor__title' });
-  const dirtyBadge = h('span', { class: 'pm-editor__dirty', text: '未保存' });
+  const textarea = h('textarea', { class: 'cs-textarea mgr-editor__text' });
+  const editorTitle = h('span', { class: 'mgr-editor__title' });
+  const dirtyBadge = h('span', { class: 'mgr-editor__dirty', text: '未保存' });
   const deleteBtn = button('削除', () => void remove(), { size: 'dialog' });
   const duplicateBtn = button('複製', () => void duplicate(), { size: 'dialog' });
   const discardBtn = button('破棄', () => closeEditor(), { variant: 'outline', size: 'dialog' });
   const saveBtn = button('保存', () => void save(), { variant: 'primary', size: 'dialog', title: '保存 (Ctrl+S)' });
   const editorForm = h(
     'div',
-    { class: 'pm-editor__form' },
-    h('div', { class: 'pm-editor__header' }, editorTitle, dirtyBadge),
+    { class: 'mgr-editor__form' },
+    h('div', { class: 'mgr-editor__header' }, editorTitle, dirtyBadge),
     field('名前', nameInput),
     field('カテゴリー', category.el),
     h(
       'div',
-      { class: 'cs-field pm-editor__text-field' },
+      { class: 'cs-field mgr-editor__text-field' },
       h('label', { class: 'cs-field__label', text: '本文' }),
       textarea,
     ),
-    h('div', { class: 'pm-editor__actions' }, deleteBtn, duplicateBtn, discardBtn, saveBtn),
+    h('div', { class: 'mgr-editor__actions' }, deleteBtn, duplicateBtn, discardBtn, saveBtn),
   );
   const editorEmpty = h('div', {
-    class: 'pm-editor__empty',
+    class: 'mgr-editor__empty',
     text: 'プロンプトを選ぶか「+ 新規」で作成してください。',
   });
-  const editorPane = h('div', { class: 'pm-editor' }, editorEmpty, editorForm);
-  const main = h('main', { class: 'pm-main' }, listPane, editorPane);
+  const editorPane = h('div', { class: 'mgr-editor' }, editorEmpty, editorForm);
+  const main = h('main', { class: 'mgr-main mgr-main--prompt' }, listPane, editorPane);
 
   for (const input of [nameInput, category.input, textarea]) input.addEventListener('input', () => renderDirty());
 
@@ -185,74 +187,12 @@ export function createPromptManager(): { sidebar: HTMLElement; main: HTMLElement
   }
 
   // ── Categories ──
-  /** The category rows with their filter values (すべて = null). */
-  const categoryRows = new Map<HTMLElement, CategoryFilter>();
-
-  /** Changes the filter without rebuilding the rows (so a double click on a row still renames it). */
-  function selectFilter(value: CategoryFilter): void {
-    filter = value;
-    for (const [el, rowValue] of categoryRows) el.classList.toggle('pm-category--active', rowValue === value);
-    renderList();
-  }
-
   function renderCategories(): void {
-    const counts = countByCategory(store);
-    categoryRows.clear();
-    const row = (value: CategoryFilter) => {
-      const named = value !== null && value !== '';
-      const label = value === null ? 'すべて' : categoryLabel(value);
-      const name = h('span', { class: 'pm-category__name', text: label, title: label });
-      const el = h(
-        'div',
-        {
-          class: `pm-category${filter === value ? ' pm-category--active' : ''}`,
-          draggable: named,
-          dataset: value === null ? {} : { category: value },
-          onclick: () => selectFilter(value),
-        },
-        name,
-        named
-          ? h(
-              'button',
-              {
-                class: 'pm-category__edit',
-                title: '名前を変更',
-                onclick: e => {
-                  e.stopPropagation();
-                  startRename(el, name, value);
-                },
-              },
-              icon('edit', 14),
-            )
-          : null,
-        h('span', {
-          class: 'pm-category__count',
-          text: String(value === null ? store.prompts.length : (counts.get(value) ?? 0)),
-        }),
-      );
-      if (named) el.addEventListener('dblclick', () => startRename(el, name, value));
-      if (value !== null) acceptPromptDrop(el, value);
-      categoryRows.set(el, value);
-      return el;
-    };
-    categoryList.replaceChildren(row(null), ...displayCategories(store).map(row));
-  }
-
-  /** Dropping a prompt row on a category moves the prompt to the end of that category. */
-  function acceptPromptDrop(el: HTMLElement, target: string): void {
-    const hasPrompt = (e: DragEvent) => !!e.dataTransfer?.types.includes(PROMPT_MIME);
-    el.addEventListener('dragover', e => {
-      if (!hasPrompt(e)) return;
-      e.preventDefault();
-      el.classList.add('pm-category--drop');
-    });
-    el.addEventListener('dragleave', () => el.classList.remove('pm-category--drop'));
-    el.addEventListener('drop', e => {
-      el.classList.remove('pm-category--drop');
-      if (!hasPrompt(e)) return;
-      e.preventDefault();
-      const moved = prompt(e.dataTransfer?.getData(PROMPT_MIME) ?? '');
-      if (moved && moved.category !== target) void moveTo(moved, target);
+    categorySidebar.render({
+      categories: displayCategories(store),
+      counts: countByCategory(store),
+      total: store.prompts.length,
+      filter,
     });
   }
 
@@ -267,69 +207,8 @@ export function createPromptManager(): { sidebar: HTMLElement; main: HTMLElement
     }
   }
 
-  enableDragSort(categoryList, '.pm-category[draggable="true"]', items => {
-    const order = items.map(el => el.dataset.category ?? '');
-    void change(() => reorderCategories(order), 'カテゴリーを並べ替えられませんでした');
-  });
-
-  function startRename(row: HTMLElement, label: HTMLElement, old: string): void {
-    if (row.querySelector('.pm-category__input')) return;
-    const input = h('input', {
-      type: 'text',
-      class: 'cs-input pm-category__input',
-      value: old,
-      maxLength: MAX_CATEGORY_LENGTH,
-    });
-    row.draggable = false;
-    label.replaceWith(input);
-    input.focus();
-    input.select();
-    let done = false;
-    const finish = (commit: boolean) => {
-      if (done) return;
-      done = true;
-      if (commit) void rename(old, normalizeCategory(input.value));
-      else renderCategories();
-    };
-    input.addEventListener('click', e => e.stopPropagation());
-    input.addEventListener('keydown', e => {
-      if (e.key === 'Enter') {
-        // Without preventDefault the key would also press the confirmation dialog's button that opens now.
-        e.preventDefault();
-        finish(true);
-      } else if (e.key === 'Escape') {
-        e.stopPropagation();
-        finish(false);
-      }
-    });
-    input.addEventListener('blur', () => finish(true));
-  }
-
+  /** Renames a category (the sidebar asked for the confirmation of a merge). */
   async function rename(old: string, next: string): Promise<void> {
-    if (next === old) {
-      renderCategories();
-      return;
-    }
-    if (next === '' || store.categories.includes(next)) {
-      const count = countByCategory(store).get(old) ?? 0;
-      const ok = await confirmDialog(
-        next === ''
-          ? {
-              title: 'カテゴリーの変更',
-              message: `「${old}」のプロンプト ${count} 件を「${UNCATEGORIZED_LABEL}」に移しますか？`,
-              confirmLabel: '移す',
-            }
-          : {
-              title: 'カテゴリーの統合',
-              message: `「${old}」のプロンプト ${count} 件を「${next}」にまとめますか？`,
-              confirmLabel: 'まとめる',
-            },
-      );
-      if (!ok) {
-        renderCategories();
-        return;
-      }
-    }
     const wasShown = filter === old;
     const result = await change(() => renameCategory(old, next), 'カテゴリーの名前を変更できませんでした');
     if (!result) return;
@@ -352,26 +231,26 @@ export function createPromptManager(): { sidebar: HTMLElement; main: HTMLElement
       const el = h(
         'div',
         {
-          class: `pm-prompt${sortable ? ' pm-prompt--sortable' : ''}${editing?.id === p.id ? ' pm-prompt--active' : ''}`,
+          class: `mgr-item${sortable ? ' mgr-item--sortable' : ''}${editing?.id === p.id ? ' mgr-item--active' : ''}`,
           draggable: true,
           title: p.text,
           dataset: { id: p.id },
           onclick: () => void open(p),
         },
         sortable ? icon('drag_indicator', 14) : null,
-        h('span', { class: 'pm-prompt__name', text: p.name }),
+        h('span', { class: 'mgr-item__name', text: p.name }),
       );
       el.addEventListener('dragstart', e => e.dataTransfer?.setData(PROMPT_MIME, p.id));
       return el;
     };
-    const empty = (text: string) => promptList.replaceChildren(h('div', { class: 'pm-list__empty', text }));
+    const empty = (text: string) => promptList.replaceChildren(h('div', { class: 'mgr-list__empty', text }));
     if (store.prompts.length === 0) empty('登録されたプロンプトはありません。「+ 新規」から作成できます。');
     else if (groups.length === 0) empty('条件に合うプロンプトはありません。');
     else {
       promptList.replaceChildren(
         ...groups
           .flatMap(g => [
-            filter === null ? h('div', { class: 'pm-list__group', text: categoryLabel(g.category) }) : null,
+            filter === null ? h('div', { class: 'mgr-list__group', text: categoryLabel(g.category) }) : null,
             ...g.prompts.map(item),
           ])
           .filter((el): el is HTMLDivElement => el !== null),
@@ -379,7 +258,7 @@ export function createPromptManager(): { sidebar: HTMLElement; main: HTMLElement
     }
   }
 
-  enableDragSort(promptList, '.pm-prompt--sortable', items => {
+  enableDragSort(promptList, '.mgr-item--sortable', items => {
     if (filter === null) return;
     const target = filter;
     const ids = items.map(el => el.dataset.id ?? '');

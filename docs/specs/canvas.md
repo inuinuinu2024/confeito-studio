@@ -52,7 +52,7 @@
 
 ## 表示モード（左端のボタン、同時に 1 つ）
 ボタンは上から Normal Mode、Batch Mode、仕切り線、Parallel View、Overlay View（仕切り線の下は比較のモード）。もう一度押すと Normal に戻る。
-仕切り線の下のマネージャーのうち Prompt Manager も表示モードの 1 つ（ARCHIVES とキャンバスの場所を使う。[prompt-manager.md](./prompt-manager.md)）。
+仕切り線の下のマネージャーのうち Prompt Manager と Character Manager も表示モードの 1 つ（ARCHIVES とキャンバスの場所を使う。[prompt-manager.md](./prompt-manager.md)・[character-manager.md](./character-manager.md)）。
 - Normal に戻った時は、その時の ARCHIVES の選択を Normal の規則で表示し直す（Batch 中に選び直した内容も反映する）。
   キャンバスの大きさは前のモード（Parallel の外接サイズ・Batch のグリッド）を引き継がず、表示する画像の実寸に戻り、100% を適用する。
 

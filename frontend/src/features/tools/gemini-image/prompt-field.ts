@@ -2,13 +2,20 @@
  * Prompt textarea with buttons to register its text and to read a registered prompt (prompt-library.ts).
  * The text is the setting `<prefix>_prompt` (saved with the other settings when the tool runs);
  * registered prompts are kept apart and shared by every tool (docs/specs/prompt-manager.md).
+ * `append` adds a text at the end (a registered character without images; docs/specs/tools/gemini-image.md).
  */
 import type { ToolSettings } from '../../../shared/state/tool-settings';
 import { h } from '../../../shared/ui/dom';
 import { iconButton } from '../../../shared/ui/form';
+import { appendToPrompt } from '../../../shared/utils/characters';
 import { openPromptPicker, openRegisterDialog } from './prompt-library';
 
-export function promptField(label: string, settings: ToolSettings): HTMLElement {
+export interface PromptField {
+  el: HTMLElement;
+  append(text: string): void;
+}
+
+export function promptField(label: string, settings: ToolSettings): PromptField {
   const textarea = h('textarea', {
     class: 'cs-textarea',
     value: settings.get('prompt', ''),
@@ -20,7 +27,7 @@ export function promptField(label: string, settings: ToolSettings): HTMLElement 
     settings.set('prompt', text);
   };
 
-  return h(
+  const el = h(
     'div',
     { class: 'cs-field' },
     h(
@@ -36,4 +43,5 @@ export function promptField(label: string, settings: ToolSettings): HTMLElement 
     ),
     textarea,
   );
+  return { el, append: text => usePrompt(appendToPrompt(textarea.value, text)) };
 }

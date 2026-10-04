@@ -19,7 +19,10 @@ backend/src/app/
 │   ├── image_service.py     # rembg 背景除去（初回呼び出し時に import）
 │   ├── secret_store.py      # Gemini API キーの保存・読み出し（今は .env。Web 版では利用者ごとの暗号化保存に差し替える）
 │   ├── settings_service.py  # ツール設定(JSON)
+│   ├── categorized_store.py # カテゴリー付きの一覧の共通処理（並べ替え・カテゴリー名の変更・名前の一意チェック）
 │   ├── prompt_service.py    # 登録したプロンプト（全ツール共通、assets/prompts/prompts.json）
+│   ├── character_service.py # 登録したキャラクターと画像・アイコン（全ツール共通、assets/characters/。zip のエクスポート / インポート）
+│   ├── face_service.py      # アニメ顔検出（YOLOv8s ONNX。初回使用時に models/ へダウンロード）
 │   ├── file_dialog_service.py # バックエンドの PC のファイル選択ダイアログ（tkinter。画像読み込み）
 │   ├── json_file.py         # settings/ の JSON の読み書き（壊れたファイルの退避・一時ファイル経由の書き込み）
 │   └── system_service.py    # シャットダウン
@@ -57,7 +60,7 @@ backend/src/app/
 | `CONFEITO_ENV_FILE` | `<repo>/.env` | 起動時に os.environ へ読み込む（既存の環境変数が優先。`GEMINI_API_KEY` は読み込まず secret_store が毎回ファイルから読む） |
 | `CONFEITO_ARCHIVES_DIR` | `<repo>/archives` | アーカイブ保存先（ゴミ箱 `.trash/` を含む。`.trash/` は起動時に `main.py` の lifespan が `archive_service.empty_trash` で空にする） |
 | `CONFEITO_SETTINGS_DIR` | `<repo>/settings` | `default_settings.json`（初期設定）、`user_settings.json`（ユーザー設定） |
-| `CONFEITO_ASSETS_DIR` | `<repo>/assets` | `prompts/prompts.json`（登録したプロンプト） |
+| `CONFEITO_ASSETS_DIR` | `<repo>/assets` | `prompts/prompts.json`（登録したプロンプト）、`characters/`（登録したキャラクターと画像） |
 | `GEMINI_API_KEY` | （.env） | Gemini API キー（`services/secret_store.py` だけが読み書きする）。優先順: リクエストの `X-API-Key` ヘッダー → .env → 環境変数。アプリは環境変数を書き換えない |
 | `CONFEITO_PROJECT_DIR` | `<repo>` | 画像読み込みのファイル選択ダイアログを、フォルダの指定がない時に開く場所 |
 | `CONFEITO_MODELS_DIR` | `<repo>/models` | rembg モデルの場所。起動時に `U2NET_HOME` の既定値にする（.env に書く必要はない） |
@@ -95,6 +98,14 @@ backend/src/app/
 | PUT | `/prompts/order` / `/prompts/categories/order` | カテゴリーの中のプロンプトの順（`{category, ids}`）/ カテゴリーの順（`{categories}`）。今の内容と合わなければ 409 |
 | POST | `/prompts/categories/rename` | `{old, new}` カテゴリー名の変更（既存の名前・空なら統合） |
 | POST | `/prompts/import` | `{prompts, categories, on_conflict}` を追加（`{added, overwritten, skipped, invalid, warnings}`）。仕様は [specs/prompt-manager.md](../specs/prompt-manager.md) |
+| GET/POST | `/characters` | 登録したキャラクターの一覧（`{categories, characters, warnings}`）/ 作成（multipart: `data` = `{name, category, text, images}` ＋ `files`。同名は 400） |
+| PUT/DELETE | `/characters/{id}` | 更新（POST と同じ形。`images` にない保存済みの画像は消える）/ 削除（フォルダごと）。ない id は 404 |
+| POST / PUT | `/characters/{id}/duplicate` / `/characters/{id}/category` | 画像ごと複製 / `{category}` の末尾へ移す |
+| GET | `/characters/{id}/images/{file}` | キャラクターの画像（そのキャラクターの `images` にないファイルは 404） |
+| GET | `/characters/{id}/icon` | キャラクターのアイコン（256×256 PNG。ない時は 404）。作成・更新の `data.icon` は `keep` / `none` / `upload`（multipart の `icon`） |
+| POST | `/characters/detect-faces` | multipart `image` のアニメ顔 `{faces: [{x, y, width, height, score}]}`。モデルを取得できない時は 502 |
+| PUT / POST | `/characters/order` / `/characters/categories/order` / `/characters/categories/rename` | 並べ替え・カテゴリー名の変更（プロンプトと同じ形） |
+| GET / POST | `/characters/export` / `/characters/import/preview` / `/characters/import` | zip の書き出し / 読み込む前の確認（`{count, conflicts, invalid}`）/ 読み込み（`file` ＋ `on_conflict`）。仕様は [specs/character-manager.md](../specs/character-manager.md) |
 
 ## Gemini プロバイダー（`providers/gemini.py`）
 - 画像生成は Interactions API（`/v1beta/interactions`）または `models/{model}:generateContent`（どちらもタイムアウト 600 秒）。

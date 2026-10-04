@@ -35,7 +35,7 @@
 - 以前の保存先 `settings/prompts.json`（ツールごとの一覧）は読まない・移さない・消さない。
 
 ## Prompt Manager（`features/prompt-manager/`）
-- 左端の列のマネージャーのグループにある「Prompt Manager」（chat アイコン）で開く。**表示モードの 1 つ**（Normal / Batch / Parallel / Overlay と排他）。
+- 左端の列のマネージャーのグループにある「Prompt Manager」（chat アイコン）で開く。**表示モードの 1 つ**（Normal / Batch / Parallel / Overlay / Character Manager と排他）。
   - もう一度押すと Normal に戻る。ほかのモードのボタンを押すとそのモードに切り替わる。開いている間はアイコンを選択中の色にする。
   - 開くたびにファイルから読み直す（カテゴリーの選択は「すべて」、検索は空、編集欄は空に戻る）。
 - 画面:

@@ -1,7 +1,8 @@
 /**
  * ToolBar — left column of view mode buttons (state lives in shared/state/view-mode.ts), in groups
  * separated by thin dividers: Normal, Batch | the comparison views Parallel, Overlay | the managers
- * (Prompt Manager is the "prompt" view mode; Character / Object / Style are not implemented yet).
+ * (Prompt Manager / Character Manager are the "prompt" / "character" view modes; Object / Style are not
+ * implemented yet).
  */
 import './tool-bar.css';
 import { on } from '../../shared/events';
@@ -15,12 +16,12 @@ const MODES: { mode: ViewMode; title: string; icon: string }[] = [
   { mode: 'parallel', title: 'Parallel View', icon: 'compare' },
   { mode: 'overlay', title: 'Overlay View', icon: 'photo_library' },
   { mode: 'prompt', title: 'Prompt Manager', icon: 'chat' },
+  { mode: 'character', title: 'Character Manager', icon: 'person' },
 ];
 /** A divider goes before each of these modes (the comparison views, then the managers). */
 const DIVIDER_BEFORE: ViewMode[] = ['parallel', 'prompt'];
-/** Managers after Prompt Manager (not implemented yet: they show a "開発中" toast). */
+/** Managers after Character Manager (not implemented yet: they show a "開発中" toast). */
 const MANAGERS: { title: string; icon: string }[] = [
-  { title: 'Character Manager', icon: 'person' },
   { title: 'Object Manager', icon: 'eyeglasses' },
   { title: 'Style Manager', icon: 'brush' },
 ];
@@ -47,6 +48,7 @@ export function createToolBar(): HTMLElement {
     'overlay-mode:toggle',
     'batch-mode:toggle',
     'prompt-mode:toggle',
+    'character-mode:toggle',
   ] as const) {
     on(event, render);
   }

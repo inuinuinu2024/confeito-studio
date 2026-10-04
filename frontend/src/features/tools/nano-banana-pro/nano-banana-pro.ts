@@ -159,6 +159,8 @@ export class NanoBananaProTool implements Tool {
     const references = h('div', { class: 'tool-window__column' });
     const parameters = h('div', { class: 'tool-window__column nbp-parameters' });
     const previewButton = button('JSONプレビュー', () => void this.preview(), { block: true });
+    const prompt = promptField('プロンプト', this.settings);
+    prompt.el.classList.add('nbp-prompt');
     const renderModelDependent = () => {
       const model = this.model;
       const limit = this.referenceLimit(model);
@@ -176,13 +178,11 @@ export class NanoBananaProTool implements Tool {
       );
       references.replaceChildren(
         this.originalSection(renderModelDependent),
-        createReferenceList(this.images, [...model.zones], limit),
+        createReferenceList(this.images, [...model.zones], limit, { appendPrompt: prompt.append }),
       );
       parameters.replaceChildren(...this.parameterElements(renderModelDependent), previewButton);
     };
 
-    const prompt = promptField('プロンプト', this.settings);
-    prompt.classList.add('nbp-prompt');
     container.append(
       h(
         'div',
@@ -217,7 +217,7 @@ export class NanoBananaProTool implements Tool {
               'generateContent API: POST /v1beta/models/{model}:generateContent（安全設定・temperature 等を指定できる）。',
           ),
         ),
-        prompt,
+        prompt.el,
       ),
       references,
       parameters,

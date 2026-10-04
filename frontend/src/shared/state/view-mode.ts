@@ -1,5 +1,6 @@
 /**
- * View mode store: exactly one of normal / parallel / overlay / batch / prompt (Prompt Manager) is active.
+ * View mode store: exactly one of normal / parallel / overlay / batch / prompt (Prompt Manager) /
+ * character (Character Manager) is active.
  *
  * `setViewMode()` is the only way to change it. Listeners receive the per-mode
  * `<mode>-mode:toggle` events, always emitted in MODE_ORDER: the target mode is
@@ -9,15 +10,16 @@
  */
 import { emit } from '../events';
 
-export type ViewMode = 'normal' | 'parallel' | 'overlay' | 'batch' | 'prompt';
+export type ViewMode = 'normal' | 'parallel' | 'overlay' | 'batch' | 'prompt' | 'character';
 
-const MODE_ORDER: ViewMode[] = ['normal', 'parallel', 'overlay', 'batch', 'prompt'];
+const MODE_ORDER: ViewMode[] = ['normal', 'parallel', 'overlay', 'batch', 'prompt', 'character'];
 const TOGGLE_EVENT = {
   normal: 'normal-mode:toggle',
   parallel: 'parallel-mode:toggle',
   overlay: 'overlay-mode:toggle',
   batch: 'batch-mode:toggle',
   prompt: 'prompt-mode:toggle',
+  character: 'character-mode:toggle',
 } as const;
 
 let current: ViewMode = 'normal';

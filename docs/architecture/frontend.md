@@ -14,21 +14,25 @@ frontend/src/
 │   ├── api/                  # バックエンド呼び出しはすべてここ経由（http.ts が ApiError を作る）
 │   ├── state/                # view-mode.ts（表示モード）, tool-settings.ts（ツール設定の永続化）, canvas-background.ts（キャンバスの背景色）
 │   ├── types/                # ArchiveEntry, Tool / ToolContext / ToolNotReady / ToolCancelled
-│   ├── ui/                   # h() / icon(), form 部品, dialogs, toast（showToast / showError）, resizer, drag-sort（ドラッグで並べ替え）
+│   ├── ui/                   # h() / icon(), form 部品, dialogs, toast（showToast / showError）, resizer, drag-sort（ドラッグで並べ替え）,
+│   │                         # category-sidebar（マネージャー共通のカテゴリー一覧）
 │   ├── utils/                # datetime, error-message(describeError), image(Blob/Canvas 変換), history(削除の Undo。削除と Undo を 1 つずつ順に実行),
-│   │                         # prompts(登録プロンプトの入力チェック・絞り込み・エクスポート形式)
-│   └── styles/               # variables(トークン), base, components(cs-*), layout(グリッド)
+│   │                         # categories(カテゴリー付き一覧の共通処理), prompts(登録プロンプトの入力チェック・絞り込み・エクスポート形式),
+│   │                         # characters(登録キャラクターの絞り込み・ツールで使う時の説明文), icon-crop(アイコンの切り取り枠の計算)
+│   └── styles/               # variables(トークン), base, components(cs-*), layout(グリッド), manager(マネージャー共通の mgr-*)
 └── features/
     ├── top-bar/              # アプリ名・アイコン, 設定ウィンドウ（API・表示）, ショートカット
-    ├── tool-bar/             # 左端の表示モード切替ボタン（Prompt Manager も表示モード）
+    ├── tool-bar/             # 左端の表示モード切替ボタン（Prompt Manager / Character Manager も表示モード）
     ├── prompt-manager/       # Prompt Manager（カテゴリー一覧 = 左サイドバー、一覧と編集欄 = キャンバスの場所。transfer.ts = エクスポート / インポート）
+    ├── character-manager/    # Character Manager（Prompt Manager と同じ構成。image-list.ts = 編集欄の画像、icon-cropper.ts = アイコンの切り取り、transfer.ts = zip のエクスポート / インポート）
     ├── archive-panel/        # ARCHIVES ツリー（archive-tree.ts = 純粋関数）
     ├── canvas/               # 表示領域（canvas-state / render / zoom / toolbars）
     ├── ai-panel/             # ツール一覧・並び替え・実行（tool-runner）・ツールウィンドウ（components/ToolWindow.ts）
     ├── document/             # DocumentManager（現在の画像と保存先フォルダ）
     ├── status-bar/
     └── tools/                # AI ツール（1 ツール 1 ファイル、大きいものは <id>/ フォルダ）。index.ts が一覧
-        ├── gemini-image/     # Gemini 画像ツールの共通部品（参照画像の一覧・プロンプト欄と登録プロンプトの登録 / 呼び出し・送信テキスト）
+        ├── gemini-image/     # Gemini 画像ツールの共通部品（参照画像の一覧・プロンプト欄と登録プロンプトの登録 / 呼び出し・
+        │                     # 登録キャラクターの呼び出し（character-picker.ts）・送信テキスト）
         └── nano-banana-pro/  # models.ts（モデルごとの対応値）, options.ts（設定項目と解決）,
                               # request.ts（API 別のリクエスト組み立て）, nano-banana-pro.ts（画面）,
                               # original.ts / original-image.ts（原画: 余白付けと元の大きさへの戻し）
@@ -47,7 +51,7 @@ frontend/src/
 | `archive:selection-summary` | ArchivePanel → Canvas | フォルダ・複数選択（Batch 以外。画像を出さず、案内文で選択内容を示す） |
 | `archive:batch-selected` | ArchivePanel → Canvas | Batch モードでの選択（グリッド表示する画像の一覧） |
 | `archives:changed` | ツール/削除処理 → ArchivePanel, Canvas | 一覧を再取得。`autoSelectKey` があれば展開して選択。Canvas は L/R・U/T を読み直す |
-| `<mode>-mode:toggle` | view-mode.ts → 各機能 | 表示モードの ON/OFF（normal/parallel/overlay/batch/prompt）。prompt は Prompt Manager（app.ts が ARCHIVES・キャンバスと入れ替える） |
+| `<mode>-mode:toggle` | view-mode.ts → 各機能 | 表示モードの ON/OFF（normal/parallel/overlay/batch/prompt/character）。prompt は Prompt Manager、character は Character Manager（app.ts が ARCHIVES・キャンバスと入れ替える） |
 | `view:layer-selected` | ArchivePanel → Canvas, ArchivePanel / Canvas → ArchivePanel | チェック列での Parallel の L / R、Overlay の U（下絵）/ T（上絵）の選択・解除。読めない・削除された時は Canvas が `key: null` を送りチェックを外させる |
 | `document:loaded` / `document:redraw` | DocumentManager → Canvas | 現在画像の変更 / 再描画要求 |
 | `tool:start` / `tool:progress` / `tool:end` | tool-runner, ツール → StatusBar | 実行状況 |
@@ -55,7 +59,7 @@ frontend/src/
 
 ### 状態の持ち場所
 - **表示モード**: `shared/state/view-mode.ts` が唯一の正。変更は `setViewMode()` / `toggleViewMode()` のみ。
-  `toggleViewMode()` は今のモードの `setLeaveGuard()`（Prompt Manager の未保存の確認）を待ってから切り替える。
+  `toggleViewMode()` は今のモードの `setLeaveGuard()`（Prompt Manager / Character Manager の未保存の確認）を待ってから切り替える。
   参照は `isViewMode('batch')` 等。Canvas は描画順序を保つため toggle イベントで自前のフラグも更新する。
 - **現在の画像・保存先**: `DocumentManager`。`getCurrentCanvas()` はツールが処理する画像、`getCurrentKey()` はその ARCHIVES キー、
   `getCurrentArchiveFolder()` は ARCHIVES で選んでいる場所（トップレベルが結果の保存先。選択解除で null。詳細は [specs/archives.md](../specs/archives.md)）。

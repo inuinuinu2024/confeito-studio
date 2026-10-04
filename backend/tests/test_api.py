@@ -135,6 +135,7 @@ def test_startup_creates_the_prompts_folder(data_dir: Path) -> None:
 
     with TestClient(app):
         assert (data_dir / "assets" / "prompts").is_dir()
+        assert (data_dir / "assets" / "characters").is_dir()
 
 
 def test_prompts_roundtrip(client, data_dir: Path) -> None:
@@ -179,6 +180,74 @@ def test_prompts_roundtrip(client, data_dir: Path) -> None:
 
     assert client.delete(f"/api/prompts/{prompt['id']}").json() == {"warnings": []}
     assert client.delete(f"/api/prompts/{prompt['id']}").status_code == 404
+
+
+def test_characters_roundtrip(client, data_dir: Path) -> None:
+    assert client.get("/api/characters").json() == {"categories": [], "characters": [], "warnings": []}
+    png = make_png(4, 4)
+    data = {"name": " 花子 ", "category": "主要", "text": "黒髪", "images": [{"upload": 0}]}
+    res = client.post(
+        "/api/characters", data={"data": json.dumps(data)}, files=[("files", ("a.png", png, "image/png"))]
+    )
+    assert res.status_code == 200
+    character = res.json()["character"]
+    assert (character["name"], len(character["images"])) == ("花子", 1)
+    image_url = f"/api/characters/{character['id']}/images/{character['images'][0]}"
+    image = client.get(image_url)
+    assert (image.status_code, image.headers["content-type"], image.content) == (200, "image/png", png)
+    assert client.get(f"/api/characters/{character['id']}/images/other.png").status_code == 404
+
+    # Text only, without images; a non-image upload and broken data are 400.
+    other = client.post("/api/characters", data={"data": json.dumps({"name": "太郎"})}).json()["character"]
+    bad = client.post(
+        "/api/characters",
+        data={"data": json.dumps({"name": "x", "images": [{"upload": 0}]})},
+        files=[("files", ("x.txt", b"text", "text/plain"))],
+    )
+    assert bad.status_code == 400 and "PNG / JPEG / WebP" in bad.json()["detail"]
+    assert client.post("/api/characters", data={"data": "{"}).status_code == 400
+
+    keep = {"name": "花子", "category": "主要", "text": "", "images": []}
+    updated = client.put(f"/api/characters/{character['id']}", data={"data": json.dumps(keep)}).json()["character"]
+    assert updated["images"] == []
+    assert client.get(image_url).status_code == 404
+
+    copy = client.post(f"/api/characters/{character['id']}/duplicate").json()["character"]
+    assert copy["name"] == "花子 のコピー"
+    assert client.put(f"/api/characters/{other['id']}/category", json={"category": "主要"}).status_code == 200
+    ids = [character["id"], other["id"], copy["id"]]
+    assert client.put("/api/characters/order", json={"category": "主要", "ids": ids}).status_code == 200
+    assert client.put("/api/characters/order", json={"category": "主要", "ids": []}).status_code == 409
+    assert client.post("/api/characters/categories/rename", json={"old": "主要", "new": "メイン"}).status_code == 200
+    assert client.put("/api/characters/categories/order", json={"categories": ["メイン"]}).status_code == 200
+
+    exported = client.get("/api/characters/export")
+    assert exported.headers["content-type"] == "application/zip"
+    assert 'filename="confeito-characters-' in exported.headers["content-disposition"]
+    zip_file = {"file": ("c.zip", exported.content, "application/zip")}
+    preview = client.post("/api/characters/import/preview", files=zip_file).json()
+    assert preview == {"count": 3, "conflicts": 3, "invalid": 0, "warnings": []}
+    imported = client.post("/api/characters/import", files=zip_file, data={"on_conflict": "rename"}).json()
+    assert imported == {"added": 3, "overwritten": 0, "skipped": 0, "invalid": 0, "skipped_images": 0, "warnings": []}
+    assert client.post("/api/characters/import", files=zip_file, data={"on_conflict": "bad"}).status_code == 422
+    not_zip = client.post("/api/characters/import/preview", files={"file": ("x.zip", b"x", "application/zip")})
+    assert not_zip.status_code == 400
+
+    assert client.delete(f"/api/characters/{character['id']}").json() == {"warnings": []}
+    assert client.delete(f"/api/characters/{character['id']}").status_code == 404
+
+
+def test_character_icon_routes(client) -> None:
+    data = {"data": json.dumps({"name": "a", "icon": "upload"})}
+    res = client.post("/api/characters", data=data, files=[("icon", ("icon.png", make_png(300, 300), "image/png"))])
+    character = res.json()["character"]
+    icon = client.get(f"/api/characters/{character['id']}/icon")
+    assert (icon.status_code, icon.headers["content-type"]) == (200, "image/png")
+    keep = {"data": json.dumps({"name": "a"})}
+    assert client.put(f"/api/characters/{character['id']}", data=keep).json()["character"]["icon"] == character["icon"]
+    none = {"data": json.dumps({"name": "a", "icon": "none"})}
+    assert client.put(f"/api/characters/{character['id']}", data=none).json()["character"]["icon"] is None
+    assert client.get(f"/api/characters/{character['id']}/icon").status_code == 404
 
 
 def test_save_gemini_key_preserves_other_env_lines(client, data_dir: Path) -> None:

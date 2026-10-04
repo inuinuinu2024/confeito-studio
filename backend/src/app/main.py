@@ -17,7 +17,7 @@ from . import (
     config,  # imported first: loads .env into os.environ
 )
 from .errors import UNEXPECTED_ERROR_MESSAGE, AppError, exception_text
-from .routers import archives, generate, health, image, local_files, prompts
+from .routers import archives, characters, generate, health, image, local_files, prompts
 from .routers import settings as settings_router
 from .services import archive_service
 
@@ -33,6 +33,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await run_in_threadpool(archive_service.empty_trash)
     # Where the registered prompts are kept (docs/specs/prompt-manager.md 「保存先」), there from the start.
     config.settings.prompts_file.parent.mkdir(parents=True, exist_ok=True)
+    # Where the registered characters are kept (docs/specs/character-manager.md 「保存先」).
+    config.settings.characters_dir.mkdir(parents=True, exist_ok=True)
     yield
 
 
@@ -71,7 +73,7 @@ def create_app() -> FastAPI:
         # Returned outside the middleware stack, so the no-store header is added here too.
         return JSONResponse(status_code=500, content={"detail": detail}, headers=NO_STORE)
 
-    for module in (health, archives, image, generate, settings_router, prompts, local_files):
+    for module in (health, archives, image, generate, settings_router, prompts, characters, local_files):
         app.include_router(module.router, prefix="/api")
     return app
 

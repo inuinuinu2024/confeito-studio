@@ -1,0 +1,26 @@
+/* ── Registered characters from a tool (character-picker.ts); the rest of the look is prompt-library.css ── */
+.character-library__item {
+  align-items: center;
+}
+
+.character-library__thumb {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 4px;
+  object-fit: contain;
+  background: var(--color-surface-container);
+}
+
+.character-library__thumb--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-outline);
+}
+
+.character-library__count {
+  font-size: 11px;
+  color: var(--color-outline);
+}

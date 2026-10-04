@@ -115,6 +115,12 @@
   font-size: 10px;
 }
 
+/* A button that cannot be pressed now (e.g. while a run or a detection is going on) */
+.cs-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .cs-icon-btn {
   display: flex;
   align-items: center;

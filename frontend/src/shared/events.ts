@@ -53,6 +53,8 @@ export interface AppEventMap {
   'batch-mode:toggle': { enabled: boolean };
   /** The Prompt Manager (features/prompt-manager/) replaces ARCHIVES and the canvas. */
   'prompt-mode:toggle': { enabled: boolean };
+  /** The Character Manager (features/character-manager/) replaces ARCHIVES and the canvas. */
+  'character-mode:toggle': { enabled: boolean };
 
   // ── Current document (features/document/DocumentManager.ts) ──
   'document:loaded': DocumentLoadedDetail;

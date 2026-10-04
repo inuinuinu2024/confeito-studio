@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fitWithin, imageHeading } from './payload';
 import {
+  characterZone,
   fitImagesToModel,
   reorderImages,
   totalLimit,
@@ -73,5 +74,16 @@ describe('reference list', () => {
     expect(imageHeading(2, { zoneTitle: STYLE, description: '  ' })).toBe(
       '# Image 2\nこの画像をスタイル参照画像とする。\n\n',
     );
+  });
+
+  it("gives a registered character's images the Character type, else the first type", () => {
+    expect(
+      characterZone([
+        { title: OBJECT, max: 6 },
+        { title: CHARACTER, max: 5 },
+      ])?.title,
+    ).toBe(CHARACTER);
+    expect(characterZone(zones)?.title).toBe(OBJECT);
+    expect(characterZone([])).toBeUndefined();
   });
 });

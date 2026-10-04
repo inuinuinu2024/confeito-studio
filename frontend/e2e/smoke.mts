@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright-core';
+import { chromium, type Browser, type Page, type Route } from 'playwright-core';
 
 const FRONTEND_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -635,8 +635,8 @@ async function runScenarios(
   });
 
   await step('01b-managers', async () => {
-    // The managers after Prompt Manager are not implemented yet: each shows a "開発中" toast and changes nothing else.
-    for (const title of ['Character Manager', 'Object Manager', 'Style Manager']) {
+    // The managers after Character Manager are not implemented yet: each shows a "開発中" toast and changes nothing else.
+    for (const title of ['Object Manager', 'Style Manager']) {
       await page.locator(`.left-toolbar__btn[title="${title}"]`).click();
     }
     const toasts = await toastStack(page);
@@ -1119,15 +1119,20 @@ async function runScenarios(
     const topModal = () => page.locator('.cs-modal-overlay--open').last();
     const exact = (text: string) => new RegExp(`^${text}$`);
     const categoryRow = (label: string) =>
-      page.locator('.pm-category').filter({ has: page.locator('.pm-category__name', { hasText: exact(label) }) });
+      page
+        .locator('.mgr-sidebar--prompt .mgr-category')
+        .filter({ has: page.locator('.mgr-category__name', { hasText: exact(label) }) });
     const promptRow = (name: string) =>
-      page.locator('.pm-prompt').filter({ has: page.locator('.pm-prompt__name', { hasText: exact(name) }) });
+      page
+        .locator('.mgr-main--prompt .mgr-item')
+        .filter({ has: page.locator('.mgr-item__name', { hasText: exact(name) }) });
     const editor = {
-      name: page.locator('.pm-editor input').first(),
-      category: page.locator('.pm-editor .cs-suggest input'),
-      text: page.locator('.pm-editor textarea'),
+      name: page.locator('.mgr-main--prompt .mgr-editor input').first(),
+      category: page.locator('.mgr-main--prompt .mgr-editor .cs-suggest input'),
+      text: page.locator('.mgr-main--prompt .mgr-editor textarea'),
     };
-    const editorButton = (label: string) => page.locator('.pm-editor__actions button', { hasText: label });
+    const editorButton = (label: string) =>
+      page.locator('.mgr-main--prompt .mgr-editor__actions button', { hasText: label });
     const view = () =>
       page.evaluate(() => {
         const shown = (sel: string) => {
@@ -1135,27 +1140,31 @@ async function runScenarios(
           return !!el && (el as HTMLElement).getClientRects().length > 0;
         };
         const row = (e: Element) => {
-          if (e.classList.contains('pm-list__group')) return `## ${e.textContent}`;
-          if (!e.classList.contains('pm-prompt')) return `(${e.textContent})`;
-          const marks = `${e.classList.contains('pm-prompt--active') ? '>' : ''}${e.classList.contains('pm-prompt--sortable') ? '⋮' : ''}`;
-          return `${marks}${e.querySelector('.pm-prompt__name')?.textContent}`;
+          if (e.classList.contains('mgr-list__group')) return `## ${e.textContent}`;
+          if (!e.classList.contains('mgr-item')) return `(${e.textContent})`;
+          const marks = `${e.classList.contains('mgr-item--active') ? '>' : ''}${e.classList.contains('mgr-item--sortable') ? '⋮' : ''}`;
+          return `${marks}${e.querySelector('.mgr-item__name')?.textContent}`;
         };
         return {
-          categories: Array.from(document.querySelectorAll('.pm-category')).map(e => [
-            e.querySelector('.pm-category__name')?.textContent,
-            e.querySelector('.pm-category__count')?.textContent,
-            e.classList.contains('pm-category--active'),
+          categories: Array.from(document.querySelectorAll('.mgr-sidebar--prompt .mgr-category')).map(e => [
+            e.querySelector('.mgr-category__name')?.textContent,
+            e.querySelector('.mgr-category__count')?.textContent,
+            e.classList.contains('mgr-category--active'),
           ]),
-          list: Array.from(document.querySelectorAll('.pm-list__group, .pm-prompt, .pm-list__empty')).map(row),
-          editor: shown('.pm-editor__form')
+          list: Array.from(
+            document.querySelectorAll('.mgr-main--prompt :is(.mgr-list__group, .mgr-item, .mgr-list__empty)'),
+          ).map(row),
+          editor: shown('.mgr-main--prompt .mgr-editor__form')
             ? {
-                title: document.querySelector('.pm-editor__title')?.textContent,
-                dirty: shown('.pm-editor__dirty'),
-                buttons: Array.from(document.querySelectorAll<HTMLElement>('.pm-editor__actions button'))
+                title: document.querySelector('.mgr-main--prompt .mgr-editor__title')?.textContent,
+                dirty: shown('.mgr-main--prompt .mgr-editor__dirty'),
+                buttons: Array.from(
+                  document.querySelectorAll<HTMLElement>('.mgr-main--prompt .mgr-editor__actions button'),
+                )
                   .filter(b => b.getClientRects().length > 0)
                   .map(b => b.textContent),
               }
-            : document.querySelector('.pm-editor__empty')?.textContent,
+            : document.querySelector('.mgr-main--prompt .mgr-editor__empty')?.textContent,
           archivesShown: shown('.layer-panel'),
           canvasShown: shown('.canvas-area'),
           aiPanelShown: shown('.ai-panel'),
@@ -1180,7 +1189,7 @@ async function runScenarios(
     };
 
     await page.locator('.left-toolbar__btn[title="Prompt Manager"]').click();
-    await page.waitForFunction(() => document.querySelectorAll('.pm-prompt').length === 3);
+    await page.waitForFunction(() => document.querySelectorAll('.mgr-main--prompt .mgr-item').length === 3);
     const opened = await view();
     await screenshot('prompt-manager');
 
@@ -1210,7 +1219,7 @@ async function runScenarios(
 
     // New prompt in the selected category; it goes to the end of the category.
     await categoryRow('塗り').click();
-    await page.locator('.pm-list button', { hasText: '+ 新規' }).click();
+    await page.locator('.mgr-main--prompt .mgr-list button', { hasText: '+ 新規' }).click();
     const newEditor = { view: await view(), category: await editor.category.inputValue() };
     await editor.name.fill('ベタ塗り');
     await editor.text.fill('フラットな色で塗って');
@@ -1232,16 +1241,18 @@ async function runScenarios(
     // Reorder categories: drag 背景 above 塗り.
     await categoryRow('背景').dragTo(categoryRow('塗り'), { targetPosition: { x: 20, y: 4 } });
     const afterCategoryOrder = await waitForSavedOrder(o => o.categories[0] === '背景');
-    await page.waitForFunction(() => document.querySelectorAll('.pm-category__name')[1]?.textContent === '背景');
+    await page.waitForFunction(
+      () => document.querySelectorAll('.mgr-sidebar--prompt .mgr-category__name')[1]?.textContent === '背景',
+    );
 
     // Rename a category in place, then into an existing one (merge after a confirmation).
     await categoryRow('塗り').dblclick();
-    await page.locator('.pm-category__input').fill('着色');
-    await page.locator('.pm-category__input').press('Enter');
+    await page.locator('.mgr-category__input').fill('着色');
+    await page.locator('.mgr-category__input').press('Enter');
     await waitForToast(page, /カテゴリー「塗り」を「着色」に変更しました/);
     await categoryRow('背景').dblclick();
-    await page.locator('.pm-category__input').fill('着色');
-    await page.locator('.pm-category__input').press('Enter');
+    await page.locator('.mgr-category__input').fill('着色');
+    await page.locator('.mgr-category__input').press('Enter');
     const mergeMessage = await topModal().locator('.cs-modal__message').textContent();
     await topModal().locator('button', { hasText: 'まとめる' }).click();
     await waitForToast(page, /カテゴリー「背景」を「着色」に変更しました/);
@@ -1249,9 +1260,9 @@ async function runScenarios(
 
     // Search within すべて (no drag handles).
     await categoryRow('すべて').click();
-    await page.locator('.pm-list__search').fill('フラット');
+    await page.locator('.mgr-main--prompt .mgr-list__search').fill('フラット');
     const searched = await view();
-    await page.locator('.pm-list__search').fill('');
+    await page.locator('.mgr-main--prompt .mgr-list__search').fill('');
 
     // Delete.
     await promptRow('ベタ塗り のコピー').click();
@@ -1263,7 +1274,7 @@ async function runScenarios(
     // Export (browser download), then import the same file: every name conflicts → スキップ / 名前を変えて追加.
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.locator('.pm-sidebar__action-btn[title="エクスポート"]').click(),
+      page.locator('.mgr-sidebar--prompt .mgr-sidebar__action-btn[title="エクスポート"]').click(),
     ]);
     const exportPath = path.join(path.dirname(settingsDir), 'exported-prompts.json');
     await download.saveAs(exportPath);
@@ -1271,7 +1282,7 @@ async function runScenarios(
     const importFile = async () => {
       const [chooser] = await Promise.all([
         page.waitForEvent('filechooser'),
-        page.locator('.pm-sidebar__action-btn[title="インポート"]').click(),
+        page.locator('.mgr-sidebar--prompt .mgr-sidebar__action-btn[title="インポート"]').click(),
       ]);
       await chooser.setFiles(exportPath);
     };
@@ -1284,7 +1295,7 @@ async function runScenarios(
     await importFile();
     await topModal().locator('button', { hasText: '名前を変えて追加' }).click();
     const renameToast = await waitForToast(page, /追加 4 件・上書き 0 件・スキップ 0 件/);
-    await page.waitForFunction(() => document.querySelectorAll('.pm-prompt').length === 8);
+    await page.waitForFunction(() => document.querySelectorAll('.mgr-main--prompt .mgr-item').length === 8);
     const afterImport = { view: await view(), saved: savedOrder() };
     await screenshot('prompt-manager-after-import');
 
@@ -1326,6 +1337,412 @@ async function runScenarios(
       afterImport,
       leaveModeMessage,
       afterLeave,
+    };
+  });
+
+  await step('10d-character-manager', async () => {
+    // Character Manager (docs/specs/character-manager.md): like the Prompt Manager, with images per character
+    // (part of the editor's unsaved changes) kept in assets/characters/<id>/, and zip export / import.
+    const S = '.mgr-sidebar--character';
+    const M = '.mgr-main--character';
+    const charactersDir = path.join(path.dirname(settingsDir), 'assets', 'characters');
+    const topModal = () => page.locator('.cs-modal-overlay--open').last();
+    const exact = (text: string) => new RegExp(`^${text}$`);
+    const categoryRow = (label: string) =>
+      page
+        .locator(`${S} .mgr-category`)
+        .filter({ has: page.locator('.mgr-category__name', { hasText: exact(label) }) });
+    const characterRow = (name: string) =>
+      page.locator(`${M} .mgr-item`).filter({ has: page.locator('.mgr-item__name', { hasText: exact(name) }) });
+    const editor = {
+      name: page.locator(`${M} .mgr-editor input[type="text"]`).first(),
+      category: page.locator(`${M} .mgr-editor .cs-suggest input`),
+      text: page.locator(`${M} .mgr-editor textarea`),
+    };
+    const editorButton = (label: string) => page.locator(`${M} .mgr-editor__actions button`, { hasText: label });
+    const tiles = page.locator(`${M} .cm-image`);
+    const addImages = async (files: { name: string; mimeType: string; buffer: Buffer }[]) => {
+      const [chooser] = await Promise.all([
+        page.waitForEvent('filechooser'),
+        page.locator(`${M} .cm-images__add`).click(),
+      ]);
+      await chooser.setFiles(files);
+    };
+    const view = () =>
+      page.evaluate(
+        ([S, M]) => {
+          const shown = (sel: string) => {
+            const el = document.querySelector(sel);
+            return !!el && (el as HTMLElement).getClientRects().length > 0;
+          };
+          const row = (e: Element) => {
+            if (e.classList.contains('mgr-list__group')) return `## ${e.textContent}`;
+            if (!e.classList.contains('mgr-item')) return `(${e.textContent})`;
+            const active = e.classList.contains('mgr-item--active') ? '>' : '';
+            const sortable = e.classList.contains('mgr-item--sortable') ? '⋮' : '';
+            const thumb = e.querySelector('img.cm-thumb') ? '[img]' : '[icon]';
+            return `${active}${sortable}${thumb}${e.querySelector('.mgr-item__name')?.textContent}`;
+          };
+          return {
+            title: document.querySelector(`${S} .mgr-sidebar__title`)?.textContent,
+            categories: Array.from(document.querySelectorAll(`${S} .mgr-category`)).map(e => [
+              e.querySelector('.mgr-category__name')?.textContent,
+              e.querySelector('.mgr-category__count')?.textContent,
+              e.classList.contains('mgr-category--active'),
+            ]),
+            list: Array.from(document.querySelectorAll(`${M} :is(.mgr-list__group, .mgr-item, .mgr-list__empty)`)).map(
+              row,
+            ),
+            editor: shown(`${M} .mgr-editor__form`)
+              ? {
+                  title: document.querySelector(`${M} .mgr-editor__title`)?.textContent,
+                  dirty: shown(`${M} .mgr-editor__dirty`),
+                  icon: document.querySelector(`${M} .cm-icon__preview img`) ? 'image' : 'none',
+                  iconButtons: Array.from(document.querySelectorAll<HTMLButtonElement>(`${M} .cm-icon button`))
+                    .filter(b => b.getClientRects().length > 0)
+                    .map(b => `${b.textContent}${b.disabled ? ' (disabled)' : ''}`),
+                  images: document.querySelector(`${M} .cm-images .cs-field__label`)?.textContent,
+                  tiles: Array.from(document.querySelectorAll(`${M} .cm-image`)).map(t =>
+                    t.querySelector('.cm-image__new') ? 'new' : 'saved',
+                  ),
+                  buttons: Array.from(document.querySelectorAll<HTMLElement>(`${M} .mgr-editor__actions button`))
+                    .filter(b => b.getClientRects().length > 0)
+                    .map(b => b.textContent),
+                }
+              : document.querySelector(`${M} .mgr-editor__empty`)?.textContent,
+            archivesShown: shown('.layer-panel'),
+            canvasShown: shown('.canvas-area'),
+            aiPanelShown: shown('.ai-panel'),
+            promptManagerShown: shown('.mgr-sidebar--prompt'),
+            activeModes: Array.from(document.querySelectorAll('.left-toolbar__btn--active')).map(e =>
+              e.getAttribute('title'),
+            ),
+          };
+        },
+        [S, M],
+      );
+    const saved = () =>
+      JSON.parse(fs.readFileSync(path.join(charactersDir, 'characters.json'), 'utf-8')) as {
+        categories: string[];
+        characters: {
+          id: string;
+          name: string;
+          category: string;
+          text: string;
+          images: string[];
+          icon: string | null;
+        }[];
+      };
+    /** The saved characters with the number of files actually in each folder. */
+    const savedSummary = () => {
+      const data = saved();
+      return {
+        categories: data.categories,
+        characters: data.characters.map(c => {
+          const folder = path.join(charactersDir, c.id);
+          const files = fs.existsSync(folder) ? fs.readdirSync(folder).length : 0;
+          const icon = c.icon ? 'icon' : 'no icon';
+          return `${c.category || '-'}/${c.name}: images ${c.images.length}, ${icon}, files ${files}, text ${JSON.stringify(c.text)}`;
+        }),
+      };
+    };
+    const red = await makePng(page, 40, 60);
+    const blue = await makePng(page, 60, 40);
+    // Face detection answers with two faces in the image's pixels (the real model is never used here).
+    const detected: number[] = [];
+    const stubFaces = (route: Route) => {
+      detected.push(route.request().postDataBuffer()?.length ?? 0);
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'Cache-Control': 'no-store' },
+        body: JSON.stringify({
+          faces: [
+            { x: 10, y: 8, width: 16, height: 20, score: 0.9 },
+            { x: 2, y: 40, width: 8, height: 8, score: 0.4 },
+          ],
+          warnings: [],
+        }),
+      });
+    };
+    await page.route(/\/api\/characters\/detect-faces$/, stubFaces);
+    const cropper = page.locator('.icon-cropper-overlay.cs-modal-overlay--open');
+    const cropperState = () =>
+      page.evaluate(() => {
+        const frame = document.querySelector<HTMLElement>('.icon-cropper__frame');
+        return {
+          status: document.querySelector('.icon-cropper__status')?.textContent,
+          sources: Array.from(document.querySelectorAll('.icon-cropper__source')).map(b =>
+            b.classList.contains('icon-cropper__source--active') ? 'active' : '-',
+          ),
+          faces: document.querySelectorAll('.icon-cropper__face').length,
+          frame: frame && { left: frame.style.left, top: frame.style.top, size: frame.style.width },
+        };
+      });
+    /** Width and height of a PNG file (IHDR). */
+    const pngSize = (file: string) => {
+      const data = fs.readFileSync(file);
+      return [data.readUInt32BE(16), data.readUInt32BE(20)];
+    };
+
+    await page.locator('.left-toolbar__btn[title="Character Manager"]').click();
+    await page.waitForFunction(M => !!document.querySelector(`${M} .mgr-list__empty`), M);
+    const opened = await view();
+    const folderCreated = fs.existsSync(charactersDir);
+
+    // New character with two images (a text file is refused); images are unsaved until 保存.
+    await page.locator(`${M} .mgr-list button`, { hasText: '+ 新規' }).click();
+    await editor.name.fill('花子');
+    await editor.category.fill('主要');
+    await editor.text.fill('黒髪ボブ、赤いリボン');
+    await addImages([
+      { name: 'front.png', mimeType: 'image/png', buffer: red },
+      { name: 'side.png', mimeType: 'image/png', buffer: blue },
+      { name: 'memo.txt', mimeType: 'text/plain', buffer: Buffer.from('memo') },
+    ]);
+    const refusedToast = await waitForToast(page, /PNG \/ JPEG \/ WebP 以外の 1 件は追加しませんでした/);
+    // No icon yet: the icon cropper opens on the first added image, with the frame on the best face.
+    await cropper.waitFor();
+    await page.waitForFunction(() =>
+      document.querySelector('.icon-cropper__status')?.textContent?.includes('検出しました'),
+    );
+    const cropperOpened = await cropperState();
+    await screenshot('icon-cropper', '.cs-modal-overlay--open >> nth=-1');
+    // Drag the frame 35px to the right (it stops at the image edge), then pick the other face.
+    const frameBox = (await page.locator('.icon-cropper__frame').boundingBox())!;
+    await page.mouse.move(frameBox.x + frameBox.width / 2, frameBox.y + frameBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(frameBox.x + frameBox.width / 2 + 35, frameBox.y + frameBox.height / 2, { steps: 5 });
+    await page.mouse.up();
+    const afterDrag = await cropperState();
+    await page.locator('.icon-cropper__face').nth(1).click();
+    const afterFaceClick = await cropperState();
+    await cropper.locator('button', { hasText: '決定' }).click();
+    await cropper.waitFor({ state: 'detached' }).catch(() => cropper.waitFor({ state: 'hidden' }));
+    const newEditor = await view();
+    await screenshot('character-manager-new');
+    await editorButton('保存').click();
+    const createToast = await waitForToast(page, /キャラクター「花子」を作成しました/);
+    const afterCreate = { view: await view(), saved: savedSummary() };
+    const hanako = saved().characters[0];
+    const icon = {
+      cropperOpened,
+      afterDrag,
+      afterFaceClick,
+      detectRequests: detected.length,
+      fileSize: pngSize(path.join(charactersDir, hanako.id, hanako.icon!)),
+      notAnImage: !hanako.images.includes(hanako.icon!),
+    };
+
+    // While detecting: an hourglass over the image, no other operation; 中断 stops it and the frame stays in
+    // the middle for manual cropping. The detection is held until the browser cancels it.
+    let releaseDetection = () => {};
+    const heldDetection = new Promise<void>(resolve => (releaseDetection = resolve));
+    const holdFaces = async (route: Route) => {
+      await heldDetection;
+      await route.abort().catch(() => {});
+    };
+    await page.unroute(/\/api\/characters\/detect-faces$/, stubFaces);
+    await page.route(/\/api\/characters\/detect-faces$/, holdFaces);
+    const busyState = () =>
+      page.evaluate(() => ({
+        busy: (document.querySelector('.icon-cropper__busy') as HTMLElement | null)?.hidden === false,
+        sourcesDisabled: Array.from(document.querySelectorAll<HTMLButtonElement>('.icon-cropper__source')).map(
+          b => b.disabled,
+        ),
+        confirmDisabled: Array.from(document.querySelectorAll<HTMLButtonElement>('.icon-cropper-overlay button')).find(
+          b => b.textContent === '決定',
+        )?.disabled,
+        status: document.querySelector('.icon-cropper__status')?.textContent,
+        frame: document.querySelector<HTMLElement>('.icon-cropper__frame')?.style.left,
+      }));
+    await page.locator(`${M} .cm-icon button`, { hasText: 'アイコンを変更' }).click();
+    await page.locator('.icon-cropper__busy:not([hidden])').waitFor();
+    const whileDetecting = await busyState();
+    await screenshot('icon-cropper-detecting', '.cs-modal-overlay--open >> nth=-1');
+    // A drag on the image does nothing while the hourglass covers it.
+    const busyBox = (await page.locator('.icon-cropper__stage').boundingBox())!;
+    await page.mouse.move(busyBox.x + busyBox.width / 2, busyBox.y + busyBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(busyBox.x + busyBox.width / 2 + 40, busyBox.y + busyBox.height / 2, { steps: 4 });
+    await page.mouse.up();
+    const afterBusyDrag = await busyState();
+    await page.locator('.icon-cropper__busy button', { hasText: '中断' }).click();
+    await page.waitForFunction(() => document.querySelector('.icon-cropper__status')?.textContent?.includes('中断'));
+    const afterAbort = await busyState();
+    releaseDetection();
+    await cropper.locator('button', { hasText: 'キャンセル' }).click();
+    await page.unroute(/\/api\/characters\/detect-faces$/, holdFaces);
+    await page.route(/\/api\/characters\/detect-faces$/, stubFaces);
+    const detectionBusy = {
+      whileDetecting,
+      afterBusyDrag,
+      afterAbort,
+      iconUnchanged: saved().characters[0].icon === hanako.icon,
+      editorAfterCancel: (await view()).editor,
+    };
+
+    // Reorder the images (drag the second onto the left half of the first), remove one, Ctrl+S.
+    await tiles.nth(1).dragTo(tiles.nth(0), { targetPosition: { x: 4, y: 50 } });
+    const reordered = (await view()).editor;
+    await tiles.nth(1).locator('.cm-image__remove').click();
+    await editor.text.press('Control+s');
+    await waitForToast(page, /キャラクター「花子」を保存しました/);
+    const afterEdit = saved().characters[0];
+    const imageEdit = {
+      reordered,
+      keptSecondAsFirst: afterEdit.images[0] === hanako.images[1],
+      removedFileGone: !fs.existsSync(path.join(charactersDir, hanako.id, hanako.images[0])),
+      saved: savedSummary(),
+    };
+    // Add an image back for the rest of the scenario.
+    await addImages([{ name: 'front.png', mimeType: 'image/png', buffer: red }]);
+    await editorButton('保存').click();
+    await waitForToast(page, /キャラクター「花子」を保存しました/);
+
+    // A text-only character; leaving unsaved changes asks first.
+    await page.locator(`${M} .mgr-list button`, { hasText: '+ 新規' }).click();
+    await editor.name.fill('太郎');
+    await editor.text.fill('学ラン、眼鏡');
+    await characterRow('花子').click();
+    const leaveMessage = await topModal().locator('.cs-modal__message').textContent();
+    await topModal().locator('button', { hasText: '保存' }).click();
+    await waitForToast(page, /キャラクター「太郎」を作成しました/);
+
+    // Duplicate copies the images; a duplicate name only warns.
+    await characterRow('花子').click();
+    await editorButton('複製').click();
+    await waitForToast(page, /キャラクター「花子 のコピー」を作成しました/);
+    await editor.name.fill('太郎');
+    await editorButton('保存').click();
+    const duplicateNameToast = await waitForToast(page, /同じ名前のキャラクター「太郎」が登録されています/);
+    await editor.name.fill('花子 のコピー');
+    const afterDuplicate = { view: await view(), saved: savedSummary() };
+    await screenshot('character-manager-editor');
+
+    // Rename the category, then delete the copy (its folder goes too).
+    await categoryRow('主要').dblclick();
+    await page.locator('.mgr-category__input').fill('メイン');
+    await page.locator('.mgr-category__input').press('Enter');
+    await waitForToast(page, /カテゴリー「主要」を「メイン」に変更しました/);
+    const copy = saved().characters.find(c => c.name === '花子 のコピー')!;
+    await characterRow('花子 のコピー').click();
+    await editorButton('削除').click();
+    const deleteMessage = await topModal().locator('.cs-modal__message').textContent();
+    await topModal().locator('button', { hasText: '削除' }).click();
+    await waitForToast(page, /キャラクター「花子 のコピー」を削除しました/);
+    const afterDelete = {
+      view: await view(),
+      saved: savedSummary(),
+      copyFolderGone: !fs.existsSync(path.join(charactersDir, copy.id)),
+    };
+
+    // Export (zip download), then import it again: every name conflicts → 名前を変えて追加.
+    // (The double click on 主要 also selected it; show すべて again.)
+    await categoryRow('すべて').click();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator(`${S} .mgr-sidebar__action-btn[title="エクスポート"]`).click(),
+    ]);
+    const exportToast = await waitForToast(page, /キャラクター 2 件を .* に書き出しました/);
+    const exportPath = path.join(path.dirname(settingsDir), 'exported-characters.zip');
+    await download.saveAs(exportPath);
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.locator(`${S} .mgr-sidebar__action-btn[title="インポート"]`).click(),
+    ]);
+    await chooser.setFiles(exportPath);
+    const conflictMessage = await topModal().locator('.cs-modal__message').textContent();
+    await topModal().locator('button', { hasText: '名前を変えて追加' }).click();
+    const importToast = await waitForToast(page, /追加 2 件・上書き 0 件・スキップ 0 件/);
+    await page.waitForFunction(M => document.querySelectorAll(`${M} .mgr-item`).length === 4, M);
+    const afterImport = { view: await view(), saved: savedSummary() };
+    await screenshot('character-manager-after-import');
+
+    // Back to Normal mode.
+    await page.locator('.left-toolbar__btn[title="Normal Mode"]').click();
+    await page.waitForTimeout(300);
+    const afterLeave = await view();
+    await page.waitForFunction(() => !document.querySelector('.toast'), undefined, { timeout: 15000 });
+
+    // From Nano Banana画像生成: 花子's images become Character reference images described with the name / text;
+    // 太郎 (no images) appends the text to the prompt. Everything is put back afterwards for the next scenarios.
+    const win = '.tool-window';
+    await openNanoBananaWithoutOriginal(page);
+    const promptArea = page.locator(`${win} .nbp-prompt textarea`);
+    const promptBefore = await promptArea.inputValue();
+    const openPicker = async () => {
+      await page.locator(`${win} button[title="登録したキャラクターから追加"]`).click();
+      await page.waitForFunction(() => {
+        const list = document.querySelector('.cs-modal-overlay--open .prompt-library');
+        return !!list && !list.textContent?.includes('読み込み中');
+      });
+    };
+    const useCharacter = async (name: string) => {
+      await topModal()
+        .locator('.prompt-library__item')
+        .filter({ has: page.locator('.prompt-library__name', { hasText: exact(name) }) })
+        .locator('button', { hasText: '使う' })
+        .click();
+    };
+    await openPicker();
+    const pickerItems = await page.$$eval('.cs-modal-overlay--open .prompt-library__item', els =>
+      els.map(e => [
+        e.querySelector('.prompt-library__name')?.textContent,
+        e.querySelector('.prompt-library__category')?.textContent,
+        e.querySelector('.character-library__count')?.textContent,
+        !!e.querySelector('img.character-library__thumb'),
+      ]),
+    );
+    await screenshot('character-picker', '.cs-modal-overlay--open >> nth=-1');
+    await useCharacter('花子');
+    const usedToast = await waitForToast(page, /キャラクター「花子」の画像 2 枚を参照画像に追加しました/);
+    const cards = await page.$$eval(`${win} .ref-list .ref-card`, els =>
+      els.map(el => ({
+        type: el.querySelector<HTMLSelectElement>('.ref-card__type')?.value ?? null,
+        description: el.querySelector<HTMLTextAreaElement>('.ref-card__description')?.value ?? null,
+      })),
+    );
+    await openPicker();
+    await useCharacter('太郎');
+    const textToast = await waitForToast(page, /キャラクター「太郎」の本文をプロンプトに追加しました/);
+    const promptAfter = await promptArea.inputValue();
+    await screenshot('character-in-tool', win);
+    while (await page.locator(`${win} .ref-list .ref-card__remove`).count()) {
+      await page.locator(`${win} .ref-list .ref-card__remove`).first().click();
+    }
+    await promptArea.fill(promptBefore);
+    await closeToolWindow(page);
+    await page.unroute(/\/api\/characters\/detect-faces$/, stubFaces);
+    await page.waitForFunction(() => !document.querySelector('.toast'), undefined, { timeout: 15000 });
+
+    return {
+      opened,
+      folderCreated,
+      refusedToast,
+      newEditor,
+      createToast,
+      afterCreate,
+      imageEdit,
+      leaveMessage,
+      duplicateNameToast,
+      afterDuplicate,
+      deleteMessage,
+      afterDelete,
+      exportToast,
+      conflictMessage,
+      importToast,
+      afterImport,
+      afterLeave,
+      icon,
+      detectionBusy,
+      tool: {
+        pickerItems,
+        usedToast,
+        cards,
+        textToast,
+        promptAdded: promptAfter.slice(promptBefore.trimEnd().length),
+      },
     };
   });
 
@@ -2792,6 +3209,15 @@ async function main(): Promise<void> {
         contentType: 'application/json',
         headers: { 'Cache-Control': 'no-store' },
         body: JSON.stringify({ detail: 'E2E: the file dialog is not stubbed' }),
+      }),
+    );
+    // Face detection would download its model into the real models/ folder: scenarios stub it, anything else fails.
+    await page.route(/\/api\/characters\/detect-faces$/, route =>
+      route.fulfill({
+        status: 502,
+        contentType: 'application/json',
+        headers: { 'Cache-Control': 'no-store' },
+        body: JSON.stringify({ detail: 'E2E: face detection is not stubbed' }),
       }),
     );
     await page.clock.setFixedTime(new Date('2026-01-01T10:00:00'));

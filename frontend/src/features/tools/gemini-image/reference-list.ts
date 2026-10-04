@@ -36,6 +36,11 @@ export function countInZone(images: readonly Pick<ReferenceImage, 'zoneTitle'>[]
   return images.filter(image => image.zoneTitle === zoneTitle).length;
 }
 
+/** The type a registered character's images get: Character, or the model's first type when it has none. */
+export function characterZone(zones: readonly ZoneDef[]): ZoneDef | undefined {
+  return zones.find(zone => zoneShortName(zone.title) === 'Character') ?? zones[0];
+}
+
 /** How many reference images the model accepts in total (the sum of the per-type numbers). */
 export function totalLimit(zones: readonly ZoneDef[]): number {
   return zones.reduce((sum, zone) => sum + zone.max, 0);
