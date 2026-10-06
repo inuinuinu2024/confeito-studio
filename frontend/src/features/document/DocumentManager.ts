@@ -1,63 +1,49 @@
 /**
- * DocumentManager — the image currently shown on the canvas and the archive folder
- * that tools save into.
+ * DocumentManager — what tools work on: the archive shown on the Normal mode canvas (results are saved
+ * into it), its flow, and the images selected on the canvas (docs/specs/flow-canvas.md).
  *
- * - `getCurrentCanvas()` is what tools process (set when an archive image is selected).
- * - `getCurrentArchiveFolder()` is the selected place in ARCHIVES (null when nothing is selected):
- *   the top-level archive for a selected file, or the selected (sub)folder key
- *   (e.g. "root/sub") when a folder row is selected. Tools save into its top-level archive
- *   (features/tools/result.ts); コマ結合 reads its panels from it.
- * - `getCurrentKey()` is the ARCHIVES key of the current image (the source recorded in info.json).
+ * - `getArchive()` / `getFlow()`: set by the flow canvas (features/flow-canvas/) when it loads an archive.
+ * - `getSelection()`: the selected images in the order they were selected. Tools run once per image
+ *   (features/ai-panel/tool-runner.ts); Parallel / Overlay mode compare the first two.
  */
 import { emit } from '../../shared/events';
+import type { FlowData, FlowImage } from '../../shared/types/flow';
 
 export class DocumentManager {
   private static instance: DocumentManager | undefined;
-  private currentCanvas: HTMLCanvasElement | null = null;
-  private currentFilename: string | null = null;
-  /** ARCHIVES key of the current image; null when no image is shown. */
-  private currentKey: string | null = null;
-  private currentArchiveFolder: string | null = null;
+  private archive: string | null = null;
+  private flow: FlowData | null = null;
+  private selection: FlowImage[] = [];
 
   static getInstance(): DocumentManager {
     DocumentManager.instance ??= new DocumentManager();
     return DocumentManager.instance;
   }
 
-  getCurrentCanvas(): HTMLCanvasElement | null {
-    return this.currentCanvas;
+  /** The archive shown on the canvas (where results are saved), or null when there is none. */
+  getArchive(): string | null {
+    return this.archive;
   }
 
-  getCurrentFilename(): string | null {
-    return this.currentFilename;
+  /** The flow of the shown archive (null while none is loaded). */
+  getFlow(): FlowData | null {
+    return this.flow;
   }
 
-  /** ARCHIVES key of the current image ("<archive>/<path>"), recorded as the source of tool results. */
-  getCurrentKey(): string | null {
-    return this.currentKey;
+  setFlow(archive: string | null, flow: FlowData | null): void {
+    this.archive = archive;
+    this.flow = flow;
   }
 
-  getCurrentArchiveFolder(): string | null {
-    return this.currentArchiveFolder;
+  getSelection(): readonly FlowImage[] {
+    return this.selection;
   }
 
-  setCurrentArchiveFolder(folder: string | null): void {
-    this.currentArchiveFolder = folder;
-  }
-
-  /** Replaces the current image (null clears it) and notifies the canvas. `key`: its ARCHIVES key, if any. */
-  setCanvas(canvas: HTMLCanvasElement | null, filename?: string, key: string | null = null): void {
-    this.currentCanvas = canvas;
-    this.currentKey = canvas ? key : null;
-    if (filename !== undefined) this.currentFilename = filename;
-    if (canvas) {
-      emit('document:loaded', {
-        canvas,
-        filename: this.currentFilename || 'Untitled.png',
-        width: canvas.width,
-        height: canvas.height,
-      });
-    }
-    emit('document:redraw');
+  /** Replaces the selection and emits `flow:selection-changed` when it changed. */
+  setSelection(images: readonly FlowImage[]): void {
+    const same =
+      images.length === this.selection.length && images.every((image, i) => image.key === this.selection[i].key);
+    this.selection = [...images];
+    if (!same) emit('flow:selection-changed', { images: this.selection });
   }
 }

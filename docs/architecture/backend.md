@@ -12,14 +12,15 @@ backend/src/app/
 ├── routers/         # HTTP 層。入力を受けてサービスを呼ぶだけ（try/except を書かない）
 ├── services/        # 業務ロジック。FastAPI に依存しない
 │   ├── archive_service.py   # アーカイブ（フォルダ）の読み書き・ゴミ箱・パス検証
+│   ├── flow_service.py      # Workspace の処理フロー（開始画像・結果フォルダの info.json・.flow.json の表示中の候補）とサムネイル
 │   ├── panel_service.py     # コマ分割（Gemini 呼び出し + 切り出し + 保存）
 │   ├── panel_geometry.py    # コマ分割の純粋関数（プロンプト・座標変換・レスポンス解析）
-│   ├── merge_service.py     # コマ結合
+│   ├── merge_service.py     # コマ結合（コマの差し替え overrides を含む）
 │   ├── generation_service.py# 画像生成（プロバイダー選択）
 │   ├── image_service.py     # rembg 背景除去（初回呼び出し時に import）
 │   ├── secret_store.py      # Gemini API キーの保存・読み出し（今は .env。Web 版では利用者ごとの暗号化保存に差し替える）
 │   ├── settings_service.py  # ツール設定(JSON)
-│   ├── archives_location.py # ARCHIVES のフォルダ（既定 / ユーザーが選んだフォルダ。起動時に読み、settings.use_archives_dir で切り替える）
+│   ├── archives_location.py # アーカイブのフォルダ（既定 / ユーザーが選んだフォルダ。起動時に読み、settings.use_archives_dir で切り替える）
 │   ├── categorized_store.py # カテゴリー付きの一覧の共通処理（並べ替え・カテゴリー名の変更・名前の一意チェック）
 │   ├── prompt_service.py    # 登録したプロンプト（全ツール共通、assets/prompts/prompts.json）
 │   ├── character_service.py # 登録したキャラクターと画像・アイコン（全ツール共通、assets/characters/。zip のエクスポート / インポート）
@@ -80,7 +81,11 @@ backend/src/app/
 | GET | `/archives` | トップレベル一覧（新しい順） |
 | POST | `/archives` | multipart: `name`, `files[]`, `paths[]` で保存（既存なら追記・上書き） |
 | POST | `/archives/results` | ツールの結果を保存: multipart `root?`, `name`, `info?`(JSON), `files[]`, `paths[]` → `{folder}`（`save_result`。同名は `_2`…、info.json を付ける） |
-| GET | `/archives/{name}/contents` | 配下の全フォルダ・ファイル（`folderId` で親子） |
+| GET | `/archives/{name}/contents` | 配下の全フォルダ・ファイル（`folderId` で親子。`.flow.json` は含めない） |
+| GET | `/archives/{name}/flow` | Workspace の処理フロー `{archive, roots, runs, selection}`。roots = 直下の画像、runs = 直下の結果フォルダ（info.json の `tool`/`created_at`/`source`/`sources`/`settings` と、直下の画像 `outputs[{key,name,width,height}]`。古い順）、selection = `.flow.json` の表示中の候補、merge = コマ結合に使う画像のマーク |
+| PUT | `/archives/{name}/flow/selection` | `{stack, folder}`: スタックの表示中の候補を `.flow.json` に保存（`folder: null` で既定 = 最新に戻す） |
+| PUT | `/archives/{name}/flow/merge` | `{panel, image}`: コマ結合でコマ `panel` に貼る画像のマークを `.flow.json` に保存（`image: null` でマークを外す = 原画） |
+| GET | `/archives/{name}/thumbnail?path=&size=` | 画像の縮小コピー（長辺 `size` px、32〜1024。透過ありは PNG、なしは JPEG）。画像でない・ない時は 404 |
 | GET | `/archives/{name}/extract?path=` | ファイル本体 |
 | DELETE | `/archives/{name}` | `.trash/` へ移動 |
 | POST | `/archives/{name}/restore` | `.trash/` から復元（同じ名前のアーカイブがあれば 409、置き換えない） |
@@ -89,7 +94,7 @@ backend/src/app/
 | POST | `/image/remove-bg` | 背景除去（[specs/tools/remove-background.md](../specs/tools/remove-background.md)） |
 | POST | `/image/split-panels` | コマ分割（[specs/tools/panel-split-merge.md](../specs/tools/panel-split-merge.md)） |
 | POST | `/image/split-panels/preview` | コマ分割で Gemini に送るリクエストの確認用 |
-| POST | `/image/merge-panels` | コマ結合 |
+| POST | `/image/merge-panels` | コマ結合。form `target_folder`（コマ分割の結果フォルダ）、`overrides?`（JSON `{コマのファイル名: 差し替える画像のキー}`） |
 | POST | `/nano-banana-pro` | 画像生成・Interactions API（応答は画像そのもの） |
 | POST | `/nano-banana-pro/generate-content` | 画像生成・generateContent API（応答は上と同じ） |
 | POST | `/local-files/check-folder` | `{path}` が絶対パスの既存フォルダか（空欄は可）。違えば 404（画像読み込み） |
@@ -98,7 +103,7 @@ backend/src/app/
 | GET | `/usage/summary?now_ms&tz_offset_minutes&range` | Cost Monitor の集計 `{periods: {today, month, range}, range, latest, daily, by_tool, by_model, warnings, prices_checked_on}`（`range` = 7d / 30d / 90d / month / all。見ている人の暦日・暦月で区切る） |
 | GET | `/usage/day?date&tz_offset_minutes` | 1 日の内訳 `{day, total, by_tool, by_model, records, warnings}`（`date` = YYYY-MM-DD） |
 | GET | `/usage/records?offset&limit` | 利用記録を新しい順に 1 ページ `{records, total, warnings}`（`limit` ≤ 200）。仕様は [specs/cost-monitor.md](../specs/cost-monitor.md) |
-| GET/POST | `/settings/archives` | ARCHIVES のフォルダの状態 `{path, default_path, is_default, exists, ignored}` / 切り替え `{path, create}`（"" = 既定。ない時は `missing: true` で変えない。指定できないフォルダは 400。中身は移さない） |
+| GET/POST | `/settings/archives` | アーカイブのフォルダの状態 `{path, default_path, is_default, exists, ignored}` / 切り替え `{path, create}`（"" = 既定。ない時は `missing: true` で変えない。指定できないフォルダは 400。中身は移さない） |
 | GET/POST | `/settings/gemini` | API キーの有無 / 保存（secret_store。今は .env。空のキーは 400） |
 | GET/POST | `/settings/tools` | ツール設定の取得（初期設定 + ユーザー設定、`{values, warnings}`）/ ユーザー設定への追加・更新（`{values}` を重ねる） |
 | GET/POST | `/prompts` | 登録したプロンプトの一覧（`{categories, prompts, warnings}`）/ 作成（`{name, category, text}` → `{prompt, warnings}`。同名は 400） |

@@ -7,12 +7,14 @@ const MAX_WIDTH = 600;
  * @param panel     sidebar whose current width is the starting point
  * @param cssVar    e.g. "--left-sidebar-width"
  * @param edge      "right" when the handle sits on the panel's right edge (left sidebar)
+ * @param onResized called with the width when a drag ends (e.g. to save it)
  */
 export function createResizer(
   panel: HTMLElement,
   cssVar: string,
   edge: 'left' | 'right',
   className: string,
+  onResized?: (width: number) => void,
 ): HTMLDivElement {
   const handle = document.createElement('div');
   handle.className = className;
@@ -26,6 +28,7 @@ export function createResizer(
   };
   const onUp = () => {
     document.body.style.cursor = '';
+    onResized?.(panel.getBoundingClientRect().width);
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
   };

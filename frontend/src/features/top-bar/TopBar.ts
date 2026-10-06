@@ -1,7 +1,7 @@
 /**
  * TopBar — logo and action icons (settings / cloud sync / account; the last two show a "開発中" toast).
- * There are no menus: undo is the button next to delete in ARCHIVES, the background colour is in the
- * settings window.
+ * There are no menus: undo is the button next to delete in the flow canvas toolbar (and Ctrl+Z), the
+ * background colour is in the settings window.
  */
 import './top-bar.css';
 import { h, icon } from '../../shared/ui/dom';

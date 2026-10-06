@@ -1,6 +1,6 @@
 /**
  * ToolBar — left column of view mode buttons (state lives in shared/state/view-mode.ts), in groups
- * separated by thin dividers: Normal, Batch | the comparison views Parallel, Overlay | the managers
+ * separated by thin dividers: Normal | the comparison views Parallel, Overlay | the managers
  * (Prompt Manager / Character Manager are the "prompt" / "character" view modes; Object / Style are not
  * implemented yet) | the monitors (Cost Monitor is the "cost" view mode).
  */
@@ -16,8 +16,7 @@ interface ButtonDef {
 }
 
 const MODES: Record<ViewMode, ButtonDef> = {
-  normal: { title: 'Normal Mode', icon: 'image' },
-  batch: { title: 'Batch Mode', icon: 'grid_view' },
+  normal: { title: 'Workspace', icon: 'account_tree' },
   parallel: { title: 'Parallel View', icon: 'compare' },
   overlay: { title: 'Overlay View', icon: 'photo_library' },
   prompt: { title: 'Prompt Manager', icon: 'chat' },
@@ -28,7 +27,6 @@ const MODES: Record<ViewMode, ButtonDef> = {
 /** Top to bottom: a view mode, a divider, or a button that is not implemented yet (shows a "開発中" toast). */
 const ITEMS: (ViewMode | 'divider' | ButtonDef)[] = [
   'normal',
-  'batch',
   'divider',
   'parallel',
   'overlay',
@@ -61,10 +59,6 @@ export function createToolBar(): HTMLElement {
     modeButtons.set(item, btn);
     return btn;
   });
-  // Batch mode still opens, with a notice that it is being reworked.
-  on('batch-mode:toggle', ({ enabled }) => {
-    if (enabled) showToast('Batch モードは現在修正中です', 'info');
-  });
   const render = () => {
     const current = getViewMode();
     modeButtons.forEach((btn, mode) => btn.classList.toggle('left-toolbar__btn--active', mode === current));
@@ -73,7 +67,6 @@ export function createToolBar(): HTMLElement {
     'normal-mode:toggle',
     'parallel-mode:toggle',
     'overlay-mode:toggle',
-    'batch-mode:toggle',
     'prompt-mode:toggle',
     'character-mode:toggle',
     'cost-mode:toggle',

@@ -1,7 +1,7 @@
 /**
- * 背景除去 — removes the background of the selected image locally with rembg
+ * 背景除去 — removes the background of each selected image locally with rembg
  * (backend: services/image_service.py) and saves nobg.png + info.json as a tool result
- * ("<selected archive>/<YYYYMMDD_HHMMSS>_背景除去/", see result.ts).
+ * ("<archive>/<YYYYMMDD_HHMMSS>_背景除去/", see result.ts).
  */
 import { removeBackground } from '../../shared/api/image';
 import { emit } from '../../shared/events';
@@ -9,8 +9,8 @@ import { toolSettings } from '../../shared/state/tool-settings';
 import { type Tool, type ToolContext, ToolNotReady } from '../../shared/types/tool';
 import { button, field, slider, switchRow } from '../../shared/ui/form';
 import { AppMessageError } from '../../shared/utils/error-message';
+import { SELECT_IMAGE } from '../ai-panel/run-targets';
 import { canvasToBlob } from '../../shared/utils/image';
-import { DocumentManager } from '../document/DocumentManager';
 import { discardIfStopped, saveToolResult } from './result';
 import { imageTargetCard } from './target-card';
 
@@ -82,7 +82,7 @@ export class RemoveBackgroundTool implements Tool {
 
   async execute(context: ToolContext): Promise<string> {
     const canvas = await context.getSelectedImage();
-    if (!canvas) throw new ToolNotReady('ARCHIVES で対象の画像を選択してください。');
+    if (!canvas) throw new ToolNotReady(SELECT_IMAGE);
     context.ready();
     const input = await canvasToBlob(canvas, 'image/png');
     if (!input) throw new AppMessageError('画像を PNG に変換できませんでした。');
@@ -99,7 +99,7 @@ export class RemoveBackgroundTool implements Tool {
     );
 
     const folder = await saveToolResult(this.name, [{ blob: result, path: 'nobg.png' }], {
-      source: DocumentManager.getInstance().getCurrentKey(),
+      source: context.target?.key ?? null,
       settings: {
         alpha_matting: this.get('alpha_matting') === 'true',
         fg_threshold: Number(this.get('fg_threshold')),
@@ -108,7 +108,7 @@ export class RemoveBackgroundTool implements Tool {
       },
     });
     await discardIfStopped(context.signal, folder);
-    emit('archives:changed', { autoSelectKey: `${folder}/nobg.png` });
+    emit('archives:changed', { select: [`${folder}/nobg.png`] });
     return `「${folder}」に保存しました`;
   }
 }

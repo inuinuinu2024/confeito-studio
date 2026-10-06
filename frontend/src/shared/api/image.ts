@@ -107,7 +107,16 @@ export interface MergePanelsResult {
   auto_select_key: string;
 }
 
-/** Pastes the panels of `<targetFolder>/panels.json` back into one image. */
-export function mergePanels(targetFolder: string): Promise<MergePanelsResult> {
-  return postForm('/image/merge-panels', formData({ target_folder: targetFolder }));
+/**
+ * Pastes the panels of `<targetFolder>/panels.json` back into one image. `overrides` replaces panels
+ * (panel file name -> archive key of the image to paste instead, resized to the panel).
+ */
+export function mergePanels(targetFolder: string, overrides: Record<string, string> = {}): Promise<MergePanelsResult> {
+  return postForm(
+    '/image/merge-panels',
+    formData({
+      target_folder: targetFolder,
+      overrides: Object.keys(overrides).length ? JSON.stringify(overrides) : undefined,
+    }),
+  );
 }

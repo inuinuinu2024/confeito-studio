@@ -1,12 +1,10 @@
 /**
- * Draws one pane of the canvas area from CanvasState.
+ * Draws one pane of the comparison canvas from CanvasState.
  *
- *   Normal    left pane: the selected archive image (or text overlay), centered.
  *   Parallel  each pane: its own layer (L / R) only, centered in the bounding box of both.
  *   Overlay   left pane only: U (underdrawing, optionally tinted) + T (top image, translucent, movable).
- *   Batch     2-column grid of the images under the selected folder.
  */
-import type { BatchImage, CanvasState, Side } from './canvas-state';
+import type { CanvasState, Side } from './canvas-state';
 
 export const TINT_COLORS: Record<string, string> = {
   blue: '#448aff',
@@ -14,15 +12,6 @@ export const TINT_COLORS: Record<string, string> = {
   red: '#ff5252',
   gray: '#9e9e9e',
 };
-
-/** Batch grid layout (canvas pixels). */
-export const BATCH_GRID = { tileW: 800, tileH: 600, columns: 2, margin: 20, titleHeight: 40, padding: 20 };
-
-export function batchGridSize(imageCount: number): { w: number; h: number } {
-  const { tileW, tileH, columns, margin } = BATCH_GRID;
-  const rows = Math.ceil(imageCount / columns);
-  return { w: tileW * columns + margin * (columns + 1), h: tileH * rows + margin * (rows + 1) };
-}
 
 function checkerboard(ctx: CanvasRenderingContext2D): CanvasPattern | string {
   const tile = document.createElement('canvas');
@@ -75,51 +64,6 @@ export function topImageRect(s: CanvasState): { x: number; y: number; w: number;
   };
 }
 
-function cssVar(name: string, fallback: string): string {
-  return getComputedStyle(document.body).getPropertyValue(name) || fallback;
-}
-
-function drawBatchGrid(ctx: CanvasRenderingContext2D, images: BatchImage[], originX: number, originY: number): void {
-  const { tileW, tileH, columns, margin, titleHeight, padding } = BATCH_GRID;
-  const pattern = checkerboard(ctx);
-  let index = 0;
-  for (const image of images) {
-    if (!image.canvas) continue;
-    const x = originX + margin + (index % columns) * (tileW + margin);
-    const y = originY + margin + Math.floor(index / columns) * (tileH + margin);
-    index++;
-
-    ctx.fillStyle = cssVar('--color-surface-container-low', '#f5f5f5');
-    ctx.fillRect(x, y, tileW, tileH);
-    ctx.strokeStyle = cssVar('--color-outline-variant', '#555555');
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x + 0.5, y + 0.5, tileW - 1, tileH - 1);
-
-    ctx.fillStyle = cssVar('--color-on-surface', '#000000');
-    ctx.font = 'bold 16px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(image.name.split('/').pop() || 'Image', x + padding, y + padding + titleHeight / 2 - 4);
-
-    // Left half: the image; right half: placeholder for a future result.
-    const halfW = (tileW - padding * 3) / 2;
-    const halfH = tileH - titleHeight - padding * 2;
-    const scale = Math.min(halfW / image.canvas.width, halfH / image.canvas.height);
-    const w = image.canvas.width * scale;
-    const h = image.canvas.height * scale;
-    const imgX = x + padding + (halfW - w) / 2;
-    const imgY = y + padding + titleHeight + (halfH - h) / 2;
-    ctx.drawImage(image.canvas, imgX, imgY, w, h);
-
-    const placeholderX = x + padding + halfW + padding + (halfW - w) / 2;
-    ctx.fillStyle = pattern;
-    ctx.fillRect(placeholderX, imgY, w, h);
-    ctx.strokeStyle = cssVar('--color-outline-variant', '#888888');
-    ctx.lineWidth = 1;
-    ctx.strokeRect(placeholderX, imgY, w, h);
-  }
-}
-
 /** U (optionally tinted) centred, T over it (translucent, centred + the user's offset). */
 function drawOverlay(ctx: CanvasRenderingContext2D, s: CanvasState): void {
   const { under, top } = s.layers;
@@ -156,13 +100,6 @@ export function renderSide(ctx: CanvasRenderingContext2D, s: CanvasState, side: 
   ctx.clearRect(0, 0, s.drawW, s.drawH);
   const cx = s.drawW / 2;
   const cy = s.drawH / 2;
-  const docX = cx - s.baseW / 2;
-  const docY = cy - s.baseH / 2;
-
-  if (s.batch) {
-    drawBatchGrid(ctx, s.batchImages, docX, docY);
-    return;
-  }
 
   if (s.overlay) {
     if (side !== 'left') return; // the right pane is hidden
@@ -172,8 +109,8 @@ export function renderSide(ctx: CanvasRenderingContext2D, s: CanvasState, side: 
     return;
   }
 
-  // Parallel: this pane's layer only (never the other pane's); Normal: the ARCHIVES selection.
-  const image = s.parallel ? s.layers[side] : side === 'left' ? s.selection.image : null;
+  // Parallel: this pane's layer only (never the other pane's).
+  const image = s.parallel ? s.layers[side] : null;
   if (!image) return;
   const x = cx - image.width / 2;
   const y = cy - image.height / 2;

@@ -1,6 +1,6 @@
 /**
  * Character Manager (docs/specs/character-manager.md) — the "character" view mode. Works like the Prompt
- * Manager: the category sidebar takes the place of ARCHIVES and the main area (character list | editor)
+ * Manager: the category sidebar takes the sidebar column and the main area (character list | editor)
  * the place of the canvas; app.ts shows them while the mode is on. Every change is saved to the backend
  * at once, except the editor (fields, images and icon), which saves with 保存 / Ctrl+S and asks before unsaved
  * changes are left. The icon is cut from one of the images in the icon cropper (icon-cropper.ts).

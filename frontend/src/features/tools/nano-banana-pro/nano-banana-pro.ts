@@ -21,12 +21,14 @@ import {
 import { emit } from '../../../shared/events';
 import { toolSettings } from '../../../shared/state/tool-settings';
 import { isViewMode } from '../../../shared/state/view-mode';
-import { type Tool, type ToolContext, ToolNotReady } from '../../../shared/types/tool';
+import type { FlowImage } from '../../../shared/types/flow';
+import { type RunTarget, type Tool, type ToolContext, ToolNotReady } from '../../../shared/types/tool';
 import { openJsonPreview } from '../../../shared/ui/dialogs';
 import { h } from '../../../shared/ui/dom';
 import { button, field, helpIcon, note, select } from '../../../shared/ui/form';
 import { showError, showToast } from '../../../shared/ui/toast';
 import { fileStamp } from '../../../shared/utils/datetime';
+import { AppMessageError } from '../../../shared/utils/error-message';
 import { imageExtension } from '../../../shared/utils/image';
 import { PROMPT_HEADING, PROMPT_LEAD } from '../gemini-image/constants';
 import { imageHeading, imageInput, inputFiles, startProgress, uploadImage } from '../gemini-image/payload';
@@ -68,7 +70,8 @@ import {
   buildSentImage,
   createOriginalSection,
   type OriginalImage,
-  originalFromCanvas,
+  originalFromImage,
+  originalFromSelection,
   restoreImage,
 } from './original-image';
 import { generateContentRequest, interactionsRequest, redactImageData } from './request';
@@ -136,18 +139,25 @@ export class NanoBananaProTool implements Tool {
   }
 
   /**
-   * Opens with the image on the canvas as the 原画 (docs/specs/tools/nano-banana-pro.md 「原画」): only in the
-   * normal view mode, and not when the reference images already fill the limit (adding it would drop one).
-   * Without an image the previous 原画 stays.
+   * Opens with the first image selected on the canvas as the 原画 (docs/specs/tools/nano-banana-pro.md 「原画」):
+   * only in the normal view mode, and not when the reference images already fill the limit (adding it would
+   * drop one). Without a selection the previous 原画 stays.
    */
   async beforeOpen(): Promise<void> {
     if (!isViewMode('normal')) return;
-    const docManager = DocumentManager.getInstance();
-    if (!docManager.getCurrentCanvas()) return;
+    const first = DocumentManager.getInstance().getSelection()[0];
+    if (!first) return;
     if (!this.original && this.images.length > totalLimit(this.model.zones) - 1) return;
-    const key = docManager.getCurrentKey();
-    if (key && this.original?.key === key) return; // already this image
-    this.original = (await originalFromCanvas()) ?? this.original;
+    if (this.original?.key === first.key) return; // already this image
+    this.original = (await originalFromSelection()) ?? this.original;
+  }
+
+  /**
+   * With a 原画 taken from the canvas selection, each selected image becomes the 原画 in turn (one image each);
+   * otherwise (no 原画, or one added from a file) one image is generated.
+   */
+  targets(selection: readonly FlowImage[]): (RunTarget | null)[] {
+    return this.original?.key && selection.length ? [...selection] : [null];
   }
 
   /**
@@ -236,6 +246,8 @@ export class NanoBananaProTool implements Tool {
     const details = plan
       ? [`アスペクト比 ${plan.aspectRatio} に合わせて${PADDING_TEXT[plan.layout.padding]}を足して送る`]
       : [];
+    const count = DocumentManager.getInstance().getSelection().length;
+    if (this.original?.key && count > 1) details.push(`選択中の ${count} 枚を順に原画にして 1 枚ずつ生成します`);
     return createOriginalSection(this.original, details, original => {
       this.original = original;
       rerender();
@@ -416,6 +428,12 @@ export class NanoBananaProTool implements Tool {
 
   async execute(context: ToolContext): Promise<string> {
     if (!this.settings.get('prompt', '').trim()) throw new ToolNotReady('プロンプトを入力してください');
+    if (context.target) {
+      // This run's 原画 (the request is built from this.original).
+      const original = await originalFromImage(context.target);
+      if (!original) throw new AppMessageError(`「${context.target.name}」を原画として読み込めませんでした。`);
+      this.original = original;
+    }
     context.ready();
     const request = await this.buildRequest();
     const stopProgress = startProgress(s => emit('tool:progress', { message: `Generating image... (${s}s elapsed)` }));
@@ -446,7 +464,7 @@ export class NanoBananaProTool implements Tool {
         const { image, layout, aspectRatio } = request.original;
         const restored = await restoreImage(blob, layout.rect, image.width, image.height);
         files.unshift({ blob: restored.blob, path: imagePath }, { blob, path: `Raw/generated${extension}` });
-        // A 原画 taken from ARCHIVES is recorded as the source; one added from a file is kept in Inputs/.
+        // A 原画 taken from the canvas is recorded as the source; one added from a file is kept in Inputs/.
         if (image.key) source = image.key;
         else files.push({ blob: image.file, path: `Inputs/Original${imageExtension(image.file.type || 'image/png')}` });
         settings.original = {
@@ -462,7 +480,7 @@ export class NanoBananaProTool implements Tool {
       }
       const folder = await saveToolResult(this.name, files, { source, settings }, stamp);
       await discardIfStopped(context.signal, folder);
-      emit('archives:changed', { autoSelectKey: `${folder}/${imagePath}` });
+      emit('archives:changed', { select: [`${folder}/${imagePath}`] });
       return `「${folder}」に画像を保存しました`;
     } finally {
       stopProgress();

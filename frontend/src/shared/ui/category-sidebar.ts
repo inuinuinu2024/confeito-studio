@@ -1,6 +1,6 @@
 /**
  * Category sidebar of the managers (Prompt Manager, Character Manager; styles: shared/styles/manager.css).
- * Takes the place of ARCHIVES: a header with action buttons, then すべて / the categories / 未分類 with
+ * The managers' sidebar column: a header with action buttons, then すべて / the categories / 未分類 with
  * counts. A click filters, a double click (or the pencil) renames a category in place (merging into an
  * existing one or into 未分類 after a confirmation), rows are reordered by dragging, and item rows
  * dragged with `itemMime` can be dropped on a category.

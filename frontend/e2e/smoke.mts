@@ -117,111 +117,182 @@ async function launchBrowser(headed: boolean): Promise<Browser> {
 
 // ── Page helpers ──────────────────────────────────────────────────────
 
-const LEFT_PANEL = 'aside.layer-panel';
-const LEFT_VIEWPORT = '.canvas-split__pane--left .canvas-split__viewport';
-
 /** Masks timestamps so observations are comparable across runs. */
 function maskTimestamps(value: string): string {
   return value.replace(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/g, '<DATETIME>').replace(/\d{8}_\d{6}/g, '<STAMP>');
 }
 
-async function archiveTree(page: Page, panel = LEFT_PANEL) {
-  const rows = await page.$$eval(`${panel} .layer-item`, els =>
-    els.map(el => ({
-      name: el.querySelector('.layer-item__name')?.textContent ?? '',
-      indent: (el as HTMLElement).style.paddingLeft,
-      state: ['layer-item--group', 'layer-item--selected', 'layer-item--active']
-        .filter(c => el.classList.contains(c))
-        .map(c => c.replace('layer-item--', '')),
-    })),
-  );
-  return rows.map(r => ({ ...r, name: maskTimestamps(r.name) }));
-}
+const masked = <T,>(value: T): T => JSON.parse(maskTimestamps(JSON.stringify(value))) as T;
 
-function archiveItem(page: Page, name: string | RegExp, panel = LEFT_PANEL) {
-  return page
-    .locator(`${panel} .layer-item`)
-    .filter({
-      has: page.locator('.layer-item__name', { hasText: name }),
-    })
-    .first();
-}
-
-/** Checkbox column 0 / 1 of an image row (Parallel L / R, Overlay U / T). */
-function layerBox(page: Page, name: string, column: 0 | 1) {
-  return archiveItem(page, name).locator('.layer-item__layer-cb').nth(column);
-}
-
-/** Names of the rows checked in each checkbox column, and the column labels. */
-async function layerColumns(page: Page) {
-  return page.evaluate(panel => {
-    const checked = (column: number) =>
-      Array.from(document.querySelectorAll(`${panel} .layer-item`))
-        .filter(row =>
-          row.querySelectorAll('.layer-item__layer-cb')[column]?.classList.contains('layer-item__layer-cb--checked'),
-        )
-        .map(row => row.querySelector('.layer-item__name')?.textContent ?? '');
-    const header = document.querySelector<HTMLElement>(`${panel} .layer-column-header`);
+/**
+ * The flow canvas (docs/specs/flow-canvas.md): the archive shown, its steps in DOM order (header, stack
+ * position, cells with their state) and the selection.
+ */
+async function flowState(page: Page) {
+  const state = await page.evaluate(() => {
+    const visible = (el: Element | null) => !!el && (el as HTMLElement).getClientRects().length > 0;
+    const select = document.querySelector<HTMLSelectElement>('.flow-toolbar__archive');
     return {
-      header:
-        header && header.getClientRects().length
-          ? Array.from(header.querySelectorAll('.layer-column-header__label')).map(l => l.textContent)
+      visible: visible(document.querySelector('.flow-canvas')),
+      toolbarVisible: visible(document.querySelector('.flow-toolbar')),
+      archive: select?.value ?? null,
+      archives: select ? Array.from(select.options).map(o => o.textContent) : [],
+      steps: Array.from(document.querySelectorAll<HTMLElement>('.flow-step')).map(step => ({
+        title: step.querySelector('.flow-step__title')?.textContent ?? '',
+        size: step.querySelector('.flow-step__size')?.textContent ?? null,
+        variants: step.querySelector('.flow-step__variant-label')?.textContent ?? null,
+        at: [Math.round(parseFloat(step.style.left)), Math.round(parseFloat(step.style.top))],
+        cells: Array.from(step.querySelectorAll<HTMLElement>('.flow-cell')).map(c => {
+          const marks = ['selected', 'adopted', 'merge-marked', 'running', 'failed', 'broken'].filter(s =>
+            c.classList.contains(`flow-cell--${s}`),
+          );
+          const origin = c.querySelector('.flow-cell__origin');
+          const label = origin
+            ? `${origin.querySelector('.flow-cell__origin-name')?.textContent} ${origin.querySelector('.flow-cell__origin-from')?.textContent}: `
+            : '';
+          return `${label}${c.title}${marks.length ? ` [${marks.join(',')}]` : ''}`;
+        }),
+      })),
+      // Row labels (コマ #1 150 × 200, 開始画像 …), top to bottom.
+      rows: Array.from(document.querySelectorAll('.flow-row__label')).map(l =>
+        Array.from(l.querySelectorAll('.flow-step__title, .flow-step__size, .flow-step__variant-label'))
+          .map(e => e.textContent)
+          .join(' '),
+      ),
+      edges: document.querySelectorAll('.flow-edge').length,
+      selection: document.querySelector('.flow-toolbar__selection')?.textContent ?? '',
+      deleteEnabled: !document.querySelector<HTMLButtonElement>('.flow-toolbar__button[title^="選択した結果を削除"]')
+        ?.disabled,
+      undoEnabled: !document.querySelector<HTMLButtonElement>('.flow-toolbar__button[title^="削除を元に戻す"]')
+        ?.disabled,
+      zoom: document.querySelector('.flow-zoom-bar .canvas-zoom-bar__label')?.textContent ?? null,
+      panes: Array.from(document.querySelectorAll<HTMLElement>('.flow-pane')).map(pane => ({
+        visible: visible(pane),
+        collapsed: pane.classList.contains('flow-pane--collapsed'),
+        edge: pane.querySelector('.flow-pane__edge')?.textContent ?? null,
+        title: pane.querySelector('.flow-pane__title')?.textContent ?? null,
+        size: pane.querySelector('.flow-pane__size')?.textContent ?? null,
+        image: pane.querySelector<HTMLImageElement>('.flow-pane__img')?.dataset.key ?? null,
+        empty: visible(pane.querySelector('.flow-pane__empty'))
+          ? (pane.querySelector('.flow-pane__empty')?.textContent ?? null)
           : null,
-      visibleBoxes: Array.from(document.querySelectorAll<HTMLElement>(`${panel} .layer-item__layer-boxes`)).filter(
-        b => b.getClientRects().length > 0,
-      ).length,
-      columns: [checked(0), checked(1)],
+        thumbs: pane.querySelectorAll('.flow-pane__thumb').length,
+      })),
+      emptyMessage: visible(document.querySelector('.flow-empty'))
+        ? (document.querySelector('.flow-empty .canvas-empty__message')?.textContent ?? null)
+        : null,
     };
-  }, LEFT_PANEL);
+  });
+  return masked(state);
 }
 
-/** Row `child` directly under the top-level archive `parent` (the archive must be expanded). */
-async function childItem(page: Page, parent: string, child: string, panel = LEFT_PANEL) {
-  const index = await page.$$eval(
-    `${panel} .layer-item`,
-    (els, [parent, child]) => {
-      let inParent = false;
-      for (let i = 0; i < els.length; i++) {
-        const name = els[i].querySelector('.layer-item__name')?.textContent;
-        if ((els[i] as HTMLElement).style.paddingLeft === '8px') inParent = name === parent;
-        else if (inParent && name === child) return i;
-      }
-      return -1;
-    },
-    [parent, child],
+const exactName = (name: string | RegExp) =>
+  typeof name === 'string' ? new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) : name;
+
+/** The cell of image `name` (the `nth` one when several have that name; a RegExp: the first matching name). */
+async function flowCell(page: Page, name: string | RegExp, nth = 0) {
+  const exact =
+    typeof name === 'string'
+      ? name
+      : await page.$$eval(
+          '.flow-cell',
+          (cells, source) =>
+            cells.map(c => (c as HTMLElement).dataset.name ?? '').find(n => new RegExp(source).test(n)) ?? '',
+          name.source,
+        );
+  return page.locator(`.flow-cell[data-name="${exact}"]`).nth(nth);
+}
+
+/** Clicks the cell's frame (selects it; Control toggles, Shift adds). The image itself opens the viewer. */
+async function selectCell(
+  page: Page,
+  name: string | RegExp,
+  modifiers: ('Control' | 'Shift')[] = [],
+  nth = 0,
+): Promise<void> {
+  await revealCell(page, name, nth);
+  await (await flowCell(page, name, nth)).click({ modifiers, position: { x: 1, y: 1 } });
+}
+
+/** Fits the flow into view (全体を表示) when the cell is not fully on screen. */
+async function revealCell(page: Page, name: string | RegExp, nth = 0): Promise<void> {
+  const cell = (await (await flowCell(page, name, nth)).boundingBox())!;
+  const view = (await page.locator('.flow-viewport').boundingBox())!;
+  const inside =
+    cell.x >= view.x &&
+    cell.y >= view.y &&
+    cell.x + cell.width <= view.x + view.width &&
+    cell.y + cell.height <= view.y + view.height;
+  if (!inside) await page.locator('.flow-zoom-bar button[title="全体を表示"]').click();
+}
+
+/** Waits until the flow shows a cell named `name` (optionally selected). */
+async function waitForCell(page: Page, name: string | RegExp, selected = false): Promise<void> {
+  await page.waitForFunction(
+    ({ source, flags, selected }) =>
+      Array.from(document.querySelectorAll('.flow-cell')).some(
+        c =>
+          new RegExp(source, flags).test((c as HTMLElement).dataset.name ?? '') &&
+          (!selected || c.classList.contains('flow-cell--selected')),
+      ),
+    { source: exactName(name).source, flags: exactName(name).flags, selected },
+    { timeout: 20000 },
   );
-  if (index < 0) throw new Error(`${parent}/${child} not found in the ARCHIVES tree`);
-  return page.locator(`${panel} .layer-item`).nth(index);
 }
 
-async function collapseFolder(page: Page, name: string | RegExp, panel = LEFT_PANEL): Promise<void> {
-  const chevron = archiveItem(page, name, panel).locator('.layer-item__icon--chevron');
-  if ((await chevron.textContent()) === 'expand_more') {
-    await chevron.click();
-    await page.waitForFunction(
-      ({ panel, source }) =>
-        Array.from(document.querySelectorAll(`${panel} .layer-item`)).some(
-          el =>
-            new RegExp(source).test(el.querySelector('.layer-item__name')?.textContent ?? '') &&
-            el.querySelector('.layer-item__icon--chevron')?.textContent === 'chevron_right',
-        ),
-      { panel, source: typeof name === 'string' ? name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : name.source },
-    );
-  }
+/** Shows the archive whose name matches `name` (the toolbar's drop-down) and fits the flow. */
+async function showArchive(page: Page, name: RegExp): Promise<void> {
+  const value = await page.$$eval(
+    '.flow-toolbar__archive option',
+    (options, source) => options.find(o => new RegExp(source).test(o.textContent ?? ''))?.getAttribute('value'),
+    name.source,
+  );
+  if (!value) throw new Error(`archive ${name} is not in the list`);
+  await page.locator('.flow-toolbar__archive').selectOption(value);
+  await page.waitForFunction(
+    value => (document.querySelector('.flow-toolbar__archive') as HTMLSelectElement | null)?.value === value,
+    value,
+  );
+  await page.waitForTimeout(300);
+}
+
+/** Clicks the flow toolbar button whose title starts with `title`. */
+async function flowButton(page: Page, title: string): Promise<void> {
+  await page.locator(`.flow-toolbar__button[title^="${title}"]`).click();
+}
+
+/** Selects `names` (in order) and deletes them with the Delete key, answering the confirmation. */
+async function deleteCells(page: Page, names: string[]): Promise<string> {
+  await selectCell(page, names[0]);
+  for (const name of names.slice(1)) await selectCell(page, name, ['Control']);
+  await page.keyboard.press('Delete');
+  await page.waitForSelector('.cs-modal-overlay--open');
+  const message = (await page.locator('.cs-modal__message').textContent()) ?? '';
+  await page.locator('.cs-modal button', { hasText: /^削除$/ }).click();
+  await page.waitForSelector('.cs-modal-overlay--open', { state: 'detached' });
+  return maskTimestamps(message);
 }
 
 /** Waits until the canvas shows its empty message, and returns it (timestamps masked). */
 async function waitForEmptyMessage(page: Page, pattern: RegExp): Promise<string> {
   await page.waitForFunction(
-    source => {
-      const empty = document.querySelector<HTMLElement>('.canvas-empty');
-      const text = document.querySelector('.canvas-empty__message')?.textContent ?? '';
-      return !!empty && empty.getClientRects().length > 0 && new RegExp(source).test(text);
-    },
+    source =>
+      Array.from(document.querySelectorAll<HTMLElement>('.canvas-empty')).some(
+        empty =>
+          empty.getClientRects().length > 0 &&
+          new RegExp(source).test(empty.querySelector('.canvas-empty__message')?.textContent ?? ''),
+      ),
     pattern.source,
     { timeout: 10000 },
   );
-  return maskTimestamps((await page.locator('.canvas-empty__message').textContent()) ?? '');
+  return maskTimestamps(
+    await page.evaluate(
+      () =>
+        Array.from(document.querySelectorAll<HTMLElement>('.canvas-empty'))
+          .filter(e => e.getClientRects().length > 0)
+          .map(e => e.querySelector('.canvas-empty__message')?.textContent ?? '')[0] ?? '',
+    ),
+  );
 }
 
 /** The card of a tool's window (what it will process), closing the window afterwards. */
@@ -237,27 +308,29 @@ async function toolCard(page: Page, toolName: string): Promise<string> {
 const waitForCanvasWidth = (page: Page, width: number) =>
   page.waitForFunction(
     width =>
-      !document.querySelector<HTMLElement>('.canvas-empty')?.getClientRects().length &&
+      !document.querySelector<HTMLElement>('.canvas-area .canvas-empty')?.getClientRects().length &&
       Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === width),
     width,
     { timeout: 10000 },
   );
 
-async function expandFolder(page: Page, name: string | RegExp, panel = LEFT_PANEL): Promise<void> {
-  const row = archiveItem(page, name, panel);
-  const chevron = row.locator('.layer-item__icon--chevron');
-  if ((await chevron.textContent()) === 'chevron_right') {
-    await chevron.click();
-    await page.waitForFunction(
-      ({ panel, source }) =>
-        Array.from(document.querySelectorAll(`${panel} .layer-item`)).some(
-          el =>
-            new RegExp(source).test(el.querySelector('.layer-item__name')?.textContent ?? '') &&
-            el.querySelector('.layer-item__icon--chevron')?.textContent === 'expand_more',
-        ),
-      { panel, source: typeof name === 'string' ? name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : name.source },
-    );
-  }
+/** The result info.json of the newest run of `tool` in `archive`, read through the API. */
+async function newestInfo(page: Page, apiBase: string, archive: string, tool: string) {
+  const info = await page.evaluate(
+    async ({ apiBase, archive, tool }) => {
+      const flow = (await (await fetch(`${apiBase}/archives/${encodeURIComponent(archive)}/flow`)).json()) as {
+        runs: { folder: string; tool: string }[];
+      };
+      const run = flow.runs.filter(r => r.tool === tool).pop();
+      if (!run) return null;
+      const path = `${run.folder.slice(archive.length + 1)}/info.json`;
+      return (
+        await fetch(`${apiBase}/archives/${encodeURIComponent(archive)}/extract?path=${encodeURIComponent(path)}`)
+      ).json();
+    },
+    { apiBase, archive, tool },
+  );
+  return info && masked(info);
 }
 
 async function canvasState(page: Page) {
@@ -285,7 +358,7 @@ async function canvasState(page: Page) {
         });
       };
       const canvases = Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas'));
-      const zoomBar = document.querySelector<HTMLElement>('.canvas-zoom-bar');
+      const zoomBar = document.querySelector<HTMLElement>('.canvas-area .canvas-zoom-bar');
       const toolbar = document.querySelector<HTMLElement>('.canvas-toolbar');
       return {
         canvases: canvases.map(c => ({
@@ -295,24 +368,17 @@ async function canvasState(page: Page) {
           title: c.title,
           pixels: sample(c),
         })),
-        zoomLabel: document.querySelector('.canvas-zoom-bar__label')?.textContent ?? null,
+        zoomLabel: document.querySelector('.canvas-area .canvas-zoom-bar__label')?.textContent ?? null,
         zoomBarVisible: visible(zoomBar),
         toolbarVisible: visible(toolbar),
         toolbarGroupsVisible: Array.from(document.querySelectorAll('.canvas-toolbar__group')).map(visible),
-        textOverlays: Array.from(document.querySelectorAll<HTMLElement>('.canvas-text-overlay')).map(o => ({
-          visible: visible(o),
-          text: (o.textContent ?? '').slice(0, 300),
-        })),
         // Message shown while nothing is displayed (null when hidden).
-        emptyMessage: visible(document.querySelector('.canvas-empty'))
-          ? (document.querySelector('.canvas-empty__message')?.textContent ?? null)
+        emptyMessage: visible(document.querySelector('.canvas-area .canvas-empty'))
+          ? (document.querySelector('.canvas-area .canvas-empty__message')?.textContent ?? null)
           : null,
       };
     })
-    .then(s => ({
-      ...s,
-      textOverlays: s.textOverlays.map(o => ({ ...o, text: maskTimestamps(o.text) })),
-    }));
+    .then(masked);
 }
 
 async function toolWindowState(page: Page) {
@@ -380,10 +446,19 @@ async function withVisibleToasts<T>(page: Page, fn: () => Promise<T>): Promise<T
   }
 }
 
-/** Creates a deterministic PNG in the page (with a transparent margin so background colour shows). */
-async function dropTestImage(page: Page, fileName: string, width: number, height: number): Promise<void> {
+/**
+ * Creates a deterministic PNG in the page (with a transparent margin so background colour shows) and drops it
+ * on `target` (the flow canvas; the comparison canvas in Parallel / Overlay mode).
+ */
+async function dropTestImage(
+  page: Page,
+  fileName: string,
+  width: number,
+  height: number,
+  target = '.flow-canvas',
+): Promise<void> {
   await page.evaluate(
-    async ({ fileName, width, height }) => {
+    async ({ fileName, width, height, target }) => {
       const c = document.createElement('canvas');
       c.width = width;
       c.height = height;
@@ -398,25 +473,37 @@ async function dropTestImage(page: Page, fileName: string, width: number, height
       const dt = new DataTransfer();
       dt.items.add(new File([blob], fileName, { type: 'image/png' }));
       document
-        .querySelector('.canvas-area')!
+        .querySelector(target)!
         .dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
     },
-    { fileName, width, height },
+    { fileName, width, height, target },
   );
 }
 
-/** Writes a panel-split style folder (two panels + panels.json) through the archive API. */
+/**
+ * Writes the archive "e2e-panels" through the archive API: a 300x200 page, a コマ分割 result of it (two
+ * 150x200 panels + panels.json + info.json), a 背景除去 result of panel 01 (solid blue, as if processed) and a
+ * Nano Banana画像生成 result with panel 02 as 原画 (solid purple) and one with that result as 原画 (orange); both are
+ * shown in the panel's box.
+ */
 async function createPanelFixture(page: Page, apiBase: string): Promise<void> {
   await page.evaluate(async apiBase => {
-    const panel = async (color: string) => {
+    const png = async (width: number, height: number, color: string) => {
       const c = document.createElement('canvas');
-      c.width = 150;
-      c.height = 200;
+      c.width = width;
+      c.height = height;
       const ctx = c.getContext('2d')!;
       ctx.fillStyle = color;
-      ctx.fillRect(0, 0, 150, 200);
+      ctx.fillRect(0, 0, width, height);
       return new Promise<Blob>(r => c.toBlob(b => r(b!), 'image/png'));
     };
+    const json = (value: unknown) => new Blob([JSON.stringify(value)], { type: 'application/json' });
+    const info = (tool: string, source: string, outputs: string[], createdAt: string, settings = {}) =>
+      json({ tool, created_at: createdAt, source, settings, outputs });
+    const split = '20260101_090000_コマ分割';
+    const nobg = '20260101_091000_背景除去';
+    const generated = '20260101_092000_Nano Banana画像生成';
+    const regenerated = '20260101_093000_Nano Banana画像生成';
     const panelsJson = {
       version: '1.0',
       image_size: { width: 300, height: 200 },
@@ -427,9 +514,30 @@ async function createPanelFixture(page: Page, apiBase: string): Promise<void> {
       ],
     };
     const files: [string, Blob][] = [
-      ['sub/01.png', await panel('#cc3333')],
-      ['sub/02.png', await panel('#33cc33')],
-      ['sub/panels.json', new Blob([JSON.stringify(panelsJson)], { type: 'application/json' })],
+      ['page.png', await png(300, 200, '#888888')],
+      [`${split}/01.png`, await png(150, 200, '#cc3333')],
+      [`${split}/02.png`, await png(150, 200, '#33cc33')],
+      [`${split}/panels.json`, json(panelsJson)],
+      [
+        `${split}/info.json`,
+        info('コマ分割', 'e2e-panels/page.png', ['01.png', '02.png', 'panels.json'], '2026-01-01 09:00:00'),
+      ],
+      [`${nobg}/nobg.png`, await png(120, 160, '#3355ff')],
+      [`${nobg}/info.json`, info('背景除去', `e2e-panels/${split}/01.png`, ['nobg.png'], '2026-01-01 09:10:00')],
+      [`${generated}/gen.png`, await png(150, 200, '#aa33aa')],
+      [
+        `${generated}/info.json`,
+        info('Nano Banana画像生成', `e2e-panels/${split}/02.png`, ['gen.png'], '2026-01-01 09:20:00', {
+          original: { width: 150, height: 200 },
+        }),
+      ],
+      [`${regenerated}/regen.png`, await png(150, 200, '#ddaa33')],
+      [
+        `${regenerated}/info.json`,
+        info('Nano Banana画像生成', `e2e-panels/${generated}/gen.png`, ['regen.png'], '2026-01-01 09:30:00', {
+          original: { width: 150, height: 200 },
+        }),
+      ],
       ['log.txt', new Blob(['[fixture] created\n'], { type: 'text/plain' })],
     ];
     const form = new FormData();
@@ -452,7 +560,7 @@ async function clickTool(page: Page, toolName: string): Promise<void> {
 }
 
 /**
- * Opens Nano Banana画像生成 and removes the 原画, which the image on the canvas fills when the window opens
+ * Opens Nano Banana画像生成 and removes the 原画, which the image selected on the canvas fills when the window opens
  * (docs/specs/tools/nano-banana-pro.md 「原画」): for scenarios about the tool without one.
  */
 async function openNanoBananaWithoutOriginal(page: Page): Promise<void> {
@@ -556,7 +664,6 @@ async function parallelState(page: Page) {
         notice: shown(pane.querySelector('.canvas-split__pane-empty'))
           ? (pane.querySelector('.canvas-split__pane-message')?.textContent ?? null)
           : null,
-        text: shown(pane.querySelector('.canvas-text-overlay')),
       };
     });
     const divider = split.querySelector<HTMLElement>('.canvas-split__divider')!;
@@ -566,16 +673,15 @@ async function parallelState(page: Page) {
       divider: shown(divider)
         ? { ...round(divider.getBoundingClientRect()), color: getComputedStyle(divider).backgroundColor }
         : null,
-      zoomLabel: document.querySelector('.canvas-zoom-bar__label')?.textContent ?? null,
-      zoomBarVisible: shown(document.querySelector('.canvas-zoom-bar')),
-      globalEmptyVisible: shown(document.querySelector('.canvas-empty')),
+      zoomLabel: document.querySelector('.canvas-area .canvas-zoom-bar__label')?.textContent ?? null,
+      zoomBarVisible: shown(document.querySelector('.canvas-area .canvas-zoom-bar')),
+      globalEmptyVisible: shown(document.querySelector('.canvas-area .canvas-empty')),
     };
   });
 }
 
 const MODE_BUTTONS = {
-  Normal: 'Normal Mode',
-  Batch: 'Batch Mode',
+  Normal: 'Workspace',
   Parallel: 'Parallel View',
   Overlay: 'Overlay View',
 } as const;
@@ -620,7 +726,7 @@ async function runScenarios(
     await screenshot('boot');
     return {
       topbarActions: await page.$$eval('.topbar__action-btn', els => els.map(e => e.getAttribute('title'))),
-      // Buttons top to bottom, with dividers between Batch and Parallel, before the managers and before Cost Monitor.
+      // Buttons top to bottom, with dividers between Normal and Parallel, before the managers and before Cost Monitor.
       toolbarItems: await page.$$eval('.left-toolbar > *', els =>
         els.map(e => e.getAttribute('title') ?? (e.classList.contains('left-toolbar__divider') ? '---' : '?')),
       ),
@@ -630,8 +736,7 @@ async function runScenarios(
       toolPanelTitle: await page.locator('.ai-panel__title').textContent(),
       tools: await page.$$eval('.ai-panel__list .ai-tool-name', els => els.map(e => e.textContent)),
       status: await page.$$eval('.statusbar__status-item, .statusbar__left', els => els.map(e => e.textContent)),
-      archives: await archiveTree(page),
-      canvas: await canvasState(page),
+      flow: await flowState(page),
     };
   });
 
@@ -671,13 +776,13 @@ async function runScenarios(
     await page.waitForSelector('.tool-window');
     const mergeCard = await page.locator('.tool-window .cs-card').innerText();
     await page.locator('.tool-window .tool-window__run').click();
-    await waitForToast(page, /コマ結合: ARCHIVES/);
+    await waitForToast(page, /コマ結合: キャンバスで/);
     await closeToolWindow(page);
     await clickTool(page, '背景除去');
     await page.waitForSelector('.tool-window');
     const removeBgCard = await page.locator('.tool-window .cs-card').innerText();
     await page.locator('.tool-window .tool-window__run').click();
-    await waitForToast(page, /背景除去: ARCHIVES/);
+    await waitForToast(page, /背景除去: キャンバスで/);
     const windowStaysOpen = await page.locator('.tool-window').count();
     await closeToolWindow(page);
     return {
@@ -685,32 +790,27 @@ async function runScenarios(
       removeBgCard,
       toasts: await toastStack(page),
       windowStaysOpen,
-      archives: await archiveTree(page),
+      flow: await flowState(page),
     };
   });
 
   await step('03-import-image', async () => {
+    // A dropped image becomes a new archive, shown on the canvas with the page selected.
     await dropTestImage(page, 'e2e-image.png', 640, 480);
-    await page.waitForFunction(panel => !!document.querySelector(`${panel} .layer-item--active`), LEFT_PANEL, {
-      timeout: 20000,
-    });
-    await page.waitForFunction(() =>
-      Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === 640),
-    );
+    await waitForCell(page, 'e2e-image.png', true);
+    await page.waitForFunction(() => !!document.querySelector<HTMLImageElement>('.flow-cell__img')?.naturalWidth);
     await page.waitForTimeout(300);
     await screenshot('import-image');
-    return { toast: await lastToast(page), archives: await archiveTree(page), canvas: await canvasState(page) };
+    return { toast: await lastToast(page), flow: await flowState(page) };
   });
 
-  await step('04-select-text', async () => {
-    // Imports no longer write log.txt: add a text file to the imported archive and show it.
-    const archive = await archiveItem(page, /e2e-image$/)
-      .locator('.layer-item__name')
-      .textContent();
+  await step('04-flow-selection', async () => {
+    // Only images are cells: a text file added to the archive is not shown (docs/specs/flow-canvas.md).
+    const archive = await page.locator('.flow-toolbar__archive').inputValue();
     await page.evaluate(
       async ({ apiBase, archive }) => {
         const form = new FormData();
-        form.append('name', archive ?? '');
+        form.append('name', archive);
         form.append('files', new Blob(['e2e notes\n'], { type: 'text/plain' }), 'notes.txt');
         form.append('paths', 'notes.txt');
         const res = await fetch(`${apiBase}/archives`, { method: 'POST', body: form });
@@ -718,155 +818,109 @@ async function runScenarios(
       },
       { apiBase, archive },
     );
-    await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="ARCHIVESを更新"]`).click();
-    await waitForToast(page, /ARCHIVES/);
-    await archiveItem(page, 'notes.txt').click();
-    await page.waitForFunction(() =>
-      Array.from(document.querySelectorAll<HTMLElement>('.canvas-text-overlay')).some(o => o.style.display === 'block'),
-    );
-    await page.waitForTimeout(300);
-    await screenshot('select-text');
-    return { archives: await archiveTree(page), canvas: await canvasState(page) };
+    await flowButton(page, '最新の状態に更新');
+    await waitForToast(page, /最新の状態に更新しました/);
+    // The refresh keeps the selection, which is what the tools run on.
+    const afterRefresh = await flowState(page);
+    const removeBgCard = await toolCard(page, '背景除去');
+
+    // A click on the background clears the selection: the tools have nothing to run on.
+    const box = (await page.locator('.flow-viewport').boundingBox())!;
+    await page.mouse.click(box.x + box.width - 60, box.y + box.height - 120);
+    const cleared = await flowState(page);
+    const clearedCard = await toolCard(page, '背景除去');
+
+    // A click on the caption selects, Ctrl+click toggles, the step header selects its cells, Esc clears.
+    await selectCell(page, 'e2e-image.png');
+    const selected = (await flowState(page)).selection;
+    await selectCell(page, 'e2e-image.png', ['Control']);
+    const toggledOff = (await flowState(page)).selection;
+    await page.locator('.flow-row__label').first().click();
+    const byHeader = (await flowState(page)).selection;
+    await page.keyboard.press('Escape');
+    const afterEscape = (await flowState(page)).selection;
+    await selectCell(page, 'e2e-image.png');
+    await screenshot('flow-selected');
+    return { afterRefresh, removeBgCard, cleared, clearedCard, selected, toggledOff, byHeader, afterEscape };
   });
 
-  await step('05-reselect-image', async () => {
-    await archiveItem(page, 'e2e-image.png').click();
-    await page.waitForFunction(() =>
-      Array.from(document.querySelectorAll<HTMLElement>('.canvas-text-overlay')).every(
-        o => o.style.display !== 'block',
-      ),
-    );
-    await page.waitForTimeout(500);
-    return { archives: await archiveTree(page), canvas: await canvasState(page) };
-  });
-
-  await step('05b-deselect-clears-save-folder', async () => {
-    // Deselecting also clears the save folder: コマ結合 asks for a folder instead of using the
-    // previously selected archive.
-    await archiveItem(page, 'e2e-image.png').click(); // second click deselects
-    await page.waitForFunction(() => !document.querySelector('.layer-item--selected'));
-    await clickTool(page, 'コマ結合');
-    await page.waitForSelector('.tool-window');
-    await page.locator('.tool-window .tool-window__run').click();
-    const toast = await waitForToast(page, /コマ結合: ARCHIVES/);
-    await closeToolWindow(page);
-    await archiveItem(page, 'e2e-image.png').click();
-    await page.waitForFunction(() =>
-      Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === 640),
-    );
-    return { toast, archives: await archiveTree(page) };
-  });
-
-  await step('05c-normal-selection', async () => {
-    // Normal mode shows only a single selected file; a folder or several entries clear the canvas
-    // and the tools have no image (docs/specs/canvas.md 「表示ルール」).
-    await archiveItem(page, /e2e-image$/).click();
-    const folder = await waitForEmptyMessage(page, /フォルダ「/);
-    await screenshot('normal-folder-selected', '.canvas-area');
-    const folderRemoveBg = await toolCard(page, '背景除去');
-    const folderMerge = await toolCard(page, 'コマ結合');
-
-    await archiveItem(page, 'e2e-image.png').click();
-    await waitForCanvasWidth(page, 640);
-    await archiveItem(page, 'notes.txt').click({ modifiers: ['Control'] });
-    const multiple = await waitForEmptyMessage(page, /件を選択中/);
-    // Ctrl+click back to one file shows that file.
-    await archiveItem(page, 'notes.txt').click({ modifiers: ['Control'] });
-    await waitForCanvasWidth(page, 640);
-    const backToOne = await canvasState(page);
-
-    // A text file: shown as text, and the tools have no image.
-    await archiveItem(page, 'notes.txt').click();
-    await page.waitForFunction(() =>
-      Array.from(document.querySelectorAll<HTMLElement>('.canvas-text-overlay')).some(o => o.style.display === 'block'),
-    );
-    const textRemoveBg = await toolCard(page, '背景除去');
-
-    // Collapsing the parent folder hides (deselects) the image: the canvas empties.
-    await archiveItem(page, 'e2e-image.png').click();
-    await waitForCanvasWidth(page, 640);
-    await collapseFolder(page, /e2e-image$/);
-    const collapsed = await waitForEmptyMessage(page, /^ARCHIVES から画像を選択してください$/);
-    const treeCollapsed = await archiveTree(page);
-    await expandFolder(page, /e2e-image$/);
-    await archiveItem(page, 'e2e-image.png').click();
-    await waitForCanvasWidth(page, 640);
-    await page.waitForTimeout(300);
-    return {
-      folder,
-      folderRemoveBg,
-      folderMerge,
-      multiple,
-      backToOne: { emptyMessage: backToOne.emptyMessage, size: backToOne.canvases.map(c => `${c.w}x${c.h}`) },
-      textRemoveBg,
-      collapsed,
-      treeCollapsed: treeCollapsed.map(r => ({ ...r, name: maskTimestamps(r.name) })),
-    };
+  await step('05-viewer', async () => {
+    // A click on a thumbnail opens the image in the viewer window (docs/specs/flow-canvas.md 「拡大表示」):
+    // fitted at first; the wheel zooms, dragging moves it; 100% / 全体を表示; Esc closes. The selection stays.
+    const view = () =>
+      page.evaluate(() => ({
+        title: document.querySelector('.cs-image-viewer__title')?.textContent ?? null,
+        subtitle: document.querySelector('.cs-image-viewer__subtitle')?.textContent ?? null,
+        zoom: document.querySelector('.cs-image-viewer__zoom')?.textContent ?? null,
+        transform: document.querySelector<HTMLElement>('.cs-image-viewer__img')?.style.transform ?? null,
+      }));
+    await (await flowCell(page, 'e2e-image.png')).locator('.flow-cell__thumb').click();
+    const viewer = page.locator('.cs-image-viewer');
+    await viewer.waitFor();
+    await page.waitForFunction(() => !!document.querySelector<HTMLImageElement>('.cs-image-viewer__img')?.naturalWidth);
+    await page.waitForTimeout(200);
+    const opened = await view();
+    await screenshot('viewer');
+    const stage = (await page.locator('.cs-image-viewer__body').boundingBox())!;
+    await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2);
+    await page.mouse.wheel(0, -100);
+    await page.waitForTimeout(150);
+    const zoomed = await view();
+    await page.mouse.down();
+    await page.mouse.move(stage.x + stage.width / 2 + 120, stage.y + stage.height / 2 + 60, { steps: 5 });
+    await page.mouse.up();
+    const dragged = await view();
+    await screenshot('viewer-zoomed');
+    await page.locator('.cs-image-viewer__tool[title="100%（実寸）"]').click();
+    const actualSize = await view();
+    await page.locator('.cs-image-viewer__tool[title="全体を表示"]').click();
+    const fitted = await view();
+    await page.keyboard.press('Escape');
+    await viewer.waitFor({ state: 'detached' });
+    return { opened, zoomed, dragged, actualSize, fitted, selectionAfter: (await flowState(page)).selection };
   });
 
   await step('06-zoom', async () => {
-    // Canvas position inside the visible scroll area (px from its top-left corner).
-    const canvasBox = () =>
-      page.$eval(LEFT_VIEWPORT, area => {
-        const a = area.getBoundingClientRect();
-        const r = area.querySelector('.canvas-split__inner')!.getBoundingClientRect();
+    // The flow moves and zooms as a whole: the zoom bar (−, +, 100%, 全体を表示), Ctrl + wheel around the
+    // cursor, dragging the background pans.
+    const view = () =>
+      page.evaluate(() => {
+        const r = document.querySelector('.flow-step')!.getBoundingClientRect();
         return {
-          left: Math.round(r.left - a.left),
-          top: Math.round(r.top - a.top),
-          right: Math.round(a.left + area.clientWidth - r.right),
-          bottom: Math.round(a.top + area.clientHeight - r.bottom),
+          zoom: document.querySelector('.flow-zoom-bar .canvas-zoom-bar__label')?.textContent ?? null,
+          step: [Math.round(r.x), Math.round(r.y), Math.round(r.width)],
         };
       });
-    const dragCanvas = async (dx: number, dy: number) => {
-      const area = (await page.locator(LEFT_VIEWPORT).boundingBox())!;
-      const x = area.x + area.width / 2;
-      const y = area.y + area.height / 2;
-      await page.mouse.move(x, y);
-      await page.mouse.down();
-      await page.mouse.move(x + dx, y + dy, { steps: 5 });
-      await page.mouse.up();
-    };
-
-    await page.locator('.canvas-zoom-bar button[title="Zoom In"]').click();
-    const zoomIn = await page.locator('.canvas-zoom-bar__label').textContent();
-    await page.locator('.canvas-zoom-bar button[title="Fit to Screen"]').click();
-    const fit = await page.locator('.canvas-zoom-bar__label').textContent();
+    const start = await view();
+    await page.locator('.flow-zoom-bar button[title="拡大"]').click();
+    const zoomIn = await view();
+    const box = (await page.locator('.flow-viewport').boundingBox())!;
+    await page.mouse.move(box.x + 200, box.y + 300);
+    await page.keyboard.down('Control');
+    await page.mouse.wheel(0, 100);
+    await page.keyboard.up('Control');
     await page.waitForTimeout(100);
-    const fitBox = await canvasBox();
-
-    // Dragging moves the canvas even when it fits; it stops with 64px of an edge on screen.
-    await dragCanvas(-150, 80);
-    const draggedBox = await canvasBox();
-    await dragCanvas(-3000, -3000);
-    const draggedFarBox = await canvasBox();
-    await screenshot('canvas-dragged', '.canvas-area');
-
-    await page.locator('.canvas-zoom-bar button[title="Fit Width"]').click();
-    const fitWidth = await page.locator('.canvas-zoom-bar__label').textContent();
-    await page.waitForTimeout(100);
-    const fitWidthBox = await canvasBox();
-    await screenshot('zoom-fit-width', '.canvas-area');
-    // Fit to Screen is 100% (there is no separate 100% button).
-    await page.locator('.canvas-zoom-bar button[title="Fit to Screen"]').click();
-    const reset = await page.locator('.canvas-zoom-bar__label').textContent();
-    await page.waitForTimeout(100);
-    return {
-      zoomIn,
-      fit,
-      fitBox,
-      draggedBox,
-      draggedFarBox,
-      fitWidth,
-      fitWidthBox,
-      reset,
-      resetBox: await canvasBox(),
-    };
+    const ctrlWheel = await view();
+    await page.mouse.move(box.x + 100, box.y + box.height - 100);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 250, box.y + box.height - 180, { steps: 5 });
+    await page.mouse.up();
+    const panned = await view();
+    // Panning is not a click: the selection stays.
+    const selectionAfterPan = (await flowState(page)).selection;
+    await screenshot('flow-panned');
+    await page.locator('.flow-zoom-bar button[title="全体を表示"]').click();
+    const fitted = await view();
+    return { start, zoomIn, ctrlWheel, panned, selectionAfterPan, fitted };
   });
 
   await step('07-overlay-mode', async () => {
+    // One image selected: it becomes U and T stays empty (docs/specs/canvas.md 「比較する画像」).
     await setMode(page, 'Overlay');
+    await waitForCanvasWidth(page, 640);
+    await page.waitForTimeout(300);
     const state = {
-      layers: await layerColumns(page),
+      flowVisible: await page.locator('.flow-canvas').isVisible(),
       aiPanelVisible: await page.locator('aside.ai-panel').isVisible(),
       canvas: await canvasState(page),
     };
@@ -877,17 +931,18 @@ async function runScenarios(
       modesAfter: await page.$$eval('.left-toolbar__btn', els =>
         els.map(e => e.classList.contains('left-toolbar__btn--active')),
       ),
+      flowVisibleAfter: await page.locator('.flow-canvas').isVisible(),
     };
   });
 
   await step('08-parallel-mode', async () => {
-    // The right sidebar closes; L / R start empty (the selection is not shown) and are chosen with the checkboxes.
+    // The right sidebar closes; the selected image is L, R asks for a second image.
     await setMode(page, 'Parallel');
+    await waitForCanvasWidth(page, 640);
     await page.waitForTimeout(500);
     const state = {
       aiPanelVisible: await page.locator('aside.ai-panel').isVisible(),
-      archivesPanels: await page.locator('aside.layer-panel').count(),
-      layers: await layerColumns(page),
+      flowVisible: await page.locator('.flow-canvas').isVisible(),
       panes: await parallelState(page),
       canvas: await canvasState(page),
     };
@@ -924,7 +979,7 @@ async function runScenarios(
     await screenshot('tool-window');
     const layout = await page.evaluate(() => {
       const r = document.querySelector('.tool-window')!.getBoundingClientRect();
-      const row = document.querySelector('.layer-item')!.getBoundingClientRect();
+      const row = document.querySelector('.flow-step')!.getBoundingClientRect();
       const hit = document.elementFromPoint(row.x + row.width / 2, row.y + row.height / 2);
       return {
         width: Math.round(r.width),
@@ -932,7 +987,7 @@ async function runScenarios(
           Math.round(r.x + r.width / 2 - innerWidth / 2),
           Math.round(r.y + r.height / 2 - innerHeight / 2),
         ],
-        archivesCoveredByBackdrop: hit?.classList.contains('tool-window-overlay') ?? false,
+        canvasCoveredByBackdrop: hit?.classList.contains('tool-window-overlay') ?? false,
         appInert: document.getElementById('app')!.inert,
         focusInWindow: !!document.activeElement?.closest('.tool-window'),
       };
@@ -1167,7 +1222,7 @@ async function runScenarios(
                   .map(b => b.textContent),
               }
             : document.querySelector('.mgr-main--prompt .mgr-editor__empty')?.textContent,
-          archivesShown: shown('.layer-panel'),
+          flowShown: shown('.flow-canvas'),
           canvasShown: shown('.canvas-area'),
           aiPanelShown: shown('.ai-panel'),
           activeModes: Array.from(document.querySelectorAll('.left-toolbar__btn--active')).map(e =>
@@ -1304,7 +1359,7 @@ async function runScenarios(
     // Leaving with unsaved changes asks too; back in Normal mode the canvas and the AI panel return.
     await promptRow('着彩').click();
     await editor.text.fill('変更中');
-    await page.locator('.left-toolbar__btn[title="Normal Mode"]').click();
+    await page.locator('.left-toolbar__btn[title="Workspace"]').click();
     const leaveModeMessage = await topModal().locator('.cs-modal__message').textContent();
     await topModal().locator('button', { hasText: '破棄' }).click();
     await page.waitForTimeout(300);
@@ -1412,7 +1467,7 @@ async function runScenarios(
                     .map(b => b.textContent),
                 }
               : document.querySelector(`${M} .mgr-editor__empty`)?.textContent,
-            archivesShown: shown('.layer-panel'),
+            flowShown: shown('.flow-canvas'),
             canvasShown: shown('.canvas-area'),
             aiPanelShown: shown('.ai-panel'),
             promptManagerShown: shown('.mgr-sidebar--prompt'),
@@ -1699,7 +1754,7 @@ async function runScenarios(
     await screenshot('character-manager-after-import');
 
     // Back to Normal mode.
-    await page.locator('.left-toolbar__btn[title="Normal Mode"]').click();
+    await page.locator('.left-toolbar__btn[title="Workspace"]').click();
     await page.waitForTimeout(300);
     const afterLeave = await view();
     await page.waitForFunction(() => !document.querySelector('.toast'), undefined, { timeout: 15000 });
@@ -1829,120 +1884,173 @@ async function runScenarios(
       toolListBusyAfterRun,
       toasts,
       errorToastsAfterClose: await page.locator('.toast--error').count(),
-      archives: await archiveTree(page),
+      flow: await flowState(page),
     };
   });
 
   await step('12-merge-panels', async () => {
+    // A コマ分割 result (fixture) whose panel 01 was processed further (a blue 背景除去 result): the page is not
+    // shown, each panel is a row at the left (docs/specs/flow-canvas.md). コマ結合 runs on the コマ分割 of the
+    // selected panel and pastes the newest image made from each panel (docs/specs/tools/panel-split-merge.md).
     await createPanelFixture(page, apiBase);
-    await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="ARCHIVESを更新"]`).click();
-    await waitForToast(page, /ARCHIVES/);
-    await expandFolder(page, 'e2e-panels');
-    await archiveItem(page, /^sub$/).click();
-    // The tool window shows the target folder, its panels.json and the save destination.
+    await flowButton(page, '最新の状態に更新');
+    await waitForToast(page, /最新の状態に更新しました/);
+    await showArchive(page, /^e2e-panels$/);
+    const fixture = await flowState(page);
+    await screenshot('flow-panels');
+    // 「結合」 on 生成 1 of panel 02: コマ結合 pastes it for panel 02 (kept in .flow.json); panel 01 has nothing
+    // marked, so it is pasted as split (its 背景除去 result is not used).
+    await (await flowCell(page, 'gen.png')).locator('.flow-cell__merge').click();
+    await page.waitForFunction(() =>
+      Array.from(document.querySelectorAll<HTMLElement>('.flow-cell')).some(
+        c => c.dataset.name === 'gen.png' && c.classList.contains('flow-cell--merge-marked'),
+      ),
+    );
+    const marked = await flowState(page);
+    await screenshot('merge-marked');
+    await selectCell(page, '02.png');
     await clickTool(page, 'コマ結合');
     const card = page.locator('.tool-window .cs-card');
     await card.filter({ hasText: 'コマ数' }).waitFor();
-    const mergeCard = await card.innerText();
+    const mergeCard = maskTimestamps(await card.innerText());
     await screenshot('window-コマ結合', '.tool-window');
     await page.locator('.tool-window .tool-window__run').click();
-    const toast = await waitForToast(page, /結合/);
+    const toast = maskTimestamps(await waitForToast(page, /結合/));
     await page.locator('.tool-window').waitFor({ state: 'detached' }); // closes once the run starts
-    await page.waitForFunction(() =>
-      Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(
-        c => c.width === 300 && c.height === 200,
-      ),
+    // The merged page is shown large in the right pane (コマ結合後), the page in the left one (元ページ).
+    await page.waitForFunction(
+      () =>
+        !!document
+          .querySelector<HTMLImageElement>('.flow-pane--right .flow-pane__img')
+          ?.dataset.key?.endsWith('_コマ結合.png'),
     );
     await page.waitForTimeout(500);
     await screenshot('merge-panels');
-    // One success toast per run, carrying the result (the tool no longer shows its own toast).
+    // The round ◀ / ▶ on each boundary collapses the side pane and opens it again (kept in the settings).
+    await page.locator('.flow-pane--left .flow-pane__edge').click();
+    await page.locator('.flow-pane--right .flow-pane__edge').click();
+    await page.waitForTimeout(200);
+    const collapsed = await flowState(page);
+    await screenshot('panes-collapsed');
+    const savedOpen = (
+      JSON.parse(fs.readFileSync(path.join(settingsDir, 'user_settings.json'), 'utf-8')) as Record<string, string>
+    ).flowCanvas_leftOpen;
+    await page.locator('.flow-pane--left .flow-pane__edge').click();
+    await page.locator('.flow-pane--right .flow-pane__edge').click();
+    await page.waitForTimeout(200);
+    // One success toast per run, carrying the result.
     const mergeToasts = (await toastStack(page)).filter(t => t.message?.includes('結合'));
-    // The result goes to "e2e-panels/<stamp>_コマ結合/" with info.json.
-    const info = await page.evaluate(async apiBase => {
-      const entries = (await (await fetch(`${apiBase}/archives/e2e-panels/contents`)).json()) as { key: string }[];
-      const key = entries.map(e => e.key).find(k => /_コマ結合\/info\.json$/.test(k));
+    const merged = await page.evaluate(async apiBase => {
+      const flow = (await (await fetch(`${apiBase}/archives/e2e-panels/flow`)).json()) as {
+        runs: { tool: string; outputs: { key: string }[] }[];
+      };
+      const key = flow.runs.filter(r => r.tool === 'コマ結合').pop()?.outputs[0]?.key;
       if (!key) return null;
-      const path = key.slice('e2e-panels/'.length);
-      return (await fetch(`${apiBase}/archives/e2e-panels/extract?path=${encodeURIComponent(path)}`)).json();
+      const path = encodeURIComponent(key.slice('e2e-panels/'.length));
+      const bitmap = await createImageBitmap(
+        await (await fetch(`${apiBase}/archives/e2e-panels/extract?path=${path}`)).blob(),
+      );
+      const c = document.createElement('canvas');
+      c.width = bitmap.width;
+      c.height = bitmap.height;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(bitmap, 0, 0);
+      const pixel = (x: number, y: number) => Array.from(ctx.getImageData(x, y, 1, 1).data).join(',');
+      return { size: [bitmap.width, bitmap.height], panel01: pixel(75, 100), panel02: pixel(225, 100) };
     }, apiBase);
     return {
+      fixture,
+      marked,
       mergeCard,
       toast,
       mergeToasts,
-      info: info && JSON.parse(maskTimestamps(JSON.stringify(info))),
-      archives: await archiveTree(page),
-      canvas: await canvasState(page),
+      info: await newestInfo(page, apiBase, 'e2e-panels', 'コマ結合'),
+      collapsed: collapsed.panes,
+      savedOpen,
+      merged,
+      flow: await flowState(page),
     };
   });
 
-  await step('13-batch-mode', async () => {
-    await setMode(page, 'Batch');
-    // Batch mode opens with a notice that it is being reworked.
-    const notice = await waitForToast(page, /Batch モードは現在修正中です/);
-    await archiveItem(page, /^sub$/).click();
-    await page.waitForFunction(() =>
-      Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === 1660),
-    );
+  await step('13-batch-run', async () => {
+    // Two panels selected: 背景除去 runs on each in turn (docs/specs/ai-panel.md 「まとめて実行」). The second
+    // fails (stubbed): it is skipped, counted in one toast and its cell is marked; the first one's result is
+    // selected. Panel 01 already had a 背景除去 result: the new one is put next to it in the same box and adopted (★).
+    const resultPng = await makePng(page, 150, 200);
+    let calls = 0;
+    await page.route('**/api/image/remove-bg', route => {
+      calls += 1;
+      if (calls === 2) {
+        return route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          headers: { 'Cache-Control': 'no-store' },
+          body: JSON.stringify({
+            detail: { message: '背景除去の処理中にエラーが発生しました。', raw_response: 'E2E stub' },
+          }),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        headers: { 'Cache-Control': 'no-store' },
+        body: resultPng,
+      });
+    });
+    await selectCell(page, '01.png');
+    await selectCell(page, '02.png', ['Control']);
+    const card = await toolCard(page, '背景除去');
+    await clickTool(page, '背景除去');
+    await page.waitForSelector('.tool-window');
+    await page.locator('.tool-window .tool-window__run').click();
+    const summary = await waitForToast(page, /背景除去: 2 件中 1 件成功・1 件失敗しました/);
+    await page.waitForFunction(() => !document.querySelector('.ai-panel__list--busy'));
     await page.waitForTimeout(500);
-    const canvas = await canvasState(page);
-    await screenshot('batch-mode');
-    await setMode(page, 'Normal');
-    return { notice, canvas };
-  });
+    const afterRun = await flowState(page);
+    await screenshot('batch-run');
+    const errorToasts = (await toastStack(page)).filter(t => t.type === 'toast--error');
+    await withVisibleToasts(page, async () => {
+      while ((await page.locator('.toast--error').count()) > 0) {
+        const count = await page.locator('.toast--error').count();
+        await page.locator('.toast--error .toast__close').first().click();
+        await page.waitForFunction(n => document.querySelectorAll('.toast--error').length < n, count);
+      }
+    });
 
-  await step('13b-normal-after-modes', async () => {
-    // Back from Batch: the selected folder is shown the Normal way (no image, not the old grid).
-    const afterBatch = await waitForEmptyMessage(page, /フォルダ「sub」/);
-    await screenshot('normal-after-batch', '.canvas-area');
-
-    // Expanding a folder keeps the selection.
-    await expandFolder(page, /^sub$/);
-    const keptOnExpand = (await archiveTree(page)).filter(r => r.state.includes('active')).map(r => r.name);
-
-    // A panel of a コマ分割 folder: コマ結合 targets that folder.
-    await (await childItem(page, 'e2e-panels', 'sub')).click(); // deselect the folder
-    await archiveItem(page, '01.png').click();
-    await waitForCanvasWidth(page, 150);
-    const mergeCard = await toolCard(page, 'コマ結合');
-
-    // Expanding / collapsing another folder keeps the image.
-    await expandFolder(page, /e2e-image$/);
-    await collapseFolder(page, /e2e-image$/);
-    const keptOnOtherFolder = (await canvasState(page)).canvases[0];
-
-    // Parallel with a larger image as R, then back: the canvas is the selected image's size again.
-    await expandFolder(page, /e2e-image$/);
-    await setMode(page, 'Parallel');
-    await layerBox(page, 'e2e-image.png', 1).click();
-    await waitForCanvasWidth(page, 640);
+    // ▶ again on the new result (selected): a step after the shown candidate.
+    calls = 0;
+    await playButton(page, '背景除去').click();
+    await waitForToast(page, /背景除去: 「.*」に保存しました/);
+    await page.waitForFunction(() => !document.querySelector('.ai-panel__list--busy'));
     await page.waitForTimeout(300);
-    const parallelSize = (await canvasState(page)).canvases.map(c => `${c.w}x${c.h}`);
-    await setMode(page, 'Normal');
-    await page.waitForSelector('aside.ai-panel', { state: 'visible' });
-    await waitForCanvasWidth(page, 150);
-    await page.waitForTimeout(300);
-    const afterParallel = await canvasState(page);
-    await screenshot('normal-after-parallel', '.canvas-area');
-    // Checking L / R did not move the save folder: コマ結合 still targets the selection.
-    const mergeCardAfterParallel = await toolCard(page, 'コマ結合');
+    const chained = await flowState(page);
 
-    // Collapsing the folder of the shown image empties the canvas.
-    await collapseFolder(page, /^sub$/);
-    const collapsed = await waitForEmptyMessage(page, /^ARCHIVES から画像を選択してください$/);
-    return {
-      afterBatch,
-      keptOnExpand,
-      mergeCard,
-      keptOnOtherFolder: { size: `${keptOnOtherFolder.w}x${keptOnOtherFolder.h}`, title: keptOnOtherFolder.title },
-      parallelSize,
-      afterParallel: {
-        size: afterParallel.canvases.map(c => `${c.w}x${c.h}`),
-        zoom: afterParallel.zoomLabel,
-        emptyMessage: afterParallel.emptyMessage,
-      },
-      mergeCardAfterParallel,
-      collapsed,
-    };
+    // ★ on the older candidate: the step made from the newer one is hidden. The choice is kept in the archive
+    // (.flow.json).
+    const candidates = page.locator('.flow-step--across', { hasText: '背景除去（' }).first();
+    await candidates.locator('.flow-cell__adopt').nth(0).click();
+    await page.waitForTimeout(300);
+    const older = await flowState(page);
+    await screenshot('candidates-older');
+    const flowFile = path.join(path.dirname(settingsDir), 'archives', 'e2e-panels', '.flow.json');
+    const saved = fs.existsSync(flowFile) ? masked(JSON.parse(fs.readFileSync(flowFile, 'utf-8'))) : null;
+
+    // A new run on panel 01 is adopted even though the older one was chosen: a third candidate.
+    calls = 0;
+    await selectCell(page, '01.png');
+    await playButton(page, '背景除去').click();
+    await waitForToast(page, /背景除去: 「.*」に保存しました/);
+    await page.waitForFunction(() => !document.querySelector('.ai-panel__list--busy'));
+    await page.waitForTimeout(300);
+    const rerun = await flowState(page);
+
+    // ★ on the second candidate shows the step made from it again.
+    await candidates.locator('.flow-cell__adopt').nth(1).click();
+    await page.waitForTimeout(300);
+    const second = await flowState(page);
+    await screenshot('candidates-second');
+    await page.unroute('**/api/image/remove-bg');
+    return { card, summary, afterRun, errorToasts, chained, older, saved, rerun, second };
   });
 
   await step('13c-parallel-mode', async () => {
@@ -1954,13 +2062,13 @@ async function runScenarios(
       await page.mouse.up();
       await page.waitForTimeout(150);
     };
-    const waitForRightTitle = (title: string) =>
+    const waitForTitle = (side: 'left' | 'right', title: string) =>
       page.waitForFunction(
-        title => document.querySelector<HTMLCanvasElement>('.canvas-split__pane--right canvas')?.title === title,
-        title,
+        ({ side, title }) =>
+          document.querySelector<HTMLCanvasElement>(`.canvas-split__pane--${side} canvas`)?.title === title,
+        { side, title },
         { timeout: 10000 },
       );
-
     const waitForPaneNotice = (side: 'left' | 'right', shown: boolean) =>
       page.waitForFunction(
         ({ side, shown }) =>
@@ -1972,22 +2080,14 @@ async function runScenarios(
         { timeout: 10000 },
       );
 
-    // L: the 640x480 image; R: the 150x200 panel (actual pixel ratio, both centred in the 640x480 box).
-    // Both start empty even with an image selected (the selection is not shown in Parallel mode).
-    await archiveItem(page, 'e2e-image.png').click();
-    await waitForCanvasWidth(page, 640);
+    // Selected in this order: the 背景除去 result of panel 01 (120x160) is L, panel 01.png (150x200) is R (actual
+    // pixel ratio, both centred in the 150x200 box).
+    await selectCell(page, 'nobg.png');
+    await selectCell(page, '01.png', ['Control']);
     await setMode(page, 'Parallel');
-    await waitForPaneNotice('left', true);
+    await waitForTitle('right', '150 x 200px');
     await page.waitForTimeout(300);
-    const started = { ...(await parallelState(page)), layers: await layerColumns(page) };
-    await screenshot('parallel-empty', '.canvas-area');
-    await layerBox(page, 'e2e-image.png', 0).click();
-    await waitForPaneNotice('left', false);
-    await expandFolder(page, /^sub$/);
-    await layerBox(page, '01.png', 1).click();
-    await waitForRightTitle('150 x 200px');
-    await page.waitForTimeout(300);
-    const sideBySide = { ...(await parallelState(page)), layers: await layerColumns(page) };
+    const sideBySide = await parallelState(page);
     await screenshot('parallel-side-by-side', '.canvas-area');
 
     // Dragging moves both images the same way; the panes and the boundary between them stay.
@@ -1998,24 +2098,7 @@ async function runScenarios(
     await page.locator('.canvas-zoom-bar button[title="Fit to Screen"]').click();
     await page.waitForTimeout(200);
 
-    // Unchecking R: a notice in the right pane, never the left image.
-    await layerBox(page, '01.png', 1).click();
-    await waitForPaneNotice('right', true);
-    const rightEmpty = { ...(await parallelState(page)), rightPixels: (await canvasState(page)).canvases[1]?.pixels };
-    await screenshot('parallel-right-empty', '.canvas-area');
-
-    // Row clicks (a text file, an image) change neither the panes nor L / R; the same image can be both L and R.
-    await archiveItem(page, 'notes.txt').click();
-    await archiveItem(page, '02.png').click();
-    await page.waitForTimeout(300);
-    const afterRowClicks = { ...(await parallelState(page)), layers: await layerColumns(page) };
-    await layerBox(page, 'e2e-image.png', 1).click();
-    await waitForRightTitle('640 x 480px');
-    const sameImage = await layerColumns(page);
-
     // Slider: the panes are stacked; the divider (fixed to the screen) clips the front one.
-    await layerBox(page, '01.png', 1).click();
-    await waitForRightTitle('150 x 200px');
     await toggles.nth(0).click();
     await page.waitForTimeout(300);
     const slider = await parallelState(page);
@@ -2037,68 +2120,49 @@ async function runScenarios(
     const flipped = await parallelState(page);
     await screenshot('parallel-slider-flip', '.canvas-area');
 
-    // Deleting is allowed: R (01.png, in the deleted archive) is dropped; Ctrl+Z restores the archive.
-    const deleteEnabled = await page
-      .locator(`${LEFT_PANEL} .layer-panel__action-btn[title="アーカイブ削除"]`)
-      .isEnabled();
-    await archiveItem(page, 'e2e-panels').click();
-    await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="アーカイブ削除"]`).click();
-    await waitForToast(page, /削除/);
+    // One image selected: L only; the right pane says how to add the second one.
+    await setMode(page, 'Normal');
+    await selectCell(page, '01.png');
+    await setMode(page, 'Parallel');
     await waitForPaneNotice('right', true);
-    await page.waitForTimeout(500);
-    const afterDelete = { ...(await parallelState(page)), layers: await layerColumns(page) };
-    await page.locator('body').click({ position: { x: 5, y: 5 } });
-    await page.keyboard.press('Control+z');
-    await page.waitForFunction(
-      panel =>
-        Array.from(document.querySelectorAll(`${panel} .layer-item__name`)).some(e => e.textContent === 'e2e-panels'),
-      LEFT_PANEL,
-    );
+    await page.waitForTimeout(300);
+    const oneImage = await parallelState(page);
+    await screenshot('parallel-right-empty', '.canvas-area');
 
-    // Back in Normal mode: the selection is shown again (nothing selected after the delete).
+    // The order of selection decides the sides: 01.png, then the 背景除去 result.
+    await setMode(page, 'Normal');
+    await selectCell(page, 'nobg.png', ['Control']);
+    await setMode(page, 'Parallel');
+    await waitForTitle('right', '120 x 160px');
+    await waitForTitle('left', '150 x 200px');
+    const swapped = await parallelState(page);
+
     await setMode(page, 'Normal');
     await page.waitForSelector('aside.ai-panel', { state: 'visible' });
     await page.waitForTimeout(300);
-    const normal = { ...(await parallelState(page)), layers: await layerColumns(page) };
-    await waitForEmptyMessage(page, /^ARCHIVES から画像を選択してください$/);
-    // Leave the tree as the next step expects (panel folder collapsed).
-    await expandFolder(page, 'e2e-panels');
-    await collapseFolder(page, /^sub$/).catch(() => undefined);
     return {
-      started,
       sideBySide,
       dragged,
-      rightEmpty,
-      afterRowClicks,
-      sameImage,
       slider,
       sliderMoved,
       sliderDragged,
       transposed,
       flipped,
-      deleteEnabled,
-      afterDelete,
-      normal,
+      oneImage,
+      swapped,
+      normal: await flowState(page),
     };
   });
 
   await step('13d-overlay-layers', async () => {
-    // U / T are chosen with the ARCHIVES checkboxes only (docs/specs/canvas.md 「Overlay モード」).
-    const box = (name: string, layer: 'under' | 'top') => layerBox(page, name, layer === 'under' ? 0 : 1);
-    const checked = async () => {
-      const [u, t] = (await layerColumns(page)).columns;
-      return { u, t };
-    };
+    // U / T are the first two images selected on the flow canvas (docs/specs/canvas.md 「比較する画像」).
     const summary = async () => {
       const c = await canvasState(page);
       return {
         size: c.canvases.filter(x => x.visible).map(x => `${x.w}x${x.h}`),
         pixels: c.canvases[0]?.pixels,
         emptyMessage: c.emptyMessage,
-        emptyHintVisible: await page.locator('.canvas-empty__hint').isVisible(),
-        textVisible: c.textOverlays.some(o => o.visible),
         zoomLabel: c.zoomLabel,
-        checked: await checked(),
       };
     };
     /** Whether the canvas swallows an arrow key (it only does while T is selected). */
@@ -2109,29 +2173,14 @@ async function runScenarios(
         return ev.defaultPrevented;
       });
 
-    // Entering with one image selected: it becomes U, T is empty, the right sidebar closes.
-    await archiveItem(page, 'e2e-image.png').click();
-    await waitForCanvasWidth(page, 640);
+    // U: the 背景除去 result of panel 01 (120x160), T: panel 01.png (150x200), centred over U; the right sidebar closes.
+    await selectCell(page, 'nobg.png');
+    await selectCell(page, '01.png', ['Control']);
     await setMode(page, 'Overlay');
-    await page.waitForTimeout(300);
-    const started = { ...(await summary()), aiPanelVisible: await page.locator('aside.ai-panel').isVisible() };
-    await screenshot('overlay-start');
-
-    // T: the 150x200 panel, centred over U.
-    await expandFolder(page, /^sub$/);
-    await box('01.png', 'top').click();
-    await page.waitForFunction(() => document.querySelectorAll('.layer-item__layer-cb--checked').length === 2);
-    await page.waitForTimeout(300);
-    const withTop = await summary();
+    await waitForCanvasWidth(page, 150);
+    await page.waitForTimeout(500);
+    const withTop = { ...(await summary()), aiPanelVisible: await page.locator('aside.ai-panel').isVisible() };
     await screenshot('overlay-u-t', '.canvas-area');
-
-    // Clicking rows (a text file, another image) changes neither U / T nor the canvas.
-    await archiveItem(page, 'notes.txt').click();
-    await page.waitForTimeout(300);
-    const afterTextClick = await summary();
-    await archiveItem(page, '02.png').click();
-    await page.waitForTimeout(300);
-    const afterImageClick = await summary();
 
     // Double click selects T; arrow keys move it (Shift = 10px) and are only taken while T is selected.
     const arrowFreeBefore = await arrowPrevented();
@@ -2147,72 +2196,115 @@ async function runScenarios(
     await page.waitForTimeout(150);
     const arrowFreeAfter = await arrowPrevented();
 
-    // U on the T row: the same image cannot be both, so T is cleared.
-    await box('01.png', 'under').click();
-    await waitForCanvasWidth(page, 150);
-    await page.waitForTimeout(300);
-    const underOnTopRow = await summary();
-
     // Dropping an image file imports nothing in Overlay mode.
-    const archivesBefore = (await archiveTree(page)).length;
-    await dropTestImage(page, 'overlay-drop.png', 120, 90);
+    const archivesBefore = (await flowState(page)).archives.length;
+    await dropTestImage(page, 'overlay-drop.png', 120, 90, '.canvas-area');
     const dropToast = await waitForToast(page, /Overlay View では画像を取り込めません/);
     await page.waitForTimeout(500);
-    const archivesAfterDrop = (await archiveTree(page)).length;
+    const archivesAfterDrop = (await flowState(page)).archives.length;
 
-    // Unchecking U leaves nothing: the canvas asks for U / T (no drop hint).
-    await box('01.png', 'under').click();
-    await waitForEmptyMessage(page, /U \/ T 列/);
+    // Nothing selected: the canvas says how to choose the images.
+    await setMode(page, 'Normal');
+    await page.keyboard.press('Escape');
+    await setMode(page, 'Overlay');
+    const nothingMessage = await waitForEmptyMessage(page, /重ね合わせる画像がありません/);
     const nothing = await summary();
     await screenshot('overlay-empty', '.canvas-area');
 
-    // Back in Normal mode: the current selection (02.png) is shown and the tools come back.
     await setMode(page, 'Normal');
     await page.waitForSelector('aside.ai-panel', { state: 'visible' });
     await page.waitForTimeout(300);
-    const normal = { ...(await summary()), aiPanelVisible: await page.locator('aside.ai-panel').isVisible() };
-
-    // Leave the tree as the next step expects (nothing selected, panel folder collapsed).
-    await archiveItem(page, '02.png').click();
-    await waitForEmptyMessage(page, /^ARCHIVES から画像を選択してください$/);
-    await collapseFolder(page, /^sub$/);
     return {
-      started,
       withTop,
-      rowClicksKeepCanvas:
-        JSON.stringify(afterTextClick.pixels) === JSON.stringify(withTop.pixels) &&
-        JSON.stringify(afterImageClick.pixels) === JSON.stringify(withTop.pixels),
-      afterTextClick,
-      afterImageClick,
       moved: { ...moved, changed: JSON.stringify(moved.pixels) !== JSON.stringify(withTop.pixels) },
       arrowFreeBefore,
       arrowTakenWhileSelected,
       arrowFreeAfter,
-      underOnTopRow,
       dropToast,
       dropImportedNothing: archivesBefore === archivesAfterDrop,
+      nothingMessage,
       nothing,
-      normal,
+      aiPanelVisibleAfter: await page.locator('aside.ai-panel').isVisible(),
     };
   });
 
   await step('14-delete-and-undo', async () => {
-    await archiveItem(page, 'e2e-panels').click();
-    await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="アーカイブ削除"]`).click();
-    const deleteToast = await waitForToast(page, /削除/);
-    await page.waitForTimeout(500);
-    const afterDelete = await archiveTree(page);
-    // The selection is gone: the canvas asks for an image again.
-    const emptyAfterDelete = (await canvasState(page)).emptyMessage;
-    await screenshot('canvas-empty', '.canvas-area');
+    // Deleting a panel removes its whole コマ分割 result and everything made from it, after a confirmation; the page
+    // is shown again. Deleting the page then deletes the archive. Undo brings back one deletion at a time
+    // (docs/specs/flow-canvas.md 「削除」).
+    const shownArchive = () =>
+      page.evaluate(() => (document.querySelector('.flow-toolbar__archive') as HTMLSelectElement | null)?.value);
+
+    // ⋯ of a panel row: the hidden page can be viewed or deleted with everything (cancelled here).
+    await page.locator('.flow-row[data-step$="#1"] .flow-step__menu').click();
+    const panelMenu = await page.locator('.flow-menu__item').allTextContents();
+    await page.locator('.flow-menu__item', { hasText: '元のページごと削除' }).click();
+    await page.waitForSelector('.cs-modal-overlay--open');
+    const pageMenuMessage = await page.locator('.cs-modal__message').textContent();
+    await page.locator('.cs-modal button', { hasText: 'キャンセル' }).click();
+    await page.waitForSelector('.cs-modal-overlay--open', { state: 'detached' });
+
+    const before = await flowState(page);
+    const message = await deleteCells(page, ['02.png']);
+    const deleteToast = maskTimestamps(await waitForToast(page, /削除しました/));
+    await waitForCell(page, 'page.png');
+    await page.waitForTimeout(300);
+    const afterDelete = await flowState(page);
+    await screenshot('flow-after-delete');
+    await page.route('**/api/image/split-panels', route =>
+      route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        headers: { 'Cache-Control': 'no-store' },
+        body: JSON.stringify({ detail: { message: 'E2E: コマ分割は差し替えています', raw_response: 'stub' } }),
+      }),
+    );
+    await page.locator('.flow-step--action .flow-action__btn').click();
+    const splitToast = await waitForToast(page, /コマ分割の実行に失敗しました/);
+    const splitSelection = (await flowState(page)).selection;
+    await page.unroute('**/api/image/split-panels');
+    await withVisibleToasts(page, async () => {
+      while ((await page.locator('.toast--error').count()) > 0) {
+        const count = await page.locator('.toast--error').count();
+        await page.locator('.toast--error .toast__close').first().click();
+        await page.waitForFunction(n => document.querySelectorAll('.toast--error').length < n, count);
+      }
+    });
+
+    const wholeMessage = await deleteCells(page, ['page.png']);
+    await waitForToast(page, /「e2e-panels」を削除しました/);
+    await page.waitForFunction(
+      () => (document.querySelector('.flow-toolbar__archive') as HTMLSelectElement | null)?.value !== 'e2e-panels',
+    );
+    await page.waitForTimeout(300);
+    const afterArchiveDelete = await flowState(page);
+
+    // Undo (button): the archive comes back with its page; Ctrl+Z: the コマ分割 and the rest come back.
+    await flowButton(page, '削除を元に戻す');
+    await page.waitForFunction(
+      () => (document.querySelector('.flow-toolbar__archive') as HTMLSelectElement | null)?.value === 'e2e-panels',
+    );
+    await page.waitForTimeout(300);
+    const afterArchiveUndo = await flowState(page);
     await page.locator('body').click({ position: { x: 5, y: 5 } });
     await page.keyboard.press('Control+z');
-    await page.waitForFunction(
-      panel =>
-        Array.from(document.querySelectorAll(`${panel} .layer-item__name`)).some(e => e.textContent === 'e2e-panels'),
-      LEFT_PANEL,
-    );
-    return { deleteToast, afterDelete, emptyAfterDelete, afterUndo: await archiveTree(page) };
+    await waitForCell(page, '02.png');
+    await page.waitForTimeout(300);
+    return {
+      panelMenu,
+      pageMenuMessage,
+      before,
+      message,
+      deleteToast,
+      afterDelete,
+      splitToast,
+      splitSelection,
+      wholeMessage,
+      afterArchiveDelete,
+      afterArchiveUndo,
+      afterUndo: await flowState(page),
+      archiveAfterUndo: await shownArchive(),
+    };
   });
 
   await step('15-dialogs', async () => {
@@ -2258,12 +2350,6 @@ async function runScenarios(
     await page.keyboard.press('Escape');
     await page.waitForSelector(win, { state: 'detached' });
 
-    await archiveItem(page, /e2e-image$/).click();
-    await expandFolder(page, /e2e-image$/);
-    await archiveItem(page, 'e2e-image.png').click();
-    await page.waitForFunction(() =>
-      Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === 640),
-    );
     // Ctrl+B: opens on the 背景色指定 page.
     await page.keyboard.press('Control+b');
     await page.waitForSelector(win);
@@ -2279,8 +2365,6 @@ async function runScenarios(
     await screenshot('settings-bg-black');
     await closeWindow();
     await page.waitForTimeout(300);
-    const canvas = await canvasState(page);
-    await screenshot('bg-black', '.canvas-area');
 
     // Reopening shows the chosen colour.
     await page.locator('.topbar__action-btn').first().click();
@@ -2288,16 +2372,16 @@ async function runScenarios(
     await page.locator(`${win} .settings-window__nav-item`, { hasText: '背景色指定' }).click();
     const reopenedSwatch = await selectedSwatch();
     await closeWindow();
-    return { fromGear, displayPage, fromShortcut, toast, afterPick, canvas, reopenedSwatch };
+    return { fromGear, displayPage, fromShortcut, toast, afterPick, reopenedSwatch };
   });
 
   await step('15b-archives-location', async () => {
-    // 保存先 (docs/specs/archives.md 「保存先」): another ARCHIVES folder by full path or the folder dialog;
+    // 保存先 (docs/specs/archives.md 「保存先」): another archives folder by full path or the folder dialog;
     // nothing is moved, and 既定に戻す shows the default folder's archives again.
     const win = '.settings-window';
     const input = page.locator(`${win} .settings-window__page input.cs-input`);
     const statusLine = () => page.locator(`${win} .settings-window__status`).first().textContent();
-    const archiveNames = async () => (await archiveTree(page)).map(r => r.name);
+    const archiveNames = async () => (await flowState(page)).archives;
     const before = await archiveNames();
 
     await page.locator('.topbar__action-btn').first().click();
@@ -2368,63 +2452,26 @@ async function runScenarios(
     };
   });
 
-  await step('17-delete-items-and-undo', async () => {
-    await page.mouse.move(800, 500);
-    await expandFolder(page, 'e2e-panels');
-    await (await childItem(page, 'e2e-panels', 'log.txt')).click();
-    await (await childItem(page, 'e2e-panels', 'sub')).click({ modifiers: ['Control'] });
-    await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="アーカイブ削除"]`).click();
-    const deleteToast = await waitForToast(page, /件を削除しました/);
-    // The tree refreshes by itself (no refresh button click): the deleted rows disappear.
-    await page.waitForFunction(
-      panel =>
-        !Array.from(document.querySelectorAll(`${panel} .layer-item__name`)).some(e => e.textContent === 'log.txt'),
-      LEFT_PANEL,
-      { timeout: 5000 },
-    );
-    const treeAfterDelete = await archiveTree(page);
-    const contents = async () =>
-      page
-        .evaluate(async apiBase => {
-          const res = await fetch(`${apiBase}/archives/e2e-panels/contents`);
-          return res.ok ? ((await res.json()) as { key: string }[]).map(e => e.key).sort() : [`HTTP ${res.status}`];
-        }, apiBase)
-        .then(keys => keys.map(maskTimestamps));
-    const afterDelete = await contents();
-
-    await page.locator('body').click({ position: { x: 5, y: 5 } });
-    await page.keyboard.press('Control+z');
-    await page.waitForFunction(
-      apiBase =>
-        fetch(`${apiBase}/archives/e2e-panels/contents`)
-          .then(r => r.json())
-          .then(entries => (entries as { key: string }[]).some(e => e.key === 'e2e-panels/sub/01.png')),
-      apiBase,
-      { polling: 250, timeout: 10000 },
-    );
-    return { deleteToast, afterDelete, treeAfterDelete, afterUndo: await contents() };
-  });
-
   await step('17b-undo-order', async () => {
-    // Each Ctrl+Z restores one deletion, newest first (docs/specs/archives.md 「削除と Undo」).
+    // Each Ctrl+Z restores one deletion, newest first (docs/specs/flow-canvas.md 「削除」).
     // There is no redo; an undo that cannot restore stays the latest entry.
     const archive = path.join(path.dirname(settingsDir), 'archives', 'e2e-undo');
+    const png = await makePng(page, 40, 30);
     fs.mkdirSync(path.join(archive, 'a'), { recursive: true });
-    for (const name of ['file1.png', 'file2.png', 'a/x.png']) fs.writeFileSync(path.join(archive, name), 'old');
-    fs.writeFileSync(path.join(archive, 'keep.txt'), '');
+    for (const name of ['file1.png', 'file2.png', 'keep.png', 'a/x.png'])
+      fs.writeFileSync(path.join(archive, name), png);
     const present = () => ['file1.png', 'file2.png', 'a'].filter(name => fs.existsSync(path.join(archive, name)));
     const waitFor = async (expected: string[]) => {
       for (let i = 0; i < 50 && present().join() !== expected.join(); i++) await page.waitForTimeout(100);
       return present();
     };
-    const deleteChild = async (name: string) => {
-      await (await childItem(page, 'e2e-undo', name)).click();
-      await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="アーカイブ削除"]`).click();
-      const toast = await waitForToast(page, new RegExp(`「${name}」を削除しました`));
+    /** Deletes the cell `name` (its toast names `label`: a page, or the folder of a result). */
+    const deleteOne = async (name: string, label = name) => {
+      await deleteCells(page, [name]);
+      const toast = await waitForToast(page, new RegExp(`「${label}」を削除しました`));
       await page.waitForFunction(
-        ([panel, name]) =>
-          !Array.from(document.querySelectorAll(`${panel} .layer-item__name`)).some(e => e.textContent === name),
-        [LEFT_PANEL, name],
+        name => !Array.from(document.querySelectorAll<HTMLElement>('.flow-cell')).some(e => e.dataset.name === name),
+        name,
       );
       return toast;
     };
@@ -2432,55 +2479,47 @@ async function runScenarios(
       await page.locator('body').click({ position: { x: 5, y: 5 } });
       await page.keyboard.press('Control+z');
     };
-    // The undo button next to delete: greyed out while there is nothing to undo.
-    const undoButton = page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="削除を元に戻す (Ctrl+Z)"]`);
-    const headerButtons = await page.$$eval(`${LEFT_PANEL} .layer-cache__actions button`, els =>
-      els.map(e => (e as HTMLButtonElement).title),
-    );
-    const buttonBeforeDelete = await undoButton.isDisabled();
+    const pngWidth = (name: string) => fs.readFileSync(path.join(archive, name)).readUInt32BE(16);
 
-    await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="ARCHIVESを更新"]`).click();
-    await page.waitForFunction(
-      panel =>
-        Array.from(document.querySelectorAll(`${panel} .layer-item__name`)).some(e => e.textContent === 'e2e-undo'),
-      LEFT_PANEL,
-    );
-    await expandFolder(page, 'e2e-undo');
-    // The delete button is greyed out while nothing is selected.
-    const deleteButton = page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="アーカイブ削除"]`);
-    const deleteWithoutSelection = await deleteButton.isDisabled();
-    await (await childItem(page, 'e2e-undo', 'keep.txt')).click();
-    const deleteWithSelection = await deleteButton.isDisabled();
+    await flowButton(page, '最新の状態に更新');
+    await waitForToast(page, /最新の状態に更新しました/);
+    await showArchive(page, /^e2e-undo$/);
+    const shown = await flowState(page);
+    // The delete button is greyed out while nothing is selected, the undo button while there is nothing to undo.
+    const buttonsBefore = { delete: shown.deleteEnabled, undo: shown.undoEnabled };
+    await selectCell(page, 'keep.png');
+    const deleteWithSelection = (await flowState(page)).deleteEnabled;
 
-    // file1 -> folder a -> file2, then undo twice: file2 comes back, then a; file1 stays deleted.
-    const deleteToasts = [await deleteChild('file1.png'), await deleteChild('a'), await deleteChild('file2.png')];
+    // file1 -> a (the folder x.png is in) -> file2, then undo twice: file2 comes back, then a; file1 stays deleted.
+    const deleteToasts = [await deleteOne('file1.png'), await deleteOne('x.png', 'a'), await deleteOne('file2.png')];
     const afterDeletes = present();
-    const buttonAfterDelete = await undoButton.isDisabled();
-    await undoButton.click();
+    const undoAfterDelete = (await flowState(page)).undoEnabled;
+    await flowButton(page, '削除を元に戻す');
     const undoToast = await waitForToast(page, /「file2\.png」を元に戻しました/);
     const afterUndo1 = await waitFor(['file2.png']);
     await undo();
     const afterUndo2 = await waitFor(['file2.png', 'a']);
 
     // Something new with the same name: the undo is refused and stays on the stack until it is moved away.
-    fs.writeFileSync(path.join(archive, 'file1.png'), 'new');
+    fs.writeFileSync(path.join(archive, 'file1.png'), await makePng(page, 41, 30));
     await undo();
     const conflictToast = await waitForToast(page, /元に戻せませんでした/);
     await page.waitForTimeout(300);
-    const conflict = { newKept: fs.readFileSync(path.join(archive, 'file1.png'), 'utf-8') };
+    const conflict = { newKept: pngWidth('file1.png') === 41 };
     fs.unlinkSync(path.join(archive, 'file1.png'));
     await undo();
     await waitFor(['file1.png', 'file2.png', 'a']);
-    const retried = fs.readFileSync(path.join(archive, 'file1.png'), 'utf-8');
+    const retried = pngWidth('file1.png');
     await undo();
     const emptyToast = await waitForToast(page, /元に戻す削除はありません/);
-    const buttonWhenEmpty = await undoButton.isDisabled();
+    await page.waitForTimeout(300);
+    const undoWhenEmpty = (await flowState(page)).undoEnabled;
 
     // Pressed twice in a row: both deletions come back.
-    await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="ARCHIVESを更新"]`).click();
+    await flowButton(page, '最新の状態に更新');
     await page.waitForTimeout(300);
-    await deleteChild('file1.png');
-    await deleteChild('file2.png');
+    await deleteOne('file1.png');
+    await deleteOne('file2.png');
     await page.locator('body').click({ position: { x: 5, y: 5 } });
     await page.keyboard.press('Control+z');
     await page.keyboard.press('Control+z');
@@ -2488,7 +2527,7 @@ async function runScenarios(
 
     // Ignored while the settings window is open.
     await page.waitForTimeout(300);
-    await deleteChild('file1.png');
+    await deleteOne('file1.png');
     await page.locator('.topbar__action-btn').first().click();
     await page.waitForSelector('.settings-window');
     await page.keyboard.press('Control+z');
@@ -2498,16 +2537,15 @@ async function runScenarios(
     await page.waitForSelector('.settings-window', { state: 'detached' });
     await undo();
     const afterClose = await waitFor(['file1.png', 'file2.png', 'a']);
-    await page.locator(`${LEFT_PANEL} .layer-panel__action-btn[title="ARCHIVESを更新"]`).click();
+    await flowButton(page, '最新の状態に更新');
     await page.waitForTimeout(300);
 
     return {
-      headerButtons,
-      buttonBeforeDelete,
-      deleteWithoutSelection,
+      shown,
+      buttonsBefore,
       deleteWithSelection,
-      buttonAfterDelete,
-      buttonWhenEmpty,
+      undoAfterDelete,
+      undoWhenEmpty,
       deleteToasts,
       afterDeletes,
       undoToast,
@@ -2520,49 +2558,8 @@ async function runScenarios(
       afterDoubleUndo,
       whileWindowOpen,
       afterClose,
+      flow: await flowState(page),
     };
-  });
-
-  await step('18-batch-selection', async () => {
-    const size = () =>
-      page.evaluate(() => {
-        const c = document.querySelector<HTMLCanvasElement>('.canvas-area canvas');
-        return c ? `${c.width}x${c.height}` : null;
-      });
-    const waitForSize = (expected: string) =>
-      page.waitForFunction(
-        expected => {
-          const c = document.querySelector<HTMLCanvasElement>('.canvas-area canvas');
-          return !!c && `${c.width}x${c.height}` === expected;
-        },
-        expected,
-        { timeout: 10000 },
-      );
-    await page.waitForFunction(
-      panel => Array.from(document.querySelectorAll(`${panel} .layer-item__name`)).some(e => e.textContent === 'sub'),
-      LEFT_PANEL,
-    );
-    await setMode(page, 'Batch');
-    await expandFolder(page, /^sub$/);
-    const before = await size();
-
-    // One file -> a one-tile grid (2 columns x 1 row).
-    await archiveItem(page, '01.png').click();
-    await waitForSize('1660x640');
-    await page.waitForTimeout(300);
-    const single = (await canvasState(page)).canvases[0];
-    await screenshot('batch-single-file');
-
-    // Files + a text file + a folder -> the 3 image files only, in tree order (2 rows).
-    for (const name of [/コマ結合\.png$/, '02.png', 'panels.json', /^sub$/]) {
-      await archiveItem(page, name).click({ modifiers: ['Control'] });
-    }
-    await waitForSize('1660x1260');
-    await page.waitForTimeout(300);
-    const multi = (await canvasState(page)).canvases[0];
-    await screenshot('batch-multi-select');
-    await setMode(page, 'Normal');
-    return { before, single, multi };
   });
 
   await step('19-nano-banana-pro-model-api', async () => {
@@ -2893,13 +2890,13 @@ async function runScenarios(
       { apiBase, folder, draw: drawOriginal },
     );
 
-    // The image on the canvas (the result, selected after saving) is the 原画 when the window opens;
-    // × removes it and 「表示中の画像を原画にする」 sets it again.
+    // The image selected on the canvas (the result, selected after saving) is the 原画 when the window opens;
+    // × removes it and 「選択中の画像を原画にする」 sets it again.
     await clickTool(page, 'Nano Banana画像生成');
     await page.waitForSelector(win);
     const autoSet = JSON.parse(maskTimestamps(JSON.stringify(await originalState())));
     await page.locator(`${win} .nbp-original__card .ref-card__remove`).click();
-    await page.locator(`${win} button`, { hasText: '表示中の画像を原画にする' }).click();
+    await page.locator(`${win} button`, { hasText: '選択中の画像を原画にする' }).click();
     await page.waitForSelector(`${win} .nbp-original__card`);
     const fromCanvas = { aspect: await aspectState(), original: await originalState() };
     await page.locator(`${win} .nbp-original__card .ref-card__remove`).click();
@@ -3019,7 +3016,8 @@ async function runScenarios(
   });
 
   await step('19f-original-on-open', async () => {
-    // Opening the tool puts the image on the canvas into the 原画 (docs/specs/tools/nano-banana-pro.md 「原画」).
+    // Opening the tool puts the first image selected on the canvas into the 原画
+    // (docs/specs/tools/nano-banana-pro.md 「原画」).
     const win = '.tool-window';
     const original = async () => {
       const card = page.locator(`${win} .nbp-original__card`);
@@ -3035,10 +3033,8 @@ async function runScenarios(
     };
 
     // Selecting another image replaces the 原画 when the window opens.
-    await archiveItem(page, 'e2e-image.png').click();
-    await page.waitForFunction(() =>
-      Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === 640),
-    );
+    await showArchive(page, /e2e-image$/);
+    await selectCell(page, 'e2e-image.png');
     await clickTool(page, 'Nano Banana画像生成');
     await page.waitForSelector(win);
     const selected = await original();
@@ -3050,18 +3046,14 @@ async function runScenarios(
     const afterRemove = await openAndRead();
 
     // Nothing selected: the previous 原画 stays.
-    await archiveItem(page, 'e2e-image.png').click(); // second click deselects
-    await page.waitForFunction(() => !document.querySelector('.layer-item--selected'));
+    await page.keyboard.press('Escape');
     const nothingSelected = await openAndRead();
 
-    // Other view modes leave the 原画 as it is (here: removed, so the window opens without one).
-    await archiveItem(page, 'e2e-image.png').click();
-    await openNanoBananaWithoutOriginal(page);
-    await closeToolWindow(page);
-    // (Parallel mode shows a second ARCHIVES panel instead of the tools, Overlay mode hides them.)
-    await setMode(page, 'Batch');
-    const batchMode = await openAndRead();
-    await setMode(page, 'Normal');
+    // Two selected: the first is the 原画, and the window says each one is used in turn.
+    await showArchive(page, /^e2e-panels$/);
+    await selectCell(page, '01.png');
+    await selectCell(page, '02.png', ['Control']);
+    const several = await openAndRead();
 
     // Reference images filling the model's limit (14): adding the 原画 would drop one, so it is not added.
     await openNanoBananaWithoutOriginal(page);
@@ -3091,7 +3083,7 @@ async function runScenarios(
       await page.locator(`${win} .ref-list .ref-card .ref-card__remove`).first().click();
     }
     await closeToolWindow(page);
-    return { selected, afterRemove, nothingSelected, batchMode, referencesFull };
+    return { selected, afterRemove, nothingSelected, several, referencesFull };
   });
 
   await step('19g-image-loader', async () => {
@@ -3121,9 +3113,7 @@ async function runScenarios(
     await page.locator(`${win} .tool-window__run`).click();
     const toast = maskTimestamps(await waitForToast(page, /ダイアログ画像\.png を読み込みました/));
     await page.locator(win).waitFor({ state: 'detached' });
-    await page.waitForFunction(() =>
-      Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === 120),
-    );
+    await waitForCell(page, 'ダイアログ画像.png', true);
     const savedFolder = (
       JSON.parse(fs.readFileSync(path.join(settingsDir, 'user_settings.json'), 'utf-8')) as Record<string, string>
     ).imageLoader_initialDir;
@@ -3148,7 +3138,7 @@ async function runScenarios(
       savedFolderIsSet: savedFolder === `"${settingsDir}"`,
       dialogStartedIn: requests.map(r => (r.initial_dir === `"${settingsDir}"` ? '<SETTINGS_DIR>' : r.initial_dir)),
       play,
-      archives: await archiveTree(page),
+      flow: await flowState(page),
     };
   });
 
@@ -3160,9 +3150,8 @@ async function runScenarios(
         const entries = (await (await fetch(`${apiBase}/archives/e2e-panels/contents`)).json()) as { key: string }[];
         return new Set(entries.map(e => /^(e2e-panels\/[^/]*_コマ結合)\//.exec(e.key)?.[1]).filter(Boolean)).size;
       }, apiBase);
-    if (!(await archiveItem(page, /^sub$/).count())) await expandFolder(page, 'e2e-panels');
-    await archiveItem(page, /^sub$/).click();
-    await page.waitForFunction(() => !!document.querySelector('.layer-item--selected'));
+    await showArchive(page, /^e2e-panels$/);
+    await selectCell(page, '01.png');
     const before = await mergeFolders();
     await screenshot('tool-list-play', '.ai-panel');
 

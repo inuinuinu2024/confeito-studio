@@ -1,5 +1,5 @@
 /* ── Managers (Prompt Manager, Character Manager): the category sidebar (shared/ui/category-sidebar.ts) in the
-   ARCHIVES column, list | editor in the canvas column. Each manager shows its own .mgr-sidebar / .mgr-main
+   sidebar column, list | editor in the main column. Each manager shows its own .mgr-sidebar / .mgr-main
    only in its view mode (the feature's CSS). ── */
 .mgr-sidebar,
 .mgr-main {

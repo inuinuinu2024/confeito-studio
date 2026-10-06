@@ -3,7 +3,7 @@
  * the chosen page on the right (docs/specs/app-shell.md 「設定ウィンドウ」):
  *   API  — Gemini API key, written to the project .env with the page's 保存 button.
  *   背景色指定 — canvas background colour, applied and saved as soon as a swatch is clicked.
- *   保存先 — the ARCHIVES folder (full path or the folder dialog), switched with the page's 変更 button;
+ *   保存先 — the archives folder (full path or the folder dialog), switched with the page's 変更 button;
  *            nothing is moved (docs/specs/archives.md 「保存先」).
  * While it is open the app behind it is dimmed and inert; ×, Esc and a click on the backdrop close it.
  */
@@ -201,7 +201,7 @@ function createStoragePage(): { element: HTMLElement; refresh: () => Promise<voi
       if (result.missing) {
         const create = await confirmDialog({
           title: 'フォルダがありません',
-          message: `「${result.requested_path}」は存在しません。作成して ARCHIVES の保存先にしますか？`,
+          message: `「${result.requested_path}」は存在しません。作成してアーカイブの保存先にしますか？`,
           confirmLabel: '作成して変更',
         });
         if (!create) return;
@@ -210,10 +210,10 @@ function createStoragePage(): { element: HTMLElement; refresh: () => Promise<voi
       show(result);
       if (result.changed) {
         emit('archives:location-changed');
-        showToast(`ARCHIVES の保存先を「${result.path}」に変更しました`, 'success');
+        showToast(`アーカイブの保存先を「${result.path}」に変更しました`, 'success');
       }
     } catch (err) {
-      showError('ARCHIVES の保存先を変更できませんでした', err);
+      showError('アーカイブの保存先を変更できませんでした', err);
     } finally {
       busy = false;
       sync();
@@ -230,7 +230,7 @@ function createStoragePage(): { element: HTMLElement; refresh: () => Promise<voi
     { class: 'settings-window__page' },
     h('h2', { class: 'settings-window__page-title', text: '保存先' }),
     section(
-      'ARCHIVES のフォルダ',
+      'アーカイブのフォルダ',
       'ツールの結果や読み込んだ画像を保存するフォルダです。フルパスで入力するか「参照…」で選びます。' +
         '変えても今のフォルダの中身は移動しません（元のフォルダに戻すと、また表示されます）。',
       h('div', { class: 'settings-window__row' }, input, browseButton),

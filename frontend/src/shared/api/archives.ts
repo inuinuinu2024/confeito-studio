@@ -4,6 +4,7 @@
  * Keys are "<archive>/<relative path>"; use `splitArchiveKey` to split them.
  */
 import type { ArchiveEntry } from '../types/archive';
+import type { FlowData } from '../types/flow';
 import { formData, postForm, postJson, request, requestJson } from './http';
 
 const enc = encodeURIComponent;
@@ -46,9 +47,40 @@ export async function fetchArchiveKey(key: string): Promise<Blob | null> {
 /** What a tool tells about its result; the backend writes it as info.json (docs/specs/archives.md). */
 export interface ResultInfo {
   tool: string;
-  /** ARCHIVES key of the input (image or folder), or null. */
+  /** Archive key of the input (image or folder), or null. */
   source: string | null;
+  /** Every input image when there are several. */
+  sources?: string[];
   settings: Record<string, unknown>;
+}
+
+/** Roots, tool runs and the shown run of each stack of one archive (Normal mode canvas). */
+export function getFlow(archiveName: string): Promise<FlowData> {
+  return requestJson<FlowData>(`/archives/${enc(archiveName)}/flow`);
+}
+
+/** Records the run shown for a stack (null: back to the newest run). */
+export async function setFlowSelection(archiveName: string, stack: string, folder: string | null): Promise<void> {
+  await request(`/archives/${enc(archiveName)}/flow/selection`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stack, folder }),
+  });
+}
+
+/** Marks `image` as what コマ結合 pastes for `panel` (null: back to the newest image made from the panel). */
+export async function setFlowMerge(archiveName: string, panel: string, image: string | null): Promise<void> {
+  await request(`/archives/${enc(archiveName)}/flow/merge`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ panel, image }),
+  });
+}
+
+/** A copy of the image behind `key` at most `size` px on its long side. */
+export async function fetchThumbnail(key: string, size: number, signal?: AbortSignal): Promise<Blob> {
+  const [archive, path] = splitArchiveKey(key);
+  return (await request(`/archives/${enc(archive)}/thumbnail?path=${enc(path)}&size=${size}`, { signal })).blob();
 }
 
 /**

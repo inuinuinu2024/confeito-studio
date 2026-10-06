@@ -1,6 +1,6 @@
 /**
  * Prompt Manager (docs/specs/prompt-manager.md) — the "prompt" view mode. The sidebar (categories)
- * takes the place of ARCHIVES and the main area (prompt list | editor) the place of the canvas;
+ * takes the sidebar column and the main area (prompt list | editor) the place of the canvas;
  * app.ts shows them while the mode is on. Every change is saved to the backend at once, except the
  * editor, which saves with 保存 / Ctrl+S and asks before unsaved changes are left.
  */

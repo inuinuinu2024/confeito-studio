@@ -1,55 +1,45 @@
 /**
- * Canvas — the central viewing area: two panes (left/right) holding a scrolling viewport with one
- * <canvas> and an empty-pane notice each (the left one also a text overlay), the zoom bar, and the
- * floating Parallel / Overlay toolbars.
+ * Canvas — the comparison area of Parallel / Overlay mode (Normal mode shows the flow canvas instead,
+ * features/flow-canvas/): two panes (left/right) holding a scrolling viewport with one <canvas> and an
+ * empty-pane notice each, the zoom bar, and the floating Parallel / Overlay toolbars.
  *
  * The panes are fixed frames: side by side in Parallel mode (a 1px boundary between them), stacked
  * with the front one clipped at a screen-fixed divider in the slider view, and only the left one in
- * the other modes. Pan and zoom move the images inside both panes together (zoom.ts).
+ * Overlay mode. Pan and zoom move the images inside both panes together (zoom.ts).
  *
- * Inputs (events):  archive:item-selected, archive:selection-cleared, archive:selection-summary,
- *                   archive:batch-selected, view:layer-selected, archives:changed, <mode>-mode:toggle,
- *                   document:loaded/redraw, canvas:bg-color
+ * What is compared (docs/specs/canvas.md 「比較する画像」): the first two images selected on the flow canvas
+ * (DocumentManager) when the mode starts — L / R in Parallel mode, U / T in Overlay mode.
+ *
+ * Inputs (events):  <mode>-mode:toggle, archives:changed, canvas:bg-color
  * Drawing:          render.ts (from CanvasState in canvas-state.ts)
  * Zoom / scroll:    zoom.ts
- * Nothing to show:  a centred message asks the user to pick an image (emptyCanvasMessage; per pane in
+ * Nothing to show:  a centred message says how to choose the images (emptyCanvasMessage; per pane in
  *                   Parallel mode, emptyPaneMessage).
- * Image files dropped on the area are imported by running the image loader tool (Normal / Batch mode).
- *
- * Parallel and Overlay mode show the layers chosen with the ARCHIVES checkboxes (L / R, U / T). The
- * ARCHIVES selection is still tracked (state.selection, DocumentManager) but not shown until the mode ends.
  */
 import './canvas.css';
 import { fetchArchiveKey } from '../../shared/api/archives';
-import { IMAGE_FILE_PATTERN, TEXT_FILE_PATTERN } from '../../shared/config';
-import { emit, on, type SelectionSummary, type ViewLayer } from '../../shared/events';
+import { on, type ViewLayer } from '../../shared/events';
 import { loadBgColor } from '../../shared/state/canvas-background';
+import type { FlowImage } from '../../shared/types/flow';
 import { h, icon, setShown } from '../../shared/ui/dom';
 import { showError, showToast } from '../../shared/ui/toast';
 import { blobToCanvas } from '../../shared/utils/image';
-import { runTool } from '../ai-panel/tool-runner';
 import { DocumentManager } from '../document/DocumentManager';
-import { importImageTool } from '../tools/image-loader';
 import {
-  type BatchImage,
   contentSize,
   createCanvasState,
   emptyCanvasMessage,
   emptyPaneMessage,
   isComparing,
-  isZoomBarShown,
   type Side,
   sliderClip,
 } from './canvas-state';
-import { batchGridSize, renderSide, topImageRect } from './render';
+import { renderSide, topImageRect } from './render';
 import { createOverlayToolbar, createParallelToolbar } from './toolbars';
 import { createZoomController } from './zoom';
 
 const SIDES = ['left', 'right'] as const;
 const LAYERS = ['under', 'top', 'left', 'right'] as const;
-
-const isTextBlob = (name: string, blob: Blob) =>
-  TEXT_FILE_PATTERN.test(name) || blob.type.startsWith('text/') || blob.type === 'application/json';
 
 export function createCanvas(): HTMLElement {
   const state = createCanvasState();
@@ -68,9 +58,6 @@ export function createCanvas(): HTMLElement {
     return { el, viewport, inner, notice, message };
   };
   const panes = { left: createPane('left'), right: createPane('right') };
-  /** A selected text file (Normal mode) covers the left pane. */
-  const textOverlay = h('div', { class: 'canvas-text-overlay' });
-  panes.left.el.append(textOverlay);
   const divider = h(
     'div',
     { class: 'canvas-split__divider' },
@@ -84,8 +71,7 @@ export function createCanvas(): HTMLElement {
   });
 
   const emptyMessage = h('span', { class: 'canvas-empty__message' });
-  const emptyHint = h('span', { class: 'canvas-empty__hint', text: 'または画像ファイルをここにドロップして読み込み' });
-  const emptyState = h('div', { class: 'canvas-empty' }, icon('image', 48), emptyMessage, emptyHint);
+  const emptyState = h('div', { class: 'canvas-empty' }, icon('image', 48), emptyMessage);
 
   const parallelToolbar = createParallelToolbar({
     onSlider: () => {
@@ -139,7 +125,6 @@ export function createCanvas(): HTMLElement {
     const message = emptyCanvasMessage(state);
     if (message !== null) emptyMessage.textContent = message;
     setShown(emptyState, message !== null, 'flex');
-    setShown(emptyHint, !isComparing(state)); // nothing is imported in Parallel / Overlay mode
     for (const side of SIDES) {
       const paneMessage = emptyPaneMessage(state, side);
       if (paneMessage !== null) panes[side].message.textContent = paneMessage;
@@ -173,7 +158,6 @@ export function createCanvas(): HTMLElement {
 
   /** Resizes the canvases to the content of the current mode and re-applies the zoom. */
   function updateDrawSize(fit: boolean): void {
-    if (!isComparing(state) && state.selection.text) return; // the text overlay covers the pane
     const { w, h: height } = contentSize(state);
     if (!w || !height) return;
     const sizeChanged = state.drawW !== w || state.drawH !== height;
@@ -195,19 +179,6 @@ export function createCanvas(): HTMLElement {
     updateTooltips();
   }
 
-  function setText(text: string | null): void {
-    state.selection.text = text !== null;
-    if (text !== null) textOverlay.textContent = text;
-    syncTextVisibility();
-  }
-
-  /** A selected text file is shown in Normal mode only (Parallel / Overlay show their layers). */
-  function syncTextVisibility(): void {
-    const shown = state.selection.text && !isComparing(state);
-    textOverlay.style.display = shown ? 'block' : 'none';
-    panes.left.el.classList.toggle('canvas-split__pane--text', shown);
-  }
-
   function resetSliderOptions(): void {
     state.slider = state.vertical = state.flipped = false;
     state.splitPct = 50;
@@ -217,7 +188,7 @@ export function createCanvas(): HTMLElement {
   }
 
   function updateLayout(): void {
-    setShown(zoom.bar, isZoomBarShown(state), 'flex');
+    setShown(zoom.bar, isComparing(state), 'flex');
     setShown(parallelToolbar.el, state.parallel, 'flex');
     setShown(toolbar, isComparing(state), 'flex');
     parallelToolbar.showSliderOptions(state.slider);
@@ -276,7 +247,7 @@ export function createCanvas(): HTMLElement {
     !!(target as HTMLElement).closest('.canvas-split__divider, .canvas-toolbar, .canvas-zoom-bar');
 
   split.addEventListener('mousedown', e => {
-    if (isControl(e.target) || (e.target as HTMLElement).closest('.canvas-text-overlay')) return;
+    if (isControl(e.target)) return;
     if (state.overlay && state.topSelected) {
       if (hitsTop(e)) {
         topDrag = { x: e.clientX, y: e.clientY, offsetX: state.topOffset.x, offsetY: state.topOffset.y };
@@ -366,30 +337,23 @@ export function createCanvas(): HTMLElement {
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
   });
-  main.addEventListener('drop', async e => {
+  main.addEventListener('drop', e => {
     e.preventDefault();
-    const file = e.dataTransfer?.files?.[0];
-    if (!file) return;
-    if (isComparing(state)) {
-      const view = state.parallel ? 'Parallel View' : 'Overlay View';
-      showToast(`${view} では画像を取り込めません。Normal モードに戻してからドロップしてください`, 'warning');
-      return;
-    }
-    if (file.type.startsWith('image/') || IMAGE_FILE_PATTERN.test(file.name)) await runTool(importImageTool(file));
-    else showToast('画像ファイル（PNG/JPG/WebP/BMP/GIF）をドロップしてください', 'warning');
+    const view = state.parallel ? 'Parallel View' : 'Overlay View';
+    showToast(`${view} では画像を取り込めません。Workspace に戻してからドロップしてください`, 'warning');
   });
 
   // ── View modes ──
   /**
-   * Parallel / Overlay mode on or off. Their layers are chosen anew each time (on entering Overlay mode,
-   * ArchivePanel sets the selected image as U); leaving shows the ARCHIVES selection the Normal way.
+   * Parallel / Overlay mode on or off. The images are taken from the flow canvas selection each time the
+   * mode starts (the first two: L / R or U / T) and forgotten when it ends.
    * The right sidebar closes / opens with these modes (the 100% size changes): 100% at both ends.
    */
-  const toggleComparison = (enabled: boolean, layers: readonly ViewLayer[]) => {
-    syncTextVisibility();
-    if (!enabled) {
-      clearLayers(layers);
-      updateDrawSize(false);
+  const toggleComparison = (enabled: boolean, layers: readonly [ViewLayer, ViewLayer]) => {
+    clearLayers(layers);
+    if (enabled) {
+      const chosen = DocumentManager.getInstance().getSelection().slice(0, 2);
+      layers.forEach((layer, i) => void loadLayer(layer, chosen[i] ?? null));
     }
     zoom.resetTo100();
     updateLayout();
@@ -412,153 +376,31 @@ export function createCanvas(): HTMLElement {
     toggleComparison(enabled, ['under', 'top']);
   });
 
-  on('batch-mode:toggle', ({ enabled }) => {
-    state.batch = enabled;
-    if (!enabled) {
-      state.batchImages = [];
-      updateDrawSize(false); // leave the grid size (ArchivePanel re-publishes its selection)
-    }
-    updateLayout();
-    redraw();
-  });
-
-  // ── Document ──
-  on('document:loaded', ({ canvas, width, height }) => {
-    state.docImage = canvas;
-    if (isComparing(state)) return; // the selection is shown when the mode ends
-    if (width && height) {
-      initializeCanvases(width, height);
-      updateDrawSize(false);
-      zoom.resetTo100();
-      updateLayout();
-      redraw();
-    }
-  });
-
-  on('document:redraw', redraw);
-
   on('canvas:bg-color', ({ color }) => {
     state.bgColor = color;
     redraw();
   });
 
-  // ── ARCHIVES selection ──
-  // Selections can change while a file loads: only the latest request is shown.
-  let selectionRequest = 0;
-
-  const showSelection = async (key: string, name: string) => {
-    const request = ++selectionRequest;
-    const isLatest = () => request === selectionRequest;
-    const blob = await fetchArchiveKey(key);
-    if (!isLatest()) return;
-    if (!blob) return loadFailed(name);
-    if (isTextBlob(name, blob)) {
-      const text = await blob.text();
-      if (!isLatest()) return;
-      setText(text);
-      state.selection.image = null;
-      state.selection.summary = null;
-      clearDocument(); // tools have no image while a text file is shown
-      if (isComparing(state)) return; // only recorded: shown when the mode ends
-      if (!canvases.left) initializeCanvases(800, 600);
-      updateDrawSize(true);
-      updateLayout();
-      redraw();
-      return;
-    }
-    const image = await blobToCanvas(blob);
-    if (!isLatest()) return;
-    if (!image) return loadFailed(name);
-    setText(null);
-    state.selection.image = image;
-    state.selection.summary = null;
-    // The save folder was already set by ArchivePanel (the file's parent folder).
-    DocumentManager.getInstance().setCanvas(image, name, key); // emits document:loaded synchronously
-    if (isComparing(state)) return;
-    if (!canvases.left) initializeCanvases(image.width, image.height);
-    updateDrawSize(false);
-    zoom.resetTo100();
-    updateLayout();
-    redraw();
-  };
-
-  /** DocumentManager has no image now (tools see nothing). */
-  const clearDocument = () => {
-    state.docImage = null;
-    DocumentManager.getInstance().setCanvas(null);
-  };
-
-  /** Shows nothing; `summary` (a folder / several entries selected) words the empty message. */
-  const showNothing = (summary: SelectionSummary | null) => {
-    selectionRequest++;
-    state.selection.image = null;
-    state.selection.summary = summary;
-    setText(null);
-    clearDocument();
-    if (isComparing(state)) return;
-    updateDrawSize(true);
-    updateLayout();
-    redraw();
-  };
-
-  const loadFailed = (name: string) => {
-    showError(`「${name}」を読み込めませんでした`);
-    showNothing(null);
-  };
-
-  on('archive:item-selected', ({ key, name }) => void showSelection(key, name));
-  on('archive:selection-cleared', () => {
-    state.batchImages = [];
-    // Nothing selected -> no save folder either, so tools never write into the previous selection.
-    DocumentManager.getInstance().setCurrentArchiveFolder(null);
-    showNothing(null);
-  });
-  on('archive:selection-summary', summary => showNothing(summary));
-
-  // Selections can change while images load (Ctrl+click): only the latest request is shown.
-  let batchRequest = 0;
-  on('archive:batch-selected', async ({ items }) => {
-    if (!state.batch) return;
-    const request = ++batchRequest;
-    const images: BatchImage[] = [];
-    for (const item of items) {
-      const blob = await fetchArchiveKey(item.key);
-      const canvas =
-        blob && !blob.type.startsWith('text/') && blob.type !== 'application/json' ? await blobToCanvas(blob) : null;
-      images.push({ key: item.key, name: item.name, canvas });
-    }
-    if (request !== batchRequest || !state.batch) return;
-    state.batchImages = images;
-    const grid = batchGridSize(images.filter(i => i.canvas).length);
-    initializeCanvases(grid.w, grid.h);
-    updateDrawSize(false);
-    zoom.resetTo100();
-    updateLayout();
-    redraw();
-  });
-
-  // ── Layers chosen with the ARCHIVES checkboxes (Parallel L / R, Overlay U / T) ──
-  // Like selections, only the latest request of each layer is shown.
-  const layerKeys: Record<ViewLayer, string | null> = { under: null, top: null, left: null, right: null };
+  // ── The compared images (Parallel L / R, Overlay U / T) ──
+  // Only the latest request of each layer is shown.
+  const layerImages: Record<ViewLayer, FlowImage | null> = { under: null, top: null, left: null, right: null };
   const layerRequest: Record<ViewLayer, number> = { under: 0, top: 0, left: 0, right: 0 };
 
   /**
-   * Shows `key` as this layer (null clears it). An image that cannot be loaded is dropped and its checkbox
-   * cleared; `quiet` (re-reading after the archives changed: it was deleted) does so without an error.
+   * Shows `image` as this layer (null clears it). An image that cannot be loaded is dropped; `quiet`
+   * (re-reading after the archives changed: it was deleted) does so without an error.
    */
-  const loadLayer = async (layer: ViewLayer, key: string | null, name: string | null, quiet = false) => {
+  const loadLayer = async (layer: ViewLayer, image: FlowImage | null, quiet = false) => {
     const request = ++layerRequest[layer];
-    const previousKey = layerKeys[layer];
-    layerKeys[layer] = key;
-    const image = key ? await loadArchiveCanvas(key) : null;
+    layerImages[layer] = image;
+    const canvas = image ? await loadArchiveCanvas(image.key) : null;
     if (request !== layerRequest[layer]) return;
-    if (key && !image) {
-      if (!quiet) showError(`「${name ?? key}」を読み込めませんでした`);
-      emit('view:layer-selected', { layer, key: null, name: null });
-      return;
+    if (image && !canvas) {
+      if (!quiet) showError(`「${image.name}」を読み込めませんでした`);
+      layerImages[layer] = null;
     }
-    state.layers[layer] = image;
-    if (layer === 'top' && key !== previousKey) {
+    state.layers[layer] = canvas;
+    if (layer === 'top') {
       // Another T starts centred again.
       state.topOffset = { x: 0, y: 0 };
       state.topSelected = false;
@@ -571,17 +413,16 @@ export function createCanvas(): HTMLElement {
   const clearLayers = (layers: readonly ViewLayer[]) => {
     for (const layer of layers) {
       layerRequest[layer]++;
-      layerKeys[layer] = null;
+      layerImages[layer] = null;
       state.layers[layer] = null;
     }
   };
 
-  on('view:layer-selected', ({ layer, key, name }) => void loadLayer(layer, key, name));
   // Deleted (or restored) files: re-read the layers, dropping the ones that are gone.
   on('archives:changed', () => {
     for (const layer of LAYERS) {
-      const key = layerKeys[layer];
-      if (key) void loadLayer(layer, key, null, true);
+      const image = layerImages[layer];
+      if (image && isComparing(state)) void loadLayer(layer, image, true);
     }
   });
 

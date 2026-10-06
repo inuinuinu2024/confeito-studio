@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from ..errors import BadRequestError, unexpected_errors_as
 from ..services import panel_geometry
 from ..services.image_service import remove_background
-from ..services.merge_service import merge_panels
+from ..services.merge_service import merge_panels, parse_overrides
 from ..services.panel_service import build_preview, split_panels
 
 router = APIRouter(prefix="/image", tags=["image"])
@@ -85,7 +85,11 @@ async def api_split_panels_preview(
 
 
 @router.post("/merge-panels")
-async def api_merge_panels(target_folder: str = Form(...)) -> dict:
-    """Pastes the panels listed in ``<target_folder>/panels.json`` back into one image."""
+async def api_merge_panels(target_folder: str = Form(...), overrides: str | None = Form(None)) -> dict:
+    """Pastes the panels listed in ``<target_folder>/panels.json`` back into one image.
+
+    ``overrides`` (JSON ``{panel file name: archive key}``) replaces panels with other images.
+    """
+    replacements = parse_overrides(overrides)
     with unexpected_errors_as("コマ結合の処理中にエラーが発生しました。"):
-        return await run_in_threadpool(merge_panels, target_folder)
+        return await run_in_threadpool(merge_panels, target_folder, replacements)

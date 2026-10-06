@@ -191,13 +191,6 @@
 }
 
 /* A pane showing a text file: the text overlay covers it */
-.canvas-split__pane--text .canvas-split__viewport {
-  overflow: hidden;
-}
-
-.canvas-split__pane--text .canvas-split__canvas {
-  visibility: hidden;
-}
 
 .canvas-split__inner {
   position: relative;
@@ -340,51 +333,6 @@
   font-size: 14px;
   font-weight: 500;
   color: var(--color-on-surface);
-}
-
-/* Text / JSON preview of archive files (over the pane's viewport, inside its 32px padding) */
-.canvas-text-overlay {
-  position: absolute;
-  inset: 32px;
-  z-index: 2;
-  display: none;
-  padding: 20px;
-  overflow: auto;
-  background-color: var(--color-surface-container);
-  color: var(--color-on-surface);
-  border: 1px solid var(--color-outline-variant);
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
-  font-family: Consolas, Monaco, 'Courier New', monospace;
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-  user-select: text;
-  cursor: text;
-}
-
-.canvas-text-overlay::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-.canvas-text-overlay::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.canvas-text-overlay::-webkit-scrollbar-thumb {
-  background: var(--color-outline-variant);
-  border-radius: 4px;
-}
-
-.canvas-text-overlay::-webkit-scrollbar-thumb:hover {
-  background: var(--color-on-surface-variant);
-}
-
-.canvas-text-overlay::selection {
-  background-color: var(--color-primary);
-  color: var(--color-on-primary);
 }
 
 /* Shown when nothing is displayed (Canvas.ts updateEmptyState); clicks and drops pass through. */

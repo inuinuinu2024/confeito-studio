@@ -1,6 +1,6 @@
 /**
  * Cost Monitor (docs/specs/cost-monitor.md) — the "cost" view mode: a dashboard of what the Gemini API
- * costs, in place of ARCHIVES and the canvas. Amounts are shown in yen first (at the rate the user enters)
+ * costs, in place of the canvas. Amounts are shown in yen first (at the rate the user enters)
  * with USD (the price list's currency = credits) beside them.
  *
  * - このアプリで使った分: every billed Gemini call made from this app, aggregated by the backend

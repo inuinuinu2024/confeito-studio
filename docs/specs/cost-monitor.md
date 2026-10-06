@@ -1,7 +1,7 @@
 # Cost Monitor（Gemini API の利用料）
 
 Gemini API の利用料を知るためのダッシュボード。左端の列の Cost Monitor（browse_activity のアイコン）で開く表示モードの 1 つで、
-ARCHIVES とキャンバスの場所を覆い、AI パネルを閉じる。もう一度押すと Normal に戻る（[app-shell.md](./app-shell.md)「画面構成」）。
+メイン領域を覆い、AI パネルを閉じる。もう一度押すと Workspace に戻る（[app-shell.md](./app-shell.md)「画面構成」）。
 
 ## 前提: Gemini API の課金の仕組み（2026-10-04 時点で確認）
 - Gemini API は前払い（Prepay）だけ（後払いは 2026-09-14 に廃止）。AI Studio でクレジットを買い、使った分がほぼリアルタイムで引かれる。

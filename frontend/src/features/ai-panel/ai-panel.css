@@ -24,7 +24,7 @@
   opacity: 0.3;
 }
 
-/* Same look and height as the ARCHIVES header (its 24px action buttons), which takes this column in Parallel mode. */
+/* 24px action buttons, the same height as the managers' sidebar headers. */
 .ai-panel__header {
   display: flex;
   align-items: center;

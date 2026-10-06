@@ -39,7 +39,7 @@
 5. **フロントエンドの決まり**
    - バックエンド呼び出しは `shared/api/` の関数経由（`fetch` を直接書かない）。
    - 機能間の通知は `shared/events.ts` の `emit` / `on`（`window.dispatchEvent` を直接使わない）。新しいイベントは `AppEventMap` に追加する。
-   - 表示モードは `shared/state/view-mode.ts`、現在の画像と保存先フォルダは `DocumentManager`。
+   - 表示モードは `shared/state/view-mode.ts`、表示中のアーカイブ（保存先）と Workspace の選択は `DocumentManager`（ツールは `ToolContext.target` を使う）。
    - 通知は `showToast` / `showError`（`alert()` を使わない）。ログファイル（log.txt / error.txt）は書かない（docs/specs/notifications.md）。
    - ブラウザにデータを残さない: localStorage・IndexedDB を使わず、次回も残したい画面の状態は `toolSettings()` 経由で settings/ に保存する（docs/specs/app-shell.md）。
      ツールの設定はウィンドウを開く時に読み、実行開始時に保存する（設定を持つツールは `settingsPrefix` を宣言する）。
@@ -64,8 +64,9 @@
 | 登録キャラクター・Character Manager | `features/character-manager/`（純粋な処理は `shared/utils/characters.ts`、アイコンの切り取りは `icon-cropper.ts` と `shared/utils/icon-crop.ts`、顔検出は `backend/src/app/services/face_service.py`）、ツール側は `features/tools/gemini-image/character-picker.ts`、`backend/src/app/services/character_service.py`、仕様は docs/specs/character-manager.md |
 | マネージャー共通（カテゴリー一覧・見た目） | `shared/ui/category-sidebar.ts`・`shared/styles/manager.css`・`shared/utils/categories.ts`、`backend/src/app/services/categorized_store.py` |
 | Cost Monitor（Gemini の利用料） | `features/cost-monitor/`（系列・金額の表示は `shared/utils/usage.ts`）、記録は `backend/src/app/services/usage_service.py`（Gemini を呼ぶサービスから `record_response`）、保存と集計（SQLite）は `usage_store.py`、単価は `pricing.py`、仕様は docs/specs/cost-monitor.md |
-| ARCHIVES の表示・選択 | `features/archive-panel/`（ツリー計算は `archive-tree.ts`） |
-| キャンバスの描画・モード | `features/canvas/`（描画 `render.ts`、状態 `canvas-state.ts`、ズーム `zoom.ts`） |
+| Workspace（処理フローの表示・選択・削除） | `features/flow-canvas/`（図の組み立て `flow-graph.ts`、配置 `flow-layout.ts`）、`backend/src/app/services/flow_service.py`、仕様は docs/specs/flow-canvas.md |
+| まとめて実行（選択した画像へ順に実行） | `features/ai-panel/tool-runner.ts`・`run-targets.ts`、ツールの `targets()`、仕様は docs/specs/ai-panel.md「まとめて実行」 |
+| 比較キャンバス（Parallel / Overlay） | `features/canvas/`（描画 `render.ts`、状態 `canvas-state.ts`、ズーム `zoom.ts`） |
 | API の追加 | `backend/src/app/routers/` + `services/` → `frontend/src/shared/api/`、手順は backend.md |
 | 保存形式・ツールの結果の保存先 | `backend/src/app/services/archive_service.py`（`save_result`）、`frontend/src/features/tools/result.ts`、仕様は docs/specs/archives.md |
 | トースト・エラー表示の文言 | `shared/ui/toast.ts`・`shared/utils/error-message.ts`・`ai-panel/tool-runner.ts`、仕様は docs/specs/notifications.md |

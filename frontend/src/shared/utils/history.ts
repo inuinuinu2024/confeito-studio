@@ -1,5 +1,5 @@
 /**
- * Undo for ARCHIVES deletions (Ctrl+Z / the undo button in ARCHIVES; docs/specs/archives.md 「削除と Undo」).
+ * Undo for deletions on the flow canvas (Ctrl+Z / its undo button; docs/specs/flow-canvas.md 「削除」).
  * Each undo reverts the latest deletion still on the stack; there is no redo.
  *
  * Deletions and undos run one at a time in the order they were requested, so pressing Ctrl+Z
@@ -41,7 +41,7 @@ class HistoryManager {
     });
   }
 
-  /** Forgets every entry (the ARCHIVES folder was switched: they belong to the previous one). */
+  /** Forgets every entry (the archives folder was switched: they belong to the previous one). */
   clear(): void {
     this.stack = [];
     emit('history:changed');

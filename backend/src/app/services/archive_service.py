@@ -58,14 +58,21 @@ class ArchiveConflictError(ArchiveServiceError, ConflictError):
 
 
 class ResultInfo(TypedDict):
-    """What a tool tells about its result; ``save_result`` writes it as info.json."""
+    """What a tool tells about its result; ``save_result`` writes it as info.json.
+
+    ``source`` is the input image (or the コマ分割 folder for コマ結合); ``sources`` lists every input
+    image when there are several (コマ結合), so the Normal mode flow can draw an edge from each.
+    """
 
     tool: str
     source: str | None
     settings: dict[str, Any]
+    sources: NotRequired[list[str]]
 
 
 RESULT_INFO_FILE = "info.json"
+FLOW_FILE = ".flow.json"
+"""Per-archive state of the Normal mode flow (services/flow_service.py); not listed as content."""
 
 
 class ArchiveEntry(TypedDict):
@@ -138,7 +145,7 @@ def _prune_empty_dirs(root: Path) -> None:
             os.rmdir(current)
 
 
-def _existing_archive_dir(archive_name: str) -> Path:
+def existing_archive_dir(archive_name: str) -> Path:
     archive_dir = resolve_path(archive_name)
     if not archive_dir.is_dir():
         raise ArchiveNotFoundError(f"アーカイブ「{archive_name}」が見つかりません。")
@@ -177,7 +184,7 @@ def list_archives() -> list[ArchiveEntry]:
 
 def list_archive_contents(archive_name: str) -> list[ArchiveEntry]:
     """Flat list of every sub-folder and file in an archive; ``folderId`` links each to its parent."""
-    archive_dir = _existing_archive_dir(archive_name)
+    archive_dir = existing_archive_dir(archive_name)
     timestamp = int(archive_dir.stat().st_mtime * 1000)
     entries: list[ArchiveEntry] = []
     added_folders: set[str] = set()
@@ -206,6 +213,8 @@ def list_archive_contents(archive_name: str) -> list[ArchiveEntry]:
 
         parent_id = f"{archive_name}/{rel_root}" if rel_root != "." else archive_name
         for file_name in files:
+            if rel_root == "." and file_name == FLOW_FILE:
+                continue
             file_rel_path = f"{rel_root}/{file_name}" if rel_root != "." else file_name
             entries.append(
                 {
@@ -292,6 +301,8 @@ def save_result(
             "settings": info.get("settings") or {},
             "outputs": [path for path, _ in files_data],
         }
+        if info.get("sources"):
+            record["sources"] = info["sources"]
         files.append((f"{prefix}{RESULT_INFO_FILE}", json.dumps(record, ensure_ascii=False, indent=2).encode("utf-8")))
     save_archive(archive, files)
     return key
@@ -307,12 +318,16 @@ def parse_result_info(text: str | None) -> ResultInfo | None:
         raise ArchiveValidationError("info が JSON として読めません。", raw_response=exception_text(e)) from e
     if not isinstance(data, dict) or not isinstance(data.get("tool"), str):
         raise ArchiveValidationError("info に tool（ツール名）がありません。", raw_response=text)
-    return {"tool": data["tool"], "source": data.get("source"), "settings": data.get("settings") or {}}
+    result: ResultInfo = {"tool": data["tool"], "source": data.get("source"), "settings": data.get("settings") or {}}
+    sources = data.get("sources")
+    if isinstance(sources, list) and all(isinstance(s, str) for s in sources):
+        result["sources"] = sources
+    return result
 
 
 def delete_archive(archive_name: str) -> None:
     """Moves an archive into ``.trash`` (replacing an older trashed copy)."""
-    archive_dir = _existing_archive_dir(archive_name)
+    archive_dir = existing_archive_dir(archive_name)
     trash_target = settings.trash_dir / archive_name
     try:
         settings.trash_dir.mkdir(parents=True, exist_ok=True)
@@ -328,7 +343,7 @@ def delete_archive_contents(archive_name: str, paths: list[str]) -> None:
     Empty folders left behind are pruned; the archive folder itself is removed when nothing
     is left in it. An older trashed copy of the same path is replaced.
     """
-    archive_dir = _existing_archive_dir(archive_name)
+    archive_dir = existing_archive_dir(archive_name)
     trash_dir = _item_trash_dir(archive_name)
     moves = [(resolve_path(archive_name, p), _resolve_inside(trash_dir, p)) for p in _outermost(paths)]
     try:

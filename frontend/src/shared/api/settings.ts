@@ -1,4 +1,4 @@
-/** /api/settings — Gemini API key, the ARCHIVES folder (保存先) and the tool settings (settings/default_settings.json + user_settings.json). */
+/** /api/settings — Gemini API key, the archives folder (保存先) and the tool settings (settings/default_settings.json + user_settings.json). */
 import { postJson, requestJson } from './http';
 
 export async function getGeminiKeyStatus(): Promise<{ has_key: boolean }> {
@@ -20,7 +20,7 @@ export async function updateToolSettings(values: Record<string, string>): Promis
   return postJson('/settings/tools', { values });
 }
 
-/** The ARCHIVES folder (docs/specs/archives.md 「保存先」). */
+/** The archives folder (docs/specs/archives.md 「保存先」). */
 export interface ArchivesLocation {
   /** Full path of the folder in use. */
   path: string;
@@ -44,7 +44,7 @@ export async function getArchivesLocation(): Promise<ArchivesLocation> {
   return requestJson('/settings/archives');
 }
 
-/** Switches the ARCHIVES folder to `path` ("" = the default); nothing is moved. ApiError 400 for refused folders. */
+/** Switches the archives folder to `path` ("" = the default); nothing is moved. ApiError 400 for refused folders. */
 export async function setArchivesLocation(path: string, create = false): Promise<ArchivesLocationChange> {
   return postJson('/settings/archives', { path, create });
 }

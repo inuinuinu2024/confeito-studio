@@ -3,25 +3,28 @@
 ## 画面構成
 - アプリ名は「ConfeitO Studio」。上部バー左端・ブラウザのタブのタイトル・起動中画面・起動用ショートカット（`setup/ConfeitO Studio.lnk`）に出す。
   リポジトリ名・パッケージ名（`confeito-studio`）・環境変数（`CONFEITO_*`）などの識別子は小文字のまま。
-- CSS Grid（`.manga-grid`）で 4 列 × 3 行: 上段 = トップバー（全幅）、中段 = 表示モードボタン | ARCHIVES | キャンバス | AI パネル、下段 = ステータスバー（全幅）。
-- 左端の列（`features/tool-bar/ToolBar.ts`）は上から 4 つのグループ: Normal Mode / Batch Mode、Parallel View / Overlay View、
+- CSS Grid（`.manga-grid`）で 4 列 × 3 行: 上段 = トップバー（全幅）、中段 = 表示モードボタン | 左サイドバー | メイン領域 | AI パネル、下段 = ステータスバー（全幅）。
+  メイン領域は Workspace では処理フローのキャンバス（[flow-canvas.md](./flow-canvas.md)）、Parallel / Overlay では比較キャンバス（[canvas.md](./canvas.md)）。
+- 左端の列（`features/tool-bar/ToolBar.ts`）は上から 4 つのグループ: Workspace（account_tree のアイコン）、Parallel View / Overlay View、
   マネージャー（Prompt Manager: chat / Character Manager: person / Object Manager: eyeglasses / Style Manager: brush のアイコン）、
   モニター（Cost Monitor: browse_activity のアイコン）。
   グループの間には細い仕切り線（1px）を引く。
   Prompt Manager・Character Manager・Cost Monitor は表示モードの 1 つ（[prompt-manager.md](./prompt-manager.md)・[character-manager.md](./character-manager.md)・[cost-monitor.md](./cost-monitor.md)）。
   ほかのマネージャー（Object / Style）は未実装で、押すと「開発中」トースト（「「Object Manager」は現在開発中です」など）を出すだけ（表示モードは変わらない）。
-- 左サイドバーは ARCHIVES 専用（レイヤーツリーは廃止）。左右のサイドバーは端のドラッグで 150〜600px に変更できる。
+- 左サイドバーはマネージャー（Prompt Manager・Character Manager）のカテゴリー一覧だけが使い、ほかのモードでは幅 0。
+  左右のサイドバーは端のドラッグで 150〜600px に変更できる。
 - 右サイドバーは AI パネル。Parallel / Overlay モード中は右サイドバーを閉じてキャンバスを広げる
-  （ツールは実行しない。[canvas.md](./canvas.md)「チェック列」）。
+  （ツールは実行しない。[canvas.md](./canvas.md)「比較する画像」）。
 - スタイルは `variables.css` のデザイントークンで一元管理（ダークテーマ）。
 
 ## 上部バーとショートカット
 - 上部バーは左にアプリ名、右にアイコンだけ。メニュー（File / Edit / View / Help）はない（廃止）。
-  - 以前のメニューの機能の置き場所: Undo は ARCHIVES の削除ボタンの右のボタンと Ctrl+Z（[archives.md](./archives.md)「削除と Undo」）、
+  - 以前のメニューの機能の置き場所: Undo は Workspace のツールバーの削除ボタンの右のボタンと Ctrl+Z（[archives.md](./archives.md)「削除と Undo」）、
     キャンバスの背景色は設定ウィンドウ。画像の保存・閉じる機能と、前回保存した画像を起動時に開き直す機能は廃止
-    （Ctrl+S / Ctrl+Shift+S もアプリでは扱わない）。画像の取り込みは「画像読み込み」ツールとキャンバスへの D&D で行い、結果は ARCHIVES に残る。
+    （Ctrl+S / Ctrl+Shift+S もアプリでは扱わない）。画像の取り込みは「画像読み込み」ツールと Workspace への D&D で行い、結果はアーカイブに残る。
 - 右上のアイコン: 設定（下の「設定ウィンドウ」）、クラウド同期・アカウント（未実装、「開発中」トースト）。
 - ショートカット: Ctrl+Z（Undo。ウィンドウ・ダイアログを開いている間は効かない）、Ctrl+B（設定ウィンドウを「背景色指定」のページで開く）。
+  Workspace では Delete・Esc・Ctrl+A も使う（[flow-canvas.md](./flow-canvas.md)「選択」「削除」）。
 
 ## 設定ウィンドウ（`features/top-bar/components/SettingsWindow.ts`）
 - 右上の歯車で開く、アプリ内の大きなウィンドウ（760 × 520px。画面が小さい時は縮む）。左にページの一覧（ページ名だけ。アイコンは付けない）、右に選んだページの設定項目を出す。
@@ -33,8 +36,8 @@
   |---|---|---|
   | API | Gemini API Key（パスワード欄。説明「Gemini を使うツールで使います。」） | 「保存」ボタン（入力が空の間は押せない）か Enter で `.env` に書く。成功するとトースト「Gemini API Key を .env に保存しました」、欄を空に戻す。失敗はエラートースト「設定を保存できませんでした」。欄の下に状態「保存済み（.env）」「未設定」（取得できない時「状態を取得できませんでした」） |
   | 背景色指定 | キャンバスの背景色（[canvas.md](./canvas.md)） | 色を押した時点で反映し、ユーザー設定に書く |
-  | 保存先 | ARCHIVES のフォルダ（フルパスの入力欄＋「参照…」、「既定に戻す」「変更」。[archives.md](./archives.md)「保存先」） | 「変更」か Enter でその場で切り替え、ユーザー設定に書く |
-- 開くたびに状態を読み直す（API キーの有無・保存済みの背景色・ARCHIVES のフォルダ。API キーの入力欄は空にする）。
+  | 保存先 | アーカイブのフォルダ（フルパスの入力欄＋「参照…」、「既定に戻す」「変更」。[archives.md](./archives.md)「保存先」） | 「変更」か Enter でその場で切り替え、ユーザー設定に書く |
+- 開くたびに状態を読み直す（API キーの有無・保存済みの背景色・アーカイブのフォルダ。API キーの入力欄は空にする）。
 
 ### Gemini API キーの扱い（将来の Web 版を含む方針）
 - 将来 Web アプリにした時は **利用者が自分のキーを持ち込む方式（BYOK）** にする（運営者のキーで全員分を払う方式にはしない）。
@@ -52,7 +55,7 @@
     バックエンドのユーザー設定ファイル（`settings/user_settings.json`。下の「設定の保存」）に保存する。
   - HTTP キャッシュ: バックエンドの全応答と Vite 開発サーバーの全応答を `Cache-Control: no-store` にし、フロントの `fetch` も `cache: 'no-store'` で呼ぶ。
 - 以前のバージョンがブラウザに残したデータ（localStorage の `toolOrder` 等、IndexedDB の `ConfeitoStudioDB`）は消さない（読まないだけ）。
-- メモリ上の一時データ（ARCHIVES の中身一覧、ツール設定）はページを閉じれば消える。
+- メモリ上の一時データ（アーカイブの処理フロー、Workspace のサムネイル、ツール設定）はページを閉じれば消える。
 - Chrome 自体のキャッシュ（JS のコードキャッシュ等）は対象外。本番ビルド（`vite build` / `preview`）は日常起動で使わないので対象外。
 
 ## 設定の保存（`shared/state/tool-settings.ts`、`backend/src/app/services/settings_service.py`）
@@ -71,7 +74,7 @@ Gemini の利用記録は `data/usage.db`（SQLite・git 管理外。[cost-monit
   - ツールの設定（プロンプト・モデル・パラメータなど）: 画面で変えた値はメモリ上だけで持ち、**ツールの実行を始めた時**にそのツールの変えた項目だけを書く。
     生成がエラーやブロックで失敗しても、実行を始めていれば保存される。
     実行せずにウィンドウを閉じた変更は、次にツールを開いた時（読み直し）に消え、保存済みの値に戻る。
-  - TOOLS の並び順（`aiPanel_toolOrder`）・キャンバスの背景色（`canvas_bgColor`）: 明示的な操作なので、その場で書く。
+  - TOOLS の並び順（`aiPanel_toolOrder`）・キャンバスの背景色（`canvas_bgColor`）・Workspace で表示したアーカイブ（`flowCanvas_archive`）・左右のペインの開閉と幅（`flowCanvas_leftOpen` など）: 明示的な操作なので、その場で書く。
   - 登録したプロンプト・キャラクターの変更: その場で `assets/prompts/prompts.json`・`assets/characters/` に書く（ツール設定とは別）。
 - 書く時は変えた項目だけを送り、バックエンドがユーザー設定に重ねて保存する（ほかの項目・ほかのタブの保存は消えない）。
   ファイルは一時ファイルに書いてから置き換える（途中で失敗しても元のファイルが壊れない）。

@@ -1,6 +1,7 @@
 /**
  * 画像読み込み — imports an image file as a new archive "<YYYYMMDD_HHMMSS>_<name>" (a "_2" ...
- * suffix when taken) containing only the file, then selects it.
+ * suffix when taken) containing only the file; the canvas then shows that archive with the image selected.
+ * It needs no selection (runs once).
  * The file is chosen in the OS file dialog, which the backend opens in the folder set in the tool
  * window (the browser's picker cannot start in a given folder). Canvas drag & drop runs the same
  * import (`importImageTool`). Spec: docs/specs/tools/image-loader.md
@@ -36,13 +37,13 @@ async function importImageFile(file: File, signal: AbortSignal): Promise<string>
   });
   await discardIfStopped(signal, archive);
 
-  emit('archives:changed', { autoSelectKey: `${archive}/${file.name}` });
+  emit('archives:changed', { select: [`${archive}/${file.name}`] });
   return `「${archive}」を作成し、${file.name} を読み込みました`;
 }
 
 /** The 画像読み込み tool for a file that is already chosen (canvas drag & drop). */
-export function importImageTool(file: File): Pick<Tool, 'name' | 'execute'> {
-  return { name: NAME, execute: context => importImageFile(file, context.signal) };
+export function importImageTool(file: File): Pick<Tool, 'name' | 'execute' | 'targets'> {
+  return { name: NAME, targets: () => [null], execute: context => importImageFile(file, context.signal) };
 }
 
 export class ImageLoaderTool implements Tool {
@@ -50,6 +51,7 @@ export class ImageLoaderTool implements Tool {
   name = NAME;
   icon = '';
   executeIcon = 'folder_open';
+  targets = () => [null];
 
   settingsPrefix = 'imageLoader';
   private settings = toolSettings(this.settingsPrefix);

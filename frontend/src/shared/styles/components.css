@@ -387,18 +387,57 @@
   color: var(--color-on-surface);
 }
 
-.cs-image-viewer__body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
+.cs-image-viewer__subtitle {
+  flex-shrink: 0;
+  margin-right: 8px;
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
 }
 
-/* Fitted to the window (small images are enlarged too), keeping the aspect ratio. */
+.cs-image-viewer__tool {
+  display: flex;
+  padding: 4px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+}
+
+.cs-image-viewer__tool:hover {
+  background-color: var(--color-surface-container-highest);
+  color: var(--color-on-surface);
+}
+
+.cs-image-viewer__zoom {
+  min-width: 44px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--color-on-surface);
+  user-select: none;
+}
+
+/* The stage: the image is placed and scaled with a transform (shared/ui/image-viewer.ts). */
+.cs-image-viewer__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  background-color: var(--color-surface-container-lowest);
+}
+
+.cs-image-viewer__body--dragging {
+  cursor: grabbing;
+}
+
 .cs-image-viewer__img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  transform-origin: 0 0;
+  user-select: none;
+  image-rendering: auto;
 }

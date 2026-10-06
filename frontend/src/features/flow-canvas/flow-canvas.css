@@ -1,0 +1,691 @@
+/* ── Flow canvas (FlowCanvas.ts): the Normal mode main area ──
+   Viewport (fixed) > world (moved / scaled by pan-zoom.ts) > edges (SVG) + steps (absolutely placed by
+   flow-layout.ts). The step geometry comes from LAYOUT through --flow-* properties set on .flow-canvas. */
+.flow-canvas {
+  display: flex;
+  --flow-accent: #5b8def;
+  --flow-merge: #5ccf8a;
+  --flow-step-bg: var(--color-surface-container);
+  --flow-step-line: #3a3a3f;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--color-surface-container-lowest);
+  background-image: radial-gradient(circle, #2a2a2e 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* The flow between the side panes (the viewport fills it) */
+.flow-center {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ── Side panes: 元ページ (left) / コマ結合後 (right) (side-pane.ts) ── */
+.flow-pane {
+  position: relative;
+  z-index: 6;
+  display: flex;
+  flex-shrink: 0;
+  width: var(--flow-pane-width);
+  background-color: var(--color-surface-container-low);
+}
+
+.flow-pane--left {
+  --flow-pane-width: var(--flow-left-width, 320px);
+  border-right: 1px solid var(--color-outline-variant);
+}
+
+.flow-pane--right {
+  --flow-pane-width: var(--flow-right-width, 320px);
+  border-left: 1px solid var(--color-outline-variant);
+}
+
+.flow-pane--collapsed {
+  width: 0;
+}
+
+.flow-pane__content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.flow-pane--collapsed .flow-pane__content,
+.flow-pane--collapsed .flow-pane__resizer {
+  display: none;
+}
+
+/* ◀ / ▶ in a circle on the boundary with the flow: collapses / opens the pane */
+.flow-pane__edge {
+  position: absolute;
+  top: 50%;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  /* The same line and fill as the pane boundary it sits on */
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 50%;
+  background-color: var(--color-surface-container-low);
+  color: var(--color-outline);
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.flow-pane__edge:hover {
+  background-color: var(--color-surface-container);
+  color: var(--color-on-surface-variant);
+}
+
+.flow-pane--left .flow-pane__edge {
+  right: -13px;
+}
+
+.flow-pane--right .flow-pane__edge {
+  left: -13px;
+}
+
+/* Collapsed: the button sits just inside the flow (the pane has no width) */
+.flow-pane--left.flow-pane--collapsed .flow-pane__edge {
+  right: -28px;
+}
+
+.flow-pane--right.flow-pane--collapsed .flow-pane__edge {
+  left: -28px;
+}
+
+.flow-pane__head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--color-outline-variant);
+  font-size: 12px;
+}
+
+.flow-pane__title {
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+.flow-pane__size {
+  flex: 1;
+  font-size: 11px;
+  color: var(--color-on-surface-variant);
+}
+
+.flow-pane__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+}
+
+.flow-pane__main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  cursor: zoom-in;
+}
+
+.flow-pane__img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background-color: #ffffff;
+  background-image: conic-gradient(#d9d9d9 25%, transparent 0 50%, #d9d9d9 0 75%, transparent 0);
+  background-size: 12px 12px;
+  user-select: none;
+}
+
+.flow-pane__empty {
+  align-self: center;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-on-surface-variant);
+}
+
+/* Other merges, small below the large one */
+.flow-pane__list {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 12px;
+}
+
+.flow-pane__list:empty {
+  display: none;
+}
+
+.flow-pane__thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  padding: 2px;
+  border-radius: 4px;
+  background-color: var(--color-surface-container);
+  box-shadow: 0 0 0 1px var(--color-outline-variant);
+}
+
+.flow-pane__thumb--shown {
+  box-shadow: 0 0 0 2px var(--flow-accent);
+}
+
+.flow-pane__thumb-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.flow-pane__resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.flow-pane--left .flow-pane__resizer {
+  right: -3px;
+}
+
+.flow-pane--right .flow-pane__resizer {
+  left: -3px;
+}
+
+/* The 「コマ分割」 button right of a page that is not split yet */
+.flow-step--action {
+  padding: 0;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+.flow-action__btn {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px dashed var(--flow-accent);
+  border-radius: 10px;
+  background-color: var(--flow-step-bg);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+  cursor: pointer;
+}
+
+.flow-action__btn:hover {
+  border-style: solid;
+  background-color: rgba(91, 141, 239, 0.16);
+}
+
+.flow-viewport {
+  position: absolute;
+  inset: 0;
+  /* clip, not hidden: the browser must never scroll it (scrollIntoView), the view is the transform only */
+  overflow: clip;
+  touch-action: none;
+}
+
+.flow-viewport--panning {
+  cursor: grabbing;
+}
+
+.flow-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.flow-edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.flow-edge__arrow {
+  fill: var(--flow-accent);
+}
+
+.flow-edge {
+  fill: none;
+  stroke: var(--flow-accent);
+  stroke-width: 1.5;
+  opacity: 0.8;
+}
+
+/* Shift + drag on the background: rectangle selection */
+.flow-band {
+  position: absolute;
+  z-index: 15;
+  display: none;
+  border: 1px dashed var(--flow-accent);
+  background-color: rgba(91, 141, 239, 0.12);
+  pointer-events: none;
+}
+
+/* ── Toolbar (top left) ── */
+.flow-toolbar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 4px 8px;
+  color: var(--color-on-surface-variant);
+  background: var(--color-surface-container);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.flow-toolbar__archive {
+  min-width: 160px;
+  max-width: 360px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.flow-toolbar__button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  color: var(--color-on-surface);
+}
+
+.flow-toolbar__button:hover:not(:disabled) {
+  background: var(--color-surface-container-highest);
+}
+
+.flow-toolbar__button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.flow-toolbar__selection {
+  padding: 0 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.flow-toolbar__selection:empty {
+  display: none;
+}
+
+/* ── Rows: one per panel (page / result without input), a label on the left and a line below ── */
+.flow-row {
+  position: absolute;
+  left: 0;
+  border-bottom: 1px solid var(--color-outline-variant);
+}
+
+.flow-row--first {
+  border-top: 1px solid var(--color-outline-variant);
+}
+
+.flow-row__label {
+  position: absolute;
+  top: calc(var(--flow-row-gap) / 2);
+  left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  width: calc(var(--flow-gutter) - 12px);
+  padding: 8px 4px 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+  cursor: pointer;
+}
+
+.flow-row__label .flow-step__size {
+  width: 100%;
+  order: 1;
+}
+
+/* ── Steps: no box; the heading is a small label above the images ── */
+.flow-step {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--flow-cell-gap);
+  padding: 0 var(--flow-pad) var(--flow-pad);
+}
+
+/* The step that starts a row keeps the heading's height empty (its heading is the row label) */
+.flow-step--rowhead {
+  padding-top: calc(var(--flow-head) + var(--flow-pad));
+}
+
+.flow-step__head {
+  box-sizing: border-box;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  height: var(--flow-head);
+  padding: 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+}
+
+.flow-step__head:hover {
+  color: var(--color-on-surface);
+}
+
+.flow-step__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-step__size {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--color-on-surface-variant);
+}
+
+.flow-step__variants {
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-container-highest);
+}
+
+.flow-step__variant-btn,
+.flow-step__menu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  color: var(--color-on-surface-variant);
+}
+
+.flow-step__variant-btn:hover,
+.flow-step__menu:hover {
+  background-color: var(--color-surface-bright);
+  color: var(--color-on-surface);
+}
+
+.flow-step__variant-label {
+  min-width: 28px;
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+  color: var(--color-on-surface);
+}
+
+/* ── Cells: one below the other, or side by side for the candidates of re-runs ── */
+.flow-step__cells {
+  display: flex;
+  flex-direction: column;
+  gap: var(--flow-cell-gap);
+}
+
+.flow-step--across .flow-step__cells {
+  flex-direction: row;
+}
+
+.flow-cell {
+  width: var(--flow-cell-w);
+  /* No box: only the image, outlined on hover / when selected */
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 4px;
+  height: var(--flow-cell-h);
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.flow-cell:hover {
+  box-shadow: 0 0 0 1px var(--color-outline);
+}
+
+.flow-cell--selected,
+.flow-cell--selected:hover {
+  background-color: rgba(91, 141, 239, 0.14);
+  box-shadow: 0 0 0 2px var(--flow-accent);
+}
+
+.flow-cell__thumb {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 4px;
+  /* Transparent parts show a checkerboard */
+  background-color: #ffffff;
+  background-image: conic-gradient(#d9d9d9 25%, transparent 0 50%, #d9d9d9 0 75%, transparent 0);
+  background-size: 12px 12px;
+  cursor: zoom-in;
+}
+
+.flow-cell__img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+
+.flow-cell--broken .flow-cell__thumb::after {
+  content: 'プレビューを表示できません';
+  font-size: 11px;
+  color: #555555;
+}
+
+.flow-cell__badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: none;
+  padding: 3px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-container-highest);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.flow-cell--failed {
+  box-shadow: 0 0 0 2px var(--color-error);
+}
+
+.flow-cell--failed .flow-cell__badge--failed {
+  display: flex;
+  color: var(--color-error);
+}
+
+.flow-cell--running .flow-cell__badge--running {
+  display: flex;
+  color: var(--flow-accent);
+}
+
+.flow-cell--running .flow-cell__badge--running .material-symbols-outlined {
+  animation: spin 0.9s linear infinite;
+}
+
+.flow-cell--running .flow-cell__thumb {
+  opacity: 0.6;
+}
+
+/* Generated image in a 原画's box: "生成 2  ← 生成 1" above the image (the image gets a little smaller) */
+.flow-cell__origin {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background-color: rgba(91, 141, 239, 0.16);
+  font-size: 11px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.flow-cell__origin-name {
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+.flow-cell__origin-from {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-on-surface-variant);
+}
+
+.flow-cell--labeled .flow-cell__adopt,
+.flow-cell--labeled .flow-cell__badge {
+  top: 34px;
+}
+
+/* 「結合」 at the right end of a generated image's label: gray, green when marked for コマ結合 */
+.flow-cell__merge {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+  margin-left: auto;
+  padding: 0 6px 0 4px;
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+}
+
+.flow-cell__merge:hover {
+  border-color: var(--color-on-surface-variant);
+  color: var(--color-on-surface);
+}
+
+.flow-cell__merge--marked,
+.flow-cell__merge--marked:hover {
+  border-color: var(--flow-merge);
+  background-color: var(--flow-merge);
+  color: #0e0e10;
+  font-weight: 600;
+}
+
+/* ★ of a candidate: the adopted one (its downstream flow is drawn) is filled and outlined */
+.flow-cell__adopt {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  padding: 3px;
+  border-radius: var(--radius-full);
+  background-color: rgba(19, 19, 21, 0.75);
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+}
+
+.flow-cell__adopt:hover {
+  color: var(--color-warning);
+}
+
+.flow-cell--adopted,
+.flow-cell--adopted:hover {
+  box-shadow: 0 0 0 2px var(--color-warning);
+}
+
+.flow-cell--adopted.flow-cell--selected {
+  box-shadow: 0 0 0 2px var(--flow-accent);
+}
+
+.flow-cell--adopted .flow-cell__adopt {
+  color: var(--color-warning);
+  cursor: default;
+}
+
+.flow-cell--adopted .flow-cell__adopt .material-symbols-outlined {
+  font-variation-settings: 'FILL' 1;
+}
+
+/* ── Step menu (⋯) ── */
+.flow-menu {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: 4px;
+  transform: translateX(-100%);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-container-high);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.flow-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  text-align: left;
+  color: var(--color-on-surface);
+}
+
+.flow-menu__item:hover:not(:disabled) {
+  background-color: var(--color-surface-container-highest);
+}
+
+.flow-menu__item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.is-spinning {
+  animation: spin 0.7s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}

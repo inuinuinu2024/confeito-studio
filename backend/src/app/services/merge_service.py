@@ -2,6 +2,8 @@
 
 Reads ``panels.json`` written by panel_service and saves ``<YYYYMMDD_HHMMSS>_コマ結合.png`` + info.json
 in ``<root of the target>/<YYYYMMDD_HHMMSS>_コマ結合/`` (``archive_service.save_result``).
+A panel can be replaced by another image (e.g. its colored version, docs/specs/tools/panel-split-merge.md):
+``overrides`` maps the panel's file name to an archive key, and that image is resized to the panel's size.
 """
 
 import io
@@ -12,7 +14,7 @@ from typing import Any
 from PIL import Image
 
 from ..errors import BadRequestError, exception_text
-from .archive_service import ArchiveServiceError, extract_file, normalize_rel_path, save_result
+from .archive_service import ArchiveServiceError, extract_file, normalize_rel_path, save_result, split_archive_path
 
 TOOL_NAME = "コマ結合"
 
@@ -37,7 +39,35 @@ def _load_panels_json(root: str, folder_path: str, label: str) -> dict[str, Any]
         ) from e
 
 
-def _compose(root: str, folder_path: str, panels_data: dict[str, Any]) -> bytes:
+def parse_overrides(text: str | None) -> dict[str, str]:
+    """The ``overrides`` form field of /merge-panels (JSON object: panel file name -> archive key)."""
+    if not text:
+        return {}
+    try:
+        data = json.loads(text)
+    except ValueError as e:
+        raise MergeServiceError("差し替えるコマの指定を JSON として読めません。", raw_response=exception_text(e)) from e
+    if not isinstance(data, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in data.items()):
+        raise MergeServiceError("差し替えるコマの指定が正しくありません。", raw_response=text)
+    return data
+
+
+def _open_image(archive: str, path: str, label: str) -> Image.Image:
+    try:
+        img_bytes, _ = extract_file(archive, path)
+        return Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+    except ArchiveServiceError as e:
+        raise MergeServiceError(
+            f"コマ画像 ({label}) がフォルダ内に見つかりません。ファイルが削除または移動された可能性があります。"
+        ) from e
+    except Exception as e:
+        raise MergeServiceError(f"コマ画像 ({label}) を読み込めませんでした。", raw_response=exception_text(e)) from e
+
+
+def _compose(
+    root: str, folder_path: str, panels_data: dict[str, Any], overrides: dict[str, str]
+) -> tuple[bytes, list[str]]:
+    """The merged PNG and the key of every image pasted (in panel order)."""
     width = panels_data.get("image_size", {}).get("width")
     height = panels_data.get("image_size", {}).get("height")
     panels = panels_data.get("panels", [])
@@ -47,21 +77,22 @@ def _compose(root: str, folder_path: str, panels_data: dict[str, Any]) -> bytes:
         raise MergeServiceError("panels.json にコマ情報が含まれていません。")
 
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    used: list[str] = []
     for panel in panels:
         filename = panel.get("filename")
         if not filename:
             continue
-        try:
-            img_bytes, _ = extract_file(root, f"{folder_path}/{filename}" if folder_path else filename)
-            panel_img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
-        except ArchiveServiceError as e:
-            raise MergeServiceError(
-                f"コマ画像 ({filename}) がフォルダ内に見つかりません。ファイルが削除または移動された可能性があります。"
-            ) from e
-        except Exception as e:
-            raise MergeServiceError(
-                f"コマ画像 ({filename}) を読み込めませんでした。", raw_response=exception_text(e)
-            ) from e
+        panel_path = f"{folder_path}/{filename}" if folder_path else filename
+        panel_img = _open_image(root, panel_path, filename)
+        used_key = f"{root}/{panel_path}"
+        if filename in overrides:
+            used_key = normalize_rel_path(overrides[filename])
+            archive, path = split_archive_path(used_key)
+            replacement = _open_image(archive, path, used_key)
+            if replacement.size != panel_img.size:
+                replacement = replacement.resize(panel_img.size, Image.Resampling.LANCZOS)
+            panel_img = replacement
+        used.append(used_key)
 
         x, y = 0, 0
         if "pixel_box" in panel:
@@ -72,26 +103,31 @@ def _compose(root: str, folder_path: str, panels_data: dict[str, Any]) -> bytes:
 
     buf = io.BytesIO()
     canvas.save(buf, format="PNG")
-    return buf.getvalue()
+    return buf.getvalue(), used
 
 
-def merge_panels(target_folder: str) -> dict[str, Any]:
+def merge_panels(target_folder: str, overrides: dict[str, str] | None = None) -> dict[str, Any]:
     target = normalize_rel_path(target_folder)
     if not target:
         raise MergeServiceError(
-            "対象フォルダが指定されていません。ARCHIVESリストから対象のフォルダを選択してください。"
+            "対象のコマ分割が指定されていません。キャンバスでコマ分割の結果（コマ）を選択してください。"
         )
 
     parts = target.split("/")
     root, folder_path = parts[0], "/".join(parts[1:])
     panels_data = _load_panels_json(root, folder_path, target)
-    merged = _compose(root, folder_path, panels_data)
+    overrides = overrides or {}
+    merged, used = _compose(root, folder_path, panels_data, overrides)
 
     now = datetime.now()
     name = f"{now:%Y%m%d_%H%M%S}_{TOOL_NAME}"
     out_filename = f"{name}.png"
     folder = save_result(
-        root, name, [(out_filename, merged)], {"tool": TOOL_NAME, "source": target, "settings": {}}, now
+        root,
+        name,
+        [(out_filename, merged)],
+        {"tool": TOOL_NAME, "source": target, "sources": used, "settings": {"panels": overrides} if overrides else {}},
+        now,
     )
 
     return {

@@ -4,9 +4,25 @@
  * How a run is reported to the user: docs/specs/notifications.md.
  */
 
-/** What a tool can read from the app when it runs. */
+import type { FlowImage } from './flow';
+
+/**
+ * What one run of a tool processes: usually an image selected on the canvas; コマ結合 uses a コマ分割
+ * result folder. Tools that need no input run once with `null`.
+ */
+export interface RunTarget {
+  /** Archive key of the image (or folder). */
+  key: string;
+  name: string;
+  width?: number | null;
+  height?: number | null;
+}
+
+/** What a tool can read from the app when it runs (once per target, docs/specs/ai-panel.md 「まとめて実行」). */
 export interface ToolContext {
-  /** Copy of the image currently shown on the canvas (selected in ARCHIVES), or null. */
+  /** What this run processes (null for a tool without input). Record its key as the result's source. */
+  target: RunTarget | null;
+  /** The target image loaded into a canvas, or null (no target, or it cannot be loaded). */
   getSelectedImage(): Promise<HTMLCanvasElement | null>;
   /**
    * Call once the inputs are checked (after the last `ToolNotReady`): the tool window closes here and
@@ -46,6 +62,12 @@ export interface Tool {
   settingsPrefix?: string;
   /** Icon of the tool window's run button, which is always labelled 「実行」 (default "auto_awesome"; null = no icon). */
   executeIcon?: string | null;
+  /**
+   * What to run on, one run each, in order (features/ai-panel/run-targets.ts). Default: every selected image,
+   * and nothing to run (a warning) without a selection. Return `[null]` to run once without input, or throw
+   * `ToolNotReady` with how to choose the input.
+   */
+  targets?: (selection: readonly FlowImage[]) => (RunTarget | null)[];
   /**
    * Runs the tool and resolves with a short Japanese summary of the result
    * (shown as "<name>: <summary>"). Throw `ToolNotReady` when an input is missing (then call `context.ready()`),

@@ -1,6 +1,7 @@
 /**
  * コマ分割 — detects manga panels with Gemini and saves each as 01.png, 02.png, ... plus
- * panels.json and info.json in "<selected archive>/<stamp>_コマ分割/" (backend: services/panel_service.py).
+ * panels.json and info.json in "<archive>/<stamp>_コマ分割/" (backend: services/panel_service.py),
+ * once per selected image.
  * Spec: docs/specs/tools/panel-split-merge.md
  */
 import { type PanelSplitOptions, previewSplitPanels, splitPanels } from '../../shared/api/image';
@@ -12,8 +13,9 @@ import { button, field, select, slider } from '../../shared/ui/form';
 import { showError } from '../../shared/ui/toast';
 import { AppMessageError } from '../../shared/utils/error-message';
 import { canvasToBlob } from '../../shared/utils/image';
+import { SELECT_IMAGE } from '../ai-panel/run-targets';
 import { DocumentManager } from '../document/DocumentManager';
-import { discardIfStopped, selectedArchive } from './result';
+import { currentArchive, discardIfStopped } from './result';
 import { imageTargetCard } from './target-card';
 
 const MODELS = [
@@ -80,9 +82,8 @@ export class PanelSplitterTool implements Tool {
 
   private async preview(): Promise<void> {
     const opts = this.options();
-    const docManager = DocumentManager.getInstance();
-    const canvas = docManager.getCurrentCanvas();
-    const archive = selectedArchive();
+    const first = DocumentManager.getInstance().getSelection()[0];
+    const archive = currentArchive();
     const folder = archive ? `${archive}/YYYYMMDD_HHMMSS_コマ分割` : 'YYYYMMDD_HHMMSS_コマ分割';
     let request;
     try {
@@ -95,7 +96,7 @@ export class PanelSplitterTool implements Tool {
       ...request,
       output_format: {
         save_destination: archive
-          ? `${folder}/ (選択中アーカイブの中。同名があれば _2, _3 … を付ける)`
+          ? `${folder}/ (表示中のアーカイブの中。同名があれば _2, _3 … を付ける)`
           : `${folder}/ (新しいアーカイブ。同名があれば _2, _3 … を付ける)`,
         generated_files: [
           `${folder}/01.png, 02.png, ... (切り分けた各コマの PNG)`,
@@ -105,8 +106,8 @@ export class PanelSplitterTool implements Tool {
         panels_json_sample: {
           version: '1.0',
           created_at: new Date().toISOString().replace('T', ' ').substring(0, 19),
-          original_filename: docManager.getCurrentFilename() || 'image.png',
-          image_size: { width: canvas ? canvas.width : 1200, height: canvas ? canvas.height : 1800 },
+          original_filename: first?.name || 'image.png',
+          image_size: { width: first?.width ?? 1200, height: first?.height ?? 1800 },
           reading_order: opts.readingOrder,
           model: opts.model,
           thinking_level: opts.thinkingLevel,
@@ -129,24 +130,23 @@ export class PanelSplitterTool implements Tool {
   }
 
   async execute(context: ToolContext): Promise<string> {
-    const docManager = DocumentManager.getInstance();
     const canvas = await context.getSelectedImage();
-    if (!canvas) throw new ToolNotReady('ARCHIVES で対象の画像を選択してください。');
+    if (!canvas) throw new ToolNotReady(SELECT_IMAGE);
     context.ready();
     const image = await canvasToBlob(canvas, 'image/png');
     if (!image) throw new AppMessageError('画像を PNG に変換できませんでした。');
 
     const result = await splitPanels(
       image,
-      docManager.getCurrentFilename() || 'image.png',
-      selectedArchive(),
-      docManager.getCurrentKey(),
+      context.target?.name || 'image.png',
+      currentArchive(),
+      context.target?.key ?? null,
       this.options(),
     );
     // The backend saves the panels itself, so a stopped run removes them afterwards.
     await discardIfStopped(context.signal, result.folder);
 
-    emit('archives:changed', { autoSelectKey: result.auto_select_key });
+    emit('archives:changed', { select: result.panels.map(p => `${result.folder}/${p.filename}`) });
     return `${result.panels_count} コマに分割し、「${result.folder}」に保存しました`;
   }
 }

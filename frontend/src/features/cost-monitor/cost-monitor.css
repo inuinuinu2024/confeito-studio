@@ -1,5 +1,5 @@
 /* ── Cost Monitor (CostMonitor.ts): shown only in the cost view mode (.manga-grid--cost, app.ts),
-   in the ARCHIVES and canvas cells. ── */
+   in the sidebar and main cells. ── */
 .cost-monitor {
   display: none;
   grid-column: 2 / 4;

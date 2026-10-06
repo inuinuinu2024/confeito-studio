@@ -4,18 +4,20 @@
  * sending, and cutting it back out of the generated image at the original's size.
  * The geometry is in original.ts.
  */
-import { DocumentManager } from '../../document/DocumentManager';
+import { fetchArchiveKey } from '../../../shared/api/archives';
+import type { RunTarget } from '../../../shared/types/tool';
 import { h, icon } from '../../../shared/ui/dom';
 import { button, helpIcon } from '../../../shared/ui/form';
 import { showToast } from '../../../shared/ui/toast';
 import { canvasToBlob, loadImage } from '../../../shared/utils/image';
+import { DocumentManager } from '../../document/DocumentManager';
 import { type OriginalLayout, type Rect, restoreCrop } from './original';
 
 export interface OriginalImage {
   file: File;
   width: number;
   height: number;
-  /** ARCHIVES key when it was taken from the canvas; null for a file added from outside. */
+  /** Archive key when it was taken from the canvas selection; null for a file added from outside. */
   key: string | null;
 }
 
@@ -47,25 +49,28 @@ async function fromFile(file: File, key: string | null = null): Promise<Original
   }
 }
 
-/** The current image (the one tools process) as an original; null when there is none. */
-export async function originalFromCanvas(): Promise<OriginalImage | null> {
-  const docManager = DocumentManager.getInstance();
-  const canvas = docManager.getCurrentCanvas();
-  const blob = canvas ? await canvasToBlob(canvas) : null;
-  if (!canvas || !blob) return null;
-  const file = new File([blob], docManager.getCurrentFilename() || 'canvas.png', { type: 'image/png' });
-  return { file, width: canvas.width, height: canvas.height, key: docManager.getCurrentKey() };
+/** An archive image (a run target, or an image selected on the canvas) as an original; null when it cannot be read. */
+export async function originalFromImage(image: RunTarget): Promise<OriginalImage | null> {
+  const blob = await fetchArchiveKey(image.key);
+  if (!blob) return null;
+  return fromFile(new File([blob], image.name, { type: blob.type || 'image/png' }), image.key);
 }
 
-/** 「表示中の画像を原画にする」: like originalFromCanvas, with a warning toast when nothing is shown. */
-async function fromCanvas(): Promise<OriginalImage | null> {
-  const original = await originalFromCanvas();
-  if (!original) showToast('キャンバスに画像が表示されていません。ARCHIVES で画像を選択してください。', 'warning');
+/** The first image selected on the canvas as an original; null when nothing is selected. */
+export async function originalFromSelection(): Promise<OriginalImage | null> {
+  const first = DocumentManager.getInstance().getSelection()[0];
+  return first ? originalFromImage(first) : null;
+}
+
+/** 「選択中の画像を原画にする」: like originalFromSelection, with a warning toast when nothing is selected. */
+async function fromSelection(): Promise<OriginalImage | null> {
+  const original = await originalFromSelection();
+  if (!original) showToast('キャンバスで原画にする画像を選択してください。', 'warning');
   return original;
 }
 
 /**
- * The 原画 section: an add area (click / drag & drop) and "表示中の画像を原画にする" while unset,
+ * The 原画 section: an add area (click / drag & drop) and "選択中の画像を原画にする" while unset,
  * a card with the image, its size and `details` (how it is sent) once set.
  */
 export function createOriginalSection(
@@ -143,7 +148,7 @@ export function createOriginalSection(
     header,
     addArea,
     fileInput,
-    button('表示中の画像を原画にする', () => void fromCanvas().then(set), { block: true, size: 'small' }),
+    button('選択中の画像を原画にする', () => void fromSelection().then(set), { block: true, size: 'small' }),
   );
 }
 
