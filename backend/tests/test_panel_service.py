@@ -1,11 +1,14 @@
+import io
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
+from PIL import Image
 
 from src.app.providers import gemini
 from src.app.services import panel_service
+from src.app.services.archive_service import save_archive
 
 from .conftest import make_png
 
@@ -110,6 +113,25 @@ def test_split_without_target_creates_new_archive(fake: FakeGemini, archives_dir
     assert json.loads((archives_dir / root / "info.json").read_text(encoding="utf-8"))["source"] is None
 
 
+def test_panels_are_numbered_by_hand_written_markers(fake: FakeGemini, archives_dir: Path) -> None:
+    fake.responses.append(
+        gemini_reply(
+            [
+                {"panel_number": 1, "box_2d": [0, 0, 500, 1000], "marker_number": 2},
+                {"panel_number": 2, "box_2d": [0, 0, 1000, 1000], "marker_number": None},
+                {"panel_number": 3, "box_2d": [500, 0, 1000, 1000], "marker_number": 1},
+            ]
+        )
+    )
+
+    result = panel_service.split_panels(make_png(100, 100))
+
+    meta = json.loads((archives_dir / result["folder"] / "panels.json").read_text(encoding="utf-8"))
+    assert [p["pixel_box"] for p in meta["panels"]] == [[0, 50, 100, 100], [0, 0, 100, 100], [0, 0, 100, 50]]
+    assert [p["filename"] for p in meta["panels"]] == ["01.png", "02.png", "03.png"]
+    assert all("marker_number" not in p for p in meta["panels"])
+
+
 def test_retries_without_thinking_config_when_model_rejects_it(fake: FakeGemini) -> None:
     fake.responses.extend(
         [
@@ -150,3 +172,72 @@ def test_preview_matches_request_shape() -> None:
     body = preview["request_body"]
     assert body["contents"][0]["parts"][1]["inline_data"]["data"] == "<BASE64_IMAGE_DATA>"
     assert body["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "MEDIUM"}
+
+
+def _split_fixture(info_source: str | None = "page/page.png") -> None:
+    """A 200x100 page (left half red, right half blue) and a コマ分割 result of it with two panels."""
+    page = Image.new("RGBA", (200, 100), (255, 0, 0, 255))
+    page.paste((0, 0, 255, 255), (100, 0, 200, 100))
+    buf = io.BytesIO()
+    page.save(buf, format="PNG")
+    panels = {
+        "image_size": {"width": 200, "height": 100},
+        "panels": [
+            {"filename": "01.png", "pixel_box": [0, 0, 100, 100]},
+            {"filename": "02.png", "pixel_box": [100, 0, 200, 100]},
+        ],
+    }
+    info = {"tool": "コマ分割", "source": info_source, "settings": {}, "outputs": ["01.png", "02.png"]}
+    save_archive(
+        "page",
+        [
+            ("page.png", buf.getvalue()),
+            ("split/01.png", make_png(100, 100)),
+            ("split/02.png", make_png(100, 100, (0, 0, 255, 255))),
+            ("split/panels.json", json.dumps(panels).encode()),
+            ("split/info.json", json.dumps(info).encode()),
+        ],
+    )
+
+
+def test_recrop_panel_cuts_the_page_again_as_a_version_of_the_panel(archives_dir: Path) -> None:
+    _split_fixture()
+
+    result = panel_service.recrop_panel("page/split/01.png", [50.2, 10, 150, 90])
+
+    folder = result["folder"]
+    assert folder.startswith("page/") and folder.endswith("_コマ切り直し")
+    assert result["key"] == f"{folder}/01.png"
+    assert result["pixel_box"] == [50, 10, 150, 90]
+    assert (result["width"], result["height"]) == (100, 80)
+    cut = Image.open(archives_dir / result["key"])
+    assert cut.size == (100, 80)
+    assert cut.getpixel((10, 10)) == (255, 0, 0, 255)  # from the red half of the page
+    assert cut.getpixel((90, 10)) == (0, 0, 255, 255)  # from the blue half
+    info = json.loads((archives_dir / folder / "info.json").read_text(encoding="utf-8"))
+    assert info["tool"] == "コマ切り直し" and info["source"] == "page/split/01.png"
+    assert info["settings"] == {"split": "page/split", "panel": "01.png", "pixel_box": [50, 10, 150, 90]}
+    assert info["outputs"] == ["01.png"]
+
+
+@pytest.mark.parametrize(
+    ("panel", "box", "source", "message"),
+    [
+        ("", [0, 0, 10, 10], "page/page.png", "切り出し直すコマが指定されていません"),
+        ("page/page.png", [0, 0, 10, 10], "page/page.png", "コマ分割の結果のコマではありません"),
+        ("page/split/03.png", [0, 0, 10, 10], "page/page.png", "panels.json に「03.png」がありません"),
+        ("page/split/01.png", [0, 0, 10, 10], None, "分割前のページが記録されていない"),
+        ("page/split/01.png", [0, 0, 10, 10], "page/gone.png", r"分割前のページ（page/gone.png）が見つかりません"),
+        ("page/split/01.png", [300, 0, 400, 10], "page/page.png", "ページの外か、大きさが 0"),
+    ],
+)
+def test_recrop_panel_errors(panel: str, box: list[float], source: str | None, message: str) -> None:
+    _split_fixture(source)
+    with pytest.raises(panel_service.PanelServiceError, match=message):
+        panel_service.recrop_panel(panel, box)
+
+
+@pytest.mark.parametrize("text", [None, "{", "[1, 2, 3]", '{"a": 1}'])
+def test_parse_box_rejects_bad_input(text: str | None) -> None:
+    with pytest.raises(panel_service.PanelServiceError):
+        panel_service.parse_box(text)

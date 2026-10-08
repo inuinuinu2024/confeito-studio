@@ -74,13 +74,45 @@ def test_parse_panel_boxes_accepts_list_or_panels_key() -> None:
         geo.parse_panel_boxes("not json")
 
 
+def _boxes(*markers: object) -> list[dict[str, object]]:
+    return [{"id": i, "marker_number": m} for i, m in enumerate(markers)]
+
+
+def _ids(boxes: list[dict[str, object]]) -> list[object]:
+    return [b["id"] for b in boxes]
+
+
+def test_order_by_markers_sorts_marked_panels() -> None:
+    assert _ids(geo.order_by_markers(_boxes(3, 1, 2))) == [1, 2, 0]
+
+
+def test_order_by_markers_keeps_unmarked_panels_in_place() -> None:
+    # Unmarked panels (ids 1, 3) keep their reading-order slots; marked ones are sorted into the others.
+    assert _ids(geo.order_by_markers(_boxes(3, None, 1, None, 2))) == [2, 1, 4, 3, 0]
+
+
+def test_order_by_markers_without_usable_markers_keeps_model_order() -> None:
+    assert _ids(geo.order_by_markers(_boxes(None, None))) == [0, 1]
+    assert _ids(geo.order_by_markers(_boxes(5, None))) == [0, 1]
+    assert _ids(geo.order_by_markers([{"id": 0}, {"id": 1}])) == [0, 1]
+
+
+def test_order_by_markers_ignores_invalid_values_and_is_stable() -> None:
+    assert _ids(geo.order_by_markers(_boxes(2, 0, "1", True, 1))) == [4, 1, 2, 3, 0]
+    assert _ids(geo.order_by_markers(_boxes(2, 1, 2, 1))) == [1, 3, 0, 2]
+
+
 def test_detection_request_includes_thinking_config_only_for_known_levels() -> None:
     body = geo.build_detection_request("B64", "right_to_left", "HIGH")
     config = body["generationConfig"]
     assert config["thinkingConfig"] == {"thinkingLevel": "HIGH"}
     assert config["response_schema"] == geo.PANEL_RESPONSE_SCHEMA
+    assert config["response_schema"]["items"]["properties"]["marker_number"] == {"type": "INTEGER", "nullable": True}
     text = body["contents"][0]["parts"][0]["text"]
     assert "Japanese manga reading order" in text
+    assert "hand-written numbers" in text and "NOT marks" in text
+    assert "inside another panel" in text
+    assert "without cutting off dialogue bubbles" not in text
     assert body["contents"][0]["parts"][1] == {"inline_data": {"mime_type": "image/jpeg", "data": "B64"}}
     assert "thinkingConfig" not in geo.build_detection_request("B64", "left_to_right", "WHATEVER")["generationConfig"]
 
@@ -91,3 +123,16 @@ def test_prepare_inference_image_downscales_and_converts_to_jpeg() -> None:
     out = Image.open(io.BytesIO(jpeg))
     assert out.format == "JPEG"
     assert out.size == (4096, 512)
+
+
+def test_clamp_pixel_box_rounds_and_clamps_to_the_image() -> None:
+    assert geo.clamp_pixel_box([10.4, 20.6, 50, 60], width=100, height=100) == (10, 21, 50, 60)
+    assert geo.clamp_pixel_box([-5, -5, 120, 130], width=100, height=80) == (0, 0, 100, 80)
+
+
+@pytest.mark.parametrize(
+    "box",
+    [None, [0, 0, 10], [0, 0, 10, "x"], [0, 0, True, 10], [10, 10, 10, 20], [200, 0, 300, 10], [0, 0, float("nan"), 5]],
+)
+def test_clamp_pixel_box_rejects_bad_or_empty_boxes(box: object) -> None:
+    assert geo.clamp_pixel_box(box, width=100, height=100) is None

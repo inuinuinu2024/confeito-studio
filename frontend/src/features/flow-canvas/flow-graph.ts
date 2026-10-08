@@ -8,6 +8,8 @@
  * - A run's input is its `source` image. コマ結合 takes a whole コマ分割 run (`source` = its folder) and
  *   lists the images it pasted in `sources`.
  * - Runs whose input is not in the archive (none, or deleted) start their own tree at the left edge.
+ * - A panel cut again from the page (コマ切り直し, `source` = the panel) is a *version* of the panel: the panel's
+ *   row shows one version (the one picked, else the newest) and only what was made from it.
  */
 import type { FlowData, FlowImage, FlowRun } from '../../shared/types/flow';
 
@@ -109,6 +111,8 @@ export function shownRun(graph: FlowGraph, stack: FlowStack): FlowRun {
 export const SPLIT_TOOL = 'コマ分割';
 /** Tool name of コマ結合: its results are shown in the right pane, not in the flow. */
 export const MERGE_TOOL = 'コマ結合';
+/** Tool name of コマ切り直し: a panel cut again from its page, shown in the panel's row instead of it. */
+export const RECROP_TOOL = 'コマ切り直し';
 
 /**
  * One box on the canvas: an imported page (no stack), the shown run of a stack, or one panel of a split page.
@@ -126,6 +130,10 @@ export interface FlowStep {
   layout: 'column' | 'candidates' | 'row' | 'action';
   /** 1-based panel number when this box is one panel of a split page. */
   panelIndex?: number;
+  /** The panel (output of the コマ分割) when this box is one panel of a split page; `cells[0]` is its shown version. */
+  panel?: FlowImage;
+  /** Label of the shown version when it is not the panel as split ("切り直し 2"). */
+  versionLabel?: string;
   /** `action`: key of the page the button splits. */
   splitPage?: string;
   /** Starts a row of the canvas (a panel, a page, a result without input): its title is the row label. */
@@ -175,7 +183,74 @@ export const isOriginalRun = (run: FlowRun) =>
 /** The stack of `run` when the canvas lets the user adopt one of its runs (★), else null. */
 export function adoptableStack(graph: FlowGraph, run: FlowRun | null): FlowStack | null {
   const stack = run && graph.stacks.get(graph.stackOfRun.get(run.folder) ?? '');
-  return stack && isCandidateStack(stack) ? stack : null;
+  // The versions of a panel are picked in the panel cropper, not with ★.
+  return stack && stack.tool !== RECROP_TOOL && isCandidateStack(stack) ? stack : null;
+}
+
+/** `[xmin, ymin, xmax, ymax]` in pixels of the page. */
+export type PageBox = [number, number, number, number];
+
+/** One version of a panel: the panel as split, or a コマ切り直し of it. */
+export interface PanelVersion {
+  image: FlowImage;
+  /** The コマ分割 run (the panel as split) or the コマ切り直し run. */
+  run: FlowRun;
+  /** "分割時" or "切り直し <n>" (n counts the re-cuts, oldest first). */
+  label: string;
+  /** The box on the page of a re-cut (info.json settings.pixel_box); null for the panel as split (see panels.json). */
+  box: PageBox | null;
+}
+
+const isBox = (value: unknown): value is PageBox =>
+  Array.isArray(value) && value.length === 4 && value.every(v => typeof v === 'number' && Number.isFinite(v));
+
+/**
+ * The versions of `panel` (an output of a コマ分割), oldest first: the panel as split, then its コマ切り直し runs.
+ * `stackId` is the stack of the re-cuts (null when there is none); its selection picks the shown version
+ * (the コマ分割 folder for the panel as split).
+ */
+export function panelVersions(
+  graph: FlowGraph,
+  panel: FlowImage,
+): { versions: PanelVersion[]; stackId: string | null } {
+  const split = graph.runOfImage.get(panel.key);
+  if (!split) return { versions: [], stackId: null };
+  const stackId = (graph.children.get(panel.key) ?? []).find(id => graph.stacks.get(id)?.tool === RECROP_TOOL) ?? null;
+  const recuts = (stackId && graph.stacks.get(stackId)?.runs.filter(r => r.outputs.length)) || [];
+  return {
+    versions: [
+      { image: panel, run: split, label: '分割時', box: null },
+      ...recuts.map((run, i) => ({
+        image: run.outputs[0],
+        run,
+        label: `切り直し ${i + 1}`,
+        box: isBox(run.settings.pixel_box) ? run.settings.pixel_box : null,
+      })),
+    ],
+    stackId,
+  };
+}
+
+/** The version of `panel` its row shows: the one picked (saved in the archive) if it still exists, else the newest. */
+export function shownVersion(graph: FlowGraph, panel: FlowImage): PanelVersion | null {
+  const { versions, stackId } = panelVersions(graph, panel);
+  const picked = stackId ? graph.selection[stackId] : undefined;
+  return versions.find(v => v.run.folder === picked) ?? versions[versions.length - 1] ?? null;
+}
+
+/** The panel version (a panel as split, or a コマ切り直し) that the image `key` is, or was made from; else null. */
+export function versionOf(graph: FlowGraph, key: string): string | null {
+  const seen = new Set<string>();
+  let current = key;
+  while (!seen.has(current)) {
+    seen.add(current);
+    const run = graph.runOfImage.get(current);
+    if (!run) return null;
+    if (run.tool === SPLIT_TOOL || run.tool === RECROP_TOOL) return current;
+    if (!run.source || !graph.images.has(run.source)) return null;
+    current = run.source;
+  }
+  return null;
 }
 
 /** What the canvas shows: every tree with the shown run of each stack, and the edges between them. */
@@ -270,21 +345,27 @@ export function visibleFlow(graph: FlowGraph): VisibleFlow {
     const stack = splitId ? graph.stacks.get(splitId) : undefined;
     if (!splitId || !stack) return null;
     const run = shownRun(graph, stack);
-    const panels = run.outputs.map((cell, i) =>
-      fillRow(
+    const panels = run.outputs.map((cell, i) => {
+      // The row shows one version of the panel; the re-cuts are not steps of their own.
+      const { stackId: recutId } = panelVersions(graph, cell);
+      if (recutId) absorbed.add(recutId);
+      const version = shownVersion(graph, cell);
+      return fillRow(
         register({
           id: `${splitId}#${i + 1}`,
           stack,
           run,
           layout: 'column',
           panelIndex: i + 1,
-          cells: [cell],
-          cellRuns: [run],
+          panel: cell,
+          versionLabel: version && version.image !== cell ? version.label : undefined,
+          cells: [version?.image ?? cell],
+          cellRuns: [version?.run ?? run],
           cellChildren: [],
           runChildren: [],
         }),
-      ),
-    );
+      );
+    });
     const others = childIds
       .filter(id => id !== splitId)
       .map(stackStep)
@@ -439,12 +520,14 @@ export function panelOf(graph: FlowGraph, key: string): string | null {
 
 /**
  * What コマ結合 pastes for `panel` (docs/specs/tools/panel-split-merge.md): the image marked for it with 「結合」
- * (`marked`; it must still exist and be made from the panel), else the panel itself (the 原画).
+ * (`marked`; it must still exist and be made from the shown version of the panel), else the shown version itself
+ * (the 原画: the panel as split, or its re-cut).
  */
 export function mergeChoice(graph: FlowGraph, panel: FlowImage): { key: string; marked: boolean } {
+  const shown = shownVersion(graph, panel)?.image.key ?? panel.key;
   const marked = graph.merge[panel.key];
-  const valid = !!marked && marked !== panel.key && graph.images.has(marked) && panelOf(graph, marked) === panel.key;
-  return valid ? { key: marked, marked: true } : { key: panel.key, marked: false };
+  const valid = !!marked && marked !== shown && graph.images.has(marked) && versionOf(graph, marked) === shown;
+  return valid ? { key: marked, marked: true } : { key: shown, marked: false };
 }
 
 /** Panels of a コマ分割 run to replace when merging (`mergeChoice` is not the panel). Panel file name -> image key. */
@@ -455,6 +538,16 @@ export function mergeOverrides(graph: FlowGraph, splitRun: FlowRun): Record<stri
     if (choice.key !== panel.key) overrides[panel.name] = choice.key;
   }
   return overrides;
+}
+
+/** Boxes of the panels of a コマ分割 run whose shown version is a re-cut (panel file name -> box on the page). */
+export function mergeBoxes(graph: FlowGraph, splitRun: FlowRun): Record<string, PageBox> {
+  const boxes: Record<string, PageBox> = {};
+  for (const panel of splitRun.outputs) {
+    const box = shownVersion(graph, panel)?.box;
+    if (box) boxes[panel.name] = box;
+  }
+  return boxes;
 }
 
 /** The nearest run of `tool` upstream of `key` (the image itself counts when that run made it). */

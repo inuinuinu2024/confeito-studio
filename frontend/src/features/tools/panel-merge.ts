@@ -3,7 +3,8 @@
  * result "<archive>/<stamp>_コマ結合/" (services/merge_service.py).
  * It runs once per コマ分割 run that a selected image comes from (a panel, or an image made from one).
  * Each panel is replaced by the image marked for it on the canvas (「結合」 on a generated image), else pasted as
- * split (flow-graph.ts `mergeChoice`). The tool window lists what will be merged and where the result goes.
+ * shown in its row (flow-graph.ts `mergeChoice`); a panel shown as cut again (コマ切り直し) is pasted at its own box
+ * (`mergeBoxes`). The tool window lists what will be merged and where the result goes.
  * Spec: docs/specs/tools/panel-split-merge.md
  */
 import { fetchArchiveKey } from '../../shared/api/archives';
@@ -16,8 +17,10 @@ import { DocumentManager } from '../document/DocumentManager';
 import {
   buildGraph,
   type FlowGraph,
+  mergeBoxes,
   mergeChoice,
   mergeOverrides,
+  shownVersion,
   SPLIT_TOOL,
   upstreamRun,
 } from '../flow-canvas/flow-graph';
@@ -78,12 +81,15 @@ export class PanelMergeTool implements Tool {
     const runs = splitRunsOf(graph, DocumentManager.getInstance().getSelection());
     if (!graph || !runs.length) return missingTargetCard('結合するコマ分割の結果', SELECT_PANEL);
     const lines = runs.flatMap(run => {
-      // Each panel with an image marked 「結合」, and that image.
+      // Each panel with an image marked 「結合」 or shown as cut again, and what is pasted for it.
       const replaced = run.outputs.flatMap(panel => {
         const choice = mergeChoice(graph, panel);
         if (choice.key === panel.key) return [];
+        const version = shownVersion(graph, panel);
+        const recut = version?.box ? version.label : null;
+        if (!choice.marked) return [`${panel.name} → ${recut}`];
         const name = graph.images.get(choice.key)?.name ?? choice.key;
-        return [`${panel.name} → ${name}`];
+        return [`${panel.name} → ${name}${recut ? `（${recut}の範囲に貼る）` : ''}`];
       });
       const panels = h('div', { class: 'cs-card__line', text: 'panels.json を確認しています…' });
       void describePanels(run.folder).then(({ text, ok }) => {
@@ -96,7 +102,7 @@ export class PanelMergeTool implements Tool {
         h('div', {
           class: 'cs-card__line',
           text: replaced.length
-            ? `差し替えるコマ（「結合」の画像）: ${replaced.join(', ')}`
+            ? `差し替えるコマ（「結合」の画像・切り直したコマ）: ${replaced.join(', ')}`
             : '差し替えるコマ: なし（分割したままのコマを貼る）',
         }),
       ];
@@ -117,7 +123,7 @@ export class PanelMergeTool implements Tool {
     if (!folder || !graph || !run) throw new ToolNotReady(SELECT_PANEL);
     context.ready();
 
-    const result = await mergePanels(folder, mergeOverrides(graph, run));
+    const result = await mergePanels(folder, mergeOverrides(graph, run), mergeBoxes(graph, run));
     // The backend saves the image itself, so a stopped run removes it afterwards.
     await discardIfStopped(context.signal, result.folder);
     emit('archives:changed', { select: [result.auto_select_key] });

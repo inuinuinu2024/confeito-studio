@@ -11,8 +11,8 @@ from starlette.concurrency import run_in_threadpool
 from ..errors import BadRequestError, unexpected_errors_as
 from ..services import panel_geometry
 from ..services.image_service import remove_background
-from ..services.merge_service import merge_panels, parse_overrides
-from ..services.panel_service import build_preview, split_panels
+from ..services.merge_service import merge_panels, parse_boxes, parse_overrides
+from ..services.panel_service import build_preview, parse_box, recrop_panel, split_panels
 
 router = APIRouter(prefix="/image", tags=["image"])
 
@@ -84,12 +84,24 @@ async def api_split_panels_preview(
     return build_preview(reading_order, model_name, thinking_level)
 
 
+@router.post("/recrop-panel")
+async def api_recrop_panel(panel_key: str = Form(...), box: str = Form(...)) -> dict:
+    """Cuts a panel of a コマ分割 again from the split page with ``box`` (JSON ``[xmin, ymin, xmax, ymax]``)."""
+    pixel_box = parse_box(box)
+    with unexpected_errors_as("コマの切り直しの処理中にエラーが発生しました。"):
+        return await run_in_threadpool(recrop_panel, panel_key, pixel_box)
+
+
 @router.post("/merge-panels")
-async def api_merge_panels(target_folder: str = Form(...), overrides: str | None = Form(None)) -> dict:
+async def api_merge_panels(
+    target_folder: str = Form(...), overrides: str | None = Form(None), boxes: str | None = Form(None)
+) -> dict:
     """Pastes the panels listed in ``<target_folder>/panels.json`` back into one image.
 
-    ``overrides`` (JSON ``{panel file name: archive key}``) replaces panels with other images.
+    ``overrides`` (JSON ``{panel file name: archive key}``) replaces panels with other images;
+    ``boxes`` (JSON ``{panel file name: [xmin, ymin, xmax, ymax]}``) places panels cut again (コマ切り直し).
     """
     replacements = parse_overrides(overrides)
+    placed = parse_boxes(boxes)
     with unexpected_errors_as("コマ結合の処理中にエラーが発生しました。"):
-        return await run_in_threadpool(merge_panels, target_folder, replacements)
+        return await run_in_threadpool(merge_panels, target_folder, replacements, placed)

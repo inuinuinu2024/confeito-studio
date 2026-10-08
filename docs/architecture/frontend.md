@@ -15,11 +15,12 @@ frontend/src/
 │   ├── state/                # view-mode.ts（表示モード）, tool-settings.ts（ツール設定の永続化）, canvas-background.ts（キャンバスの背景色）
 │   ├── types/                # ArchiveEntry, FlowData / FlowRun / FlowImage（処理フロー）, Tool / ToolContext / RunTarget / ToolNotReady / ToolCancelled
 │   ├── ui/                   # h() / icon(), form 部品, dialogs, toast（showToast / showError）, resizer, drag-sort（ドラッグで並べ替え）,
-│   │                         # image-viewer（画像を大きく見るウィンドウ。ズーム・移動）,
+│   │                         # window（別ウィンドウの共通部品。見出し・×・外のクリックで閉じる）, image-viewer（画像を大きく見るウィンドウ。ズーム・移動）,
 │   │                         # category-sidebar（マネージャー共通のカテゴリー一覧）
 │   ├── utils/                # datetime, error-message(describeError), image(Blob/Canvas 変換), history(削除の Undo。削除と Undo を 1 つずつ順に実行),
 │   │                         # categories(カテゴリー付き一覧の共通処理), prompts(登録プロンプトの入力チェック・絞り込み・エクスポート形式),
 │   │                         # characters(登録キャラクターの絞り込み・ツールで使う時の説明文), icon-crop(アイコンの切り取り枠の計算),
+│   │                         # rect-crop(コマの切り直しの枠（自由な長方形）の計算),
 │   │                         # usage(Cost Monitor の期間・グラフの系列・1 回あたりの平均・円 / USD の表示。集計はバックエンド)
 │   └── styles/               # variables(トークン), base, components(cs-*), layout(グリッド), manager(マネージャー共通の mgr-*)
 └── features/
@@ -31,7 +32,8 @@ frontend/src/
     ├── character-manager/    # Character Manager（Prompt Manager と同じ構成。image-list.ts = 編集欄の画像、icon-cropper.ts = アイコンの切り取り、transfer.ts = zip のエクスポート / インポート）
     ├── flow-canvas/          # Workspace（Normal モード）の処理フロー。FlowCanvas.ts = 画面と操作、flow-graph.ts = info.json から図・スタック・
     │                         # 削除範囲・コマ結合の差し替えを作る純粋関数、flow-layout.ts = 自動配置と線、pan-zoom.ts、thumbnails.ts、
-    │                         # deletion.ts = 削除と Undo、side-pane.ts = 3 枚構成の左右のペイン（元ページ / コマ結合後）
+    │                         # deletion.ts = 削除と Undo、side-pane.ts = 3 枚構成の左右のペイン（元ページ / コマ結合後）、
+    │                         # panel-cropper.ts = コマの切り直し（ページ上の範囲の表示・切り直し・版の切り替え）
     ├── canvas/               # 比較キャンバス（Parallel / Overlay。canvas-state / render / zoom / toolbars）
     ├── ai-panel/             # ツール一覧・並び替え・実行（tool-runner、run-targets = まとめて実行の対象と通知文）・ツールウィンドウ（components/ToolWindow.ts）
     ├── document/             # DocumentManager（表示中のアーカイブ・その処理フロー・選択中の画像）

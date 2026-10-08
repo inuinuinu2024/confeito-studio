@@ -4,10 +4,9 @@
  * the square frame starts on the best one (dashed boxes show every face; a click moves the frame there).
  * The frame is moved by dragging it and resized by its corners; the preview follows. While the faces are
  * detected, an hourglass covers the image and nothing can be changed except 中断 (then the frame is set by
- * hand), キャンセル and Esc.
+ * hand), × and Esc. A 別ウィンドウ (shared/ui/window.ts): ×, Esc and a click outside close it without an icon.
  */
 import { detectFaces, type DetectedFace } from '../../shared/api/characters';
-import { createModal, escapeClosable } from '../../shared/ui/dialogs';
 import { h, icon } from '../../shared/ui/dom';
 import { button } from '../../shared/ui/form';
 import { showToast } from '../../shared/ui/toast';
@@ -22,6 +21,7 @@ import {
   resizeCrop,
 } from '../../shared/utils/icon-crop';
 import { canvasToBlob } from '../../shared/utils/image';
+import { openWindow } from '../../shared/ui/window';
 
 /** An image to cut the icon from. */
 export interface CropSource {
@@ -40,19 +40,21 @@ const CORNERS: Corner[] = ['nw', 'ne', 'sw', 'se'];
 /** Resolves the icon as a PNG, or null when cancelled. */
 export function openIconCropper(sources: CropSource[], initial = 0): Promise<Blob | null> {
   return new Promise(resolve => {
-    const modal = createModal({
-      title: 'アイコンの切り取り',
-      overlayClass: 'icon-cropper-overlay',
-      closeOnBackdrop: false,
-    });
     let objectUrl: string | null = null;
-    const finish = (result: Blob | null) => {
-      detecting?.abort();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-      dispose();
-      resolve(result);
+    let result: Blob | null = null;
+    const win = openWindow({
+      title: 'アイコンの切り取り',
+      className: 'icon-cropper',
+      onClose: () => {
+        detecting?.abort();
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        resolve(result);
+      },
+    });
+    const finish = (cropped: Blob) => {
+      result = cropped;
+      win.close();
     };
-    const dispose: () => void = escapeClosable(modal.overlay, () => finish(null));
 
     let selected = -1;
     let token = 0;
@@ -96,7 +98,7 @@ export function openIconCropper(sources: CropSource[], initial = 0): Promise<Blo
     const status = h('div', { class: 'icon-cropper__status' });
     const confirm = button('決定', () => void decide(), { variant: 'primary', size: 'dialog' });
 
-    modal.panel.append(
+    win.body.append(
       sourceBar,
       h(
         'div',
@@ -110,13 +112,8 @@ export function openIconCropper(sources: CropSource[], initial = 0): Promise<Blo
         ),
       ),
       status,
-      h(
-        'div',
-        { class: 'cs-modal__actions' },
-        button('キャンセル', () => finish(null), { variant: 'outline', size: 'dialog' }),
-        confirm,
-      ),
     );
+    win.footer(confirm);
 
     const px = (value: number) => `${value * scale}px`;
 
@@ -261,7 +258,6 @@ export function openIconCropper(sources: CropSource[], initial = 0): Promise<Blo
       else showToast('アイコンを作れませんでした', 'warning');
     }
 
-    modal.open();
     render();
     void select(Math.min(Math.max(initial, 0), sources.length - 1));
   });

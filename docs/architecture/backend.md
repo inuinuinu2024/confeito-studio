@@ -94,7 +94,8 @@ backend/src/app/
 | POST | `/image/remove-bg` | 背景除去（[specs/tools/remove-background.md](../specs/tools/remove-background.md)） |
 | POST | `/image/split-panels` | コマ分割（[specs/tools/panel-split-merge.md](../specs/tools/panel-split-merge.md)） |
 | POST | `/image/split-panels/preview` | コマ分割で Gemini に送るリクエストの確認用 |
-| POST | `/image/merge-panels` | コマ結合。form `target_folder`（コマ分割の結果フォルダ）、`overrides?`（JSON `{コマのファイル名: 差し替える画像のキー}`） |
+| POST | `/image/recrop-panel` | コマの切り直し。form `panel_key`（コマ分割の結果のコマのキー）、`box`（JSON `[xmin, ymin, xmax, ymax]`、分割前のページの画素） |
+| POST | `/image/merge-panels` | コマ結合。form `target_folder`（コマ分割の結果フォルダ）、`overrides?`（JSON `{コマのファイル名: 差し替える画像のキー}`）、`boxes?`（JSON `{コマのファイル名: 切り直した範囲}`） |
 | POST | `/nano-banana-pro` | 画像生成・Interactions API（応答は画像そのもの） |
 | POST | `/nano-banana-pro/generate-content` | 画像生成・generateContent API（応答は上と同じ） |
 | POST | `/local-files/check-folder` | `{path}` が絶対パスの既存フォルダか（空欄は可）。違えば 404（画像読み込み） |

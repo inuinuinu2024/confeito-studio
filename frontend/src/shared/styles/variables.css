@@ -13,6 +13,8 @@
   --color-surface-container: #201f22;
   --color-surface-container-high: #2a2a2c;
   --color-surface-container-highest: #353437;
+  /* Separate windows (shared/ui/window.ts, the tool window, the settings window) */
+  --color-window: #201e22;
   --color-on-surface: #e5e1e4;
   --color-on-surface-variant: #c4c7c8;
   --color-inverse-surface: #e5e1e4;

@@ -8,7 +8,7 @@
 - フロントエンドはエントリを `"<アーカイブ名>/<相対パス>"` のキーで扱う。
 - ツールは作業ログ（log.txt）・エラー記録（error.txt）を書かない（[notifications.md](./notifications.md)「ログ」）。
   以前のバージョンが書いたものは残る（Workspace には画像以外を表示しない）。
-- `<アーカイブ>/.flow.json`: Workspace でスタックごとに選んだ表示中の候補（`{"selection": {スタック: 結果フォルダのキー}}`）と、
+- `<アーカイブ>/.flow.json`: Workspace でスタックごとに選んだ表示中の候補・コマの版（`{"selection": {スタック: 結果フォルダのキー}}`）と、
   コマ結合に使う画像のマーク（`{"merge": {コマの画像のキー: 画像のキー}}`）。
   壊れていれば選択なしとして扱い、次に選んだ時に書き直す。
 
@@ -37,7 +37,7 @@
   （結果フォルダは入れ子にしない。どの画像から作ったかは info.json の `source` で表す）。
   アーカイブが 1 つもなければ新しいアーカイブ `<YYYYMMDD_HHMMSS>_<ツール名>` を作る。
   - 例外: 画像読み込みは毎回新しいアーカイブ `<YYYYMMDD_HHMMSS>_<画像名>`（取り込んだ画像だけを入れる）。
-- **名前**: ツール名は表示名（`コマ分割`, `コマ結合`, `背景除去`, `Nano Banana画像生成`）。同じ名前のフォルダ・アーカイブがあれば
+- **名前**: ツール名は表示名（`コマ分割`, `コマ切り直し`, `コマ結合`, `背景除去`, `Nano Banana画像生成`）。同じ名前のフォルダ・アーカイブがあれば
   `_2`, `_3` … を付けて、既存のものを上書きしない。
 - **info.json**: 結果フォルダに 1 つ置く（画像読み込みのアーカイブには置かない）。
   ```json
@@ -59,6 +59,7 @@
 | ツール | 結果フォルダの中身 |
 |---|---|
 | コマ分割 | `01.png`, `02.png`, …, `panels.json`, `info.json` |
+| コマ切り直し | `<コマのファイル名>`（例: `02.png`）, `info.json`（Workspace のコマの切り直しから。[tools/panel-split-merge.md](./tools/panel-split-merge.md)） |
 | コマ結合 | `<YYYYMMDD_HHMMSS>_コマ結合.png`, `info.json` |
 | 背景除去 | `nobg.png`, `info.json` |
 | Nano Banana画像生成 | `<YYYYMMDD_HHMMSS>_Nano Banana画像生成.png|.jpg`, `Inputs/Image1.*` …, `Inputs/payload.json`, `info.json`（原画がある時は `Raw/generated.*`、ファイルから設定した原画の `Inputs/Original.*` も） |

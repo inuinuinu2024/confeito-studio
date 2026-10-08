@@ -260,7 +260,11 @@ export function createSettingsWindow(): SettingsWindow {
     ),
   );
   const main = h('div', { class: 'settings-window__main' });
-  const closeButton = h('button', { class: 'settings-window__close', title: '閉じる' }, icon('close', 20));
+  const closeButton = h(
+    'button',
+    { class: 'settings-window__close cs-window__close', title: '閉じる' },
+    icon('close', 20),
+  );
   const panel = h(
     'div',
     { class: 'settings-window', tabIndex: -1, attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-label': '設定' } },

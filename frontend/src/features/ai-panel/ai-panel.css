@@ -172,7 +172,8 @@
   max-width: 100%;
   max-height: 100%;
   overflow: hidden;
-  background-color: #201e22;
+  /* The look of every window (shared/ui/window.ts, docs/specs/app-shell.md 「別ウィンドウ」) */
+  background-color: var(--color-window);
   border: 1px solid var(--color-outline-variant);
   border-radius: var(--radius-lg);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
@@ -222,19 +223,6 @@
   color: var(--color-on-surface);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.tool-window__close {
-  display: flex;
-  flex-shrink: 0;
-  padding: 4px;
-  border-radius: var(--radius-sm);
-  color: var(--color-on-surface-variant);
-}
-
-.tool-window__close:hover {
-  background: var(--color-surface-container-highest);
-  color: var(--color-on-surface);
 }
 
 /* Only the body scrolls; the header and the run button stay visible. */

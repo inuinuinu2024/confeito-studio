@@ -4,9 +4,9 @@
   gap: 4px;
 }
 
-.prompt-dialog-overlay .cs-modal {
-  width: min(600px, calc(100vw - 32px));
-  max-height: calc(100vh - 96px);
+/* The prompt windows and the character picker (shared/ui/window.ts) */
+.prompt-dialog {
+  width: 600px;
 }
 
 .prompt-editor__text {

@@ -9,10 +9,10 @@ import {
   listCharacters,
   type SavedCharacter,
 } from '../../../shared/api/characters';
-import { createModal, escapeClosable } from '../../../shared/ui/dialogs';
 import { h, icon } from '../../../shared/ui/dom';
 import { button, select } from '../../../shared/ui/form';
 import { showError, showToast } from '../../../shared/ui/toast';
+import { openWindow } from '../../../shared/ui/window';
 import { type CategoryFilter, categoryLabel, displayCategories, previewText } from '../../../shared/utils/categories';
 import { groupCharacters } from '../../../shared/utils/characters';
 import './character-picker.css';
@@ -35,12 +35,8 @@ async function fetchStore(): Promise<CharacterStore | null> {
 
 /** The registered characters to choose from; 使う passes the character to `onUse` and closes the picker. */
 export function openCharacterPicker(onUse: (character: SavedCharacter) => void): void {
-  const modal = createModal({
-    title: '登録したキャラクター',
-    overlayClass: 'prompt-dialog-overlay',
-    closeOnBackdrop: false,
-  });
-  const dispose: () => void = escapeClosable(modal.overlay, () => dispose());
+  const win = openWindow({ title: '登録したキャラクター', className: 'prompt-dialog' });
+  const dispose = win.close;
   const list = h('div', { class: 'prompt-library' }, h('div', { class: 'prompt-library__empty', text: '読み込み中…' }));
   const filters = h('div', { class: 'prompt-library__filters' });
   let store: CharacterStore | null = null;
@@ -94,20 +90,18 @@ export function openCharacterPicker(onUse: (character: SavedCharacter) => void):
     else list.replaceChildren(...characters.map(item));
   };
 
-  modal.panel.append(
+  win.body.append(
     filters,
     list,
     h('div', {
       class: 'prompt-library__hint',
       text: '画像はキャラクター一貫性 (Character) の参照画像として追加されます。編集は Character Manager（左端のアイコン）で行えます。',
     }),
-    h('div', { class: 'cs-modal__actions' }, button('閉じる', dispose, { variant: 'outline', size: 'dialog' })),
   );
-  modal.open();
   search.focus();
 
   void fetchStore().then(loaded => {
-    if (!modal.overlay.isConnected) return;
+    if (!win.overlay.isConnected) return;
     if (!loaded) {
       list.replaceChildren(h('div', { class: 'prompt-library__empty', text: '読み込めませんでした。' }));
       return;

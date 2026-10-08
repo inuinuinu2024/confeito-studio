@@ -220,47 +220,21 @@
   margin-top: 8px;
 }
 
-/* ── JSON preview (<dialog>) ──────────────────────────────── */
-.cs-json-dialog {
-  width: 80vw;
-  max-width: 720px;
+/* ── JSON preview (shared/ui/dialogs.ts openJsonPreview, a window) ── */
+.cs-json-window {
+  width: 720px;
   height: 80vh;
-  margin: auto;
-  padding: 16px;
-  border: 1px solid var(--color-outline);
-  border-radius: 8px;
-  background-color: var(--color-surface-container-high);
-  color: var(--color-on-surface);
 }
 
-.cs-json-dialog[open] {
-  display: flex;
-  flex-direction: column;
-}
-
-.cs-json-dialog__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.cs-json-dialog__title {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.cs-json-dialog__actions {
-  display: flex;
-  gap: 8px;
-}
-
-.cs-json-dialog pre {
+.cs-json-window__json {
   flex: 1;
+  min-height: 0;
+  margin: 0;
   overflow: auto;
   padding: 12px;
   border-radius: 4px;
   background-color: var(--color-surface-container-lowest);
+  color: var(--color-on-surface);
   font-family: monospace;
   font-size: 12px;
   white-space: pre-wrap;
@@ -338,42 +312,57 @@
   background: var(--color-outline);
 }
 
-/* ── Image viewer (shared/ui/image-viewer.ts): one image large, only to look at ── */
-.cs-image-viewer-overlay {
-  background-color: rgba(0, 0, 0, 0.75);
+/* ── 別ウィンドウ (shared/ui/window.ts): every window over the app looks like the tool window ──
+   Header: title at the top left, tools, × at the top right. Body below (scrolls), footer for action buttons. */
+.cs-window-overlay {
+  padding: 48px 16px;
+  background-color: rgba(0, 0, 0, 0.55);
 }
 
-.cs-image-viewer {
+.cs-window {
   display: flex;
   flex-direction: column;
-  width: min(1200px, 92vw);
-  height: 90vh;
-  border: 1px solid var(--color-outline-variant);
-  border-radius: var(--radius-md);
-  background-color: var(--color-surface-container-lowest);
+  width: 480px;
+  max-width: 100%;
+  max-height: 100%;
   overflow: hidden;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-window);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
 }
 
-.cs-image-viewer__head {
+.cs-window__header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 8px 8px 16px;
+  flex-shrink: 0;
+  padding: 14px 12px 14px 16px;
   border-bottom: 1px solid var(--color-outline-variant);
-  background-color: var(--color-surface-container-low);
 }
 
-.cs-image-viewer__title {
+.cs-window__heading {
+  display: flex;
   flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--color-on-surface-variant);
+}
+
+.cs-window__title {
   overflow: hidden;
-  font-size: 13px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-on-surface);
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--color-on-surface);
 }
 
-.cs-image-viewer__close {
+/* × of every window (also the tool window and the settings window) */
+.cs-window__close {
   display: flex;
+  flex-shrink: 0;
   padding: 4px;
   border: none;
   border-radius: var(--radius-sm);
@@ -382,9 +371,38 @@
   cursor: pointer;
 }
 
-.cs-image-viewer__close:hover {
-  background-color: var(--color-surface-container-highest);
+.cs-window__close:hover {
+  background: var(--color-surface-container-highest);
   color: var(--color-on-surface);
+}
+
+.cs-window__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.cs-window__footer {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px;
+  border-top: 1px solid var(--color-outline-variant);
+}
+
+/* ── Image viewer (shared/ui/image-viewer.ts): one image large, only to look at ── */
+.cs-image-viewer {
+  width: min(1200px, 92vw);
+  height: 90vh;
+}
+
+.cs-image-viewer .cs-window__body {
+  padding: 0;
 }
 
 .cs-image-viewer__subtitle {

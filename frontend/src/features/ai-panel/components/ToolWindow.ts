@@ -39,7 +39,7 @@ export function createToolWindow(): ToolWindow {
   const title = h('h2', { class: 'tool-window__title', id: TITLE_ID });
   const body = h('div', { class: 'tool-window__body' });
   const runButton = h('button', { class: 'tool-window__run' });
-  const closeButton = h('button', { class: 'tool-window__close', title: '閉じる' }, icon('close', 20));
+  const closeButton = h('button', { class: 'tool-window__close cs-window__close', title: '閉じる' }, icon('close', 20));
   const panel = h(
     'div',
     {

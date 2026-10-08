@@ -7,7 +7,9 @@
  * - Selecting: a click on a cell's frame / caption selects it (Ctrl toggles, Shift adds), on a step's
  *   header all its cells; Shift + drag on the background selects a rectangle; a click on the background or
  *   Esc clears. The selection (DocumentManager) is what the tools run on, one image after another.
- * - A click on a thumbnail opens the image in the viewer (shared/ui/image-viewer.ts).
+ * - A click on a thumbnail opens the image in the viewer (shared/ui/image-viewer.ts); on the 原画 of a panel's row
+ *   it opens the panel cropper instead (panel-cropper.ts): where the panel was cut from the page, cutting it again
+ *   (a new version of the panel, shown in its row) and picking an earlier version back.
  * - Images generated from an image as 原画 join its box, to its right. Re-runs of a tool on the same image are
  *   side by side in one box: ★ adopts one (saved in the archive) and only its downstream flow is drawn.
  *   Re-runs with several outputs (コマ分割) switch with ‹ ›.
@@ -30,6 +32,7 @@ import {
   setFlowSelection,
   splitArchiveKey,
 } from '../../shared/api/archives';
+import { recropPanel } from '../../shared/api/image';
 import { IMAGE_FILE_PATTERN } from '../../shared/config';
 import { on, type ToolTargetState } from '../../shared/events';
 import { loadSettings, toolSettings } from '../../shared/state/tool-settings';
@@ -56,15 +59,21 @@ import {
   pageMerges,
   splitPageOf,
   panelOf,
+  panelVersions,
   planDeletion,
+  RECROP_TOOL,
   type RowLabel,
   rowLabels,
   shownRun,
+  shownVersion,
+  stackIdOf,
+  versionOf,
   type VisibleFlow,
   visibleFlow,
 } from './flow-graph';
 import { boundsOf, edgePath, type FlowLayout, intersects, LAYOUT, type Rect, layoutFlow } from './flow-layout';
 import { createPanZoom } from './pan-zoom';
+import { openPanelCropper, panelBoxOf } from './panel-cropper';
 import { createSidePane } from './side-pane';
 import { forgetThumbnails, thumbnailUrl } from './thumbnails';
 
@@ -245,7 +254,16 @@ export function createFlowCanvas(): HTMLElement {
 
   const renderCell = (image: FlowImage, step: FlowStep, index: number, label: RowLabel | null): HTMLElement => {
     const img = h('img', { class: 'flow-cell__img', alt: image.name, draggable: false, dataset: { key: image.key } });
-    const thumb = h('div', { class: 'flow-cell__thumb', title: 'クリックで拡大表示' }, img);
+    // The 原画 of a panel's row opens the panel cropper (where it was cut from the page; cut it again).
+    const panelHead = !!step.panel && index === 0;
+    const thumb = h(
+      'div',
+      {
+        class: 'flow-cell__thumb',
+        title: panelHead ? 'クリックで切り出した範囲を表示・切り直し' : 'クリックで拡大表示',
+      },
+      img,
+    );
     // A generated image in a 原画's box: its name and what it was generated from, above the image.
     const origin =
       label &&
@@ -302,8 +320,15 @@ export function createFlowCanvas(): HTMLElement {
       e.stopPropagation();
       const onThumb = !!(e.target as HTMLElement).closest('.flow-cell__thumb');
       const where = `${step.cellRuns[index]?.tool ?? '開始画像'}${label ? `（${label.name}）` : ''}`;
-      if (onThumb && !e.ctrlKey && !e.metaKey && !e.shiftKey) void openViewer(image, where);
-      else clickSelect([image.key], e);
+      if (onThumb && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (panelHead) {
+          void openCropper(step).then(opened => {
+            if (!opened) void openViewer(image, where);
+          });
+        } else void openViewer(image, where);
+      } else {
+        clickSelect([image.key], e);
+      }
     });
     cellElements.set(image.key, cell);
     return cell;
@@ -336,7 +361,8 @@ export function createFlowCanvas(): HTMLElement {
   const mergeMark = (image: FlowImage, cell: HTMLElement): HTMLElement | null => {
     const panelKey = graph && panelOf(graph, image.key);
     const panel = panelKey ? graph?.images.get(panelKey) : undefined;
-    if (!graph || !panelKey || !panel || panelKey === image.key) return null;
+    // None on a version of the panel itself (the panel as split, or a re-cut): it is pasted when nothing is marked.
+    if (!graph || !panelKey || !panel || versionOf(graph, image.key) === image.key) return null;
     const marked = mergeChoice(graph, panel).key === image.key;
     cell.classList.toggle('flow-cell--merge-marked', marked);
     return h(
@@ -429,6 +455,13 @@ export function createFlowCanvas(): HTMLElement {
       'div',
       { class: className, title: step.run ? `${step.run.created_at}　${folderName(step.run.folder)}` : '' },
       h('span', { class: 'flow-step__title', text: stepTitle(step) }),
+      step.versionLabel
+        ? h('span', {
+            class: 'flow-step__version',
+            text: step.versionLabel,
+            title: 'コマの範囲を切り直した版を表示中（原画をクリックすると範囲の確認・版の切り替え）',
+          })
+        : null,
       size ? h('span', { class: 'flow-step__size', text: size }) : null,
       variantSwitcher(step),
       menuButton,
@@ -635,6 +668,60 @@ export function createFlowCanvas(): HTMLElement {
     });
   };
 
+  /**
+   * Opens the panel cropper for the panel row `step` (docs/specs/flow-canvas.md 「コマの切り直し」); false when the
+   * page before the split or the panel's box (panels.json) is unknown.
+   */
+  const openCropper = async (step: FlowStep): Promise<boolean> => {
+    const panel = step.panel;
+    const pageKey = hiddenPage(step);
+    const name = archive;
+    const split = panel && graph?.runOfImage.get(panel.key);
+    if (!graph || !name || !panel || !split || !pageKey || !graph.images.has(pageKey)) return false;
+    const splitBox = await panelBoxOf(split.folder, panel.name);
+    if (!splitBox) return false;
+    const versionsNow = () =>
+      graph && archive === name && graph.images.has(panel.key) ? panelVersions(graph, panel) : null;
+    openPanelCropper({
+      title: `コマ #${step.panelIndex} — ${panel.name}`,
+      loadPage: () => fetchArchiveKey(pageKey),
+      state: () => {
+        const now = versionsNow();
+        const shown = graph && now ? shownVersion(graph, panel) : null;
+        if (!now || !shown) return null;
+        return {
+          versions: now.versions.map(v => ({ label: v.label, createdAt: v.run.created_at, box: v.box ?? splitBox })),
+          shown: Math.max(
+            0,
+            now.versions.findIndex(v => v.run.folder === shown.run.folder),
+          ),
+        };
+      },
+      pick: async index => {
+        const now = versionsNow();
+        const version = now?.versions[index];
+        if (now?.stackId && version) await showRun(now.stackId, version.run.folder);
+      },
+      recrop: async box => {
+        try {
+          const result = await recropPanel(panel.key, box);
+          // The new version is shown at once, even when an earlier one was picked.
+          const stackId = stackIdOf({ source: panel.key, tool: RECROP_TOOL, folder: result.folder });
+          await setFlowSelection(name, stackId, result.folder).catch(err =>
+            showError('表示する版を保存できませんでした', err),
+          );
+          await reload(name, { select: [result.key] });
+          showToast(`コマ #${step.panelIndex} を切り出し直しました`, 'success');
+          return true;
+        } catch (err) {
+          showError('コマを切り出し直せませんでした', err);
+          return false;
+        }
+      },
+    });
+    return true;
+  };
+
   let closeMenu: (() => void) | null = null;
   const openStepMenu = (step: FlowStep, anchor: HTMLElement) => {
     closeMenu?.();
@@ -667,7 +754,8 @@ export function createFlowCanvas(): HTMLElement {
       'div',
       { class: 'flow-menu', attrs: { role: 'menu' } },
       item('情報を見る', 'info', () => void showInfo(step), !run),
-      item(deleteLabel, 'delete', () => void deleteKeys(step.cells.map(c => c.key))),
+      // A panel row deletes its whole コマ分割 (the panel itself, whatever version is shown).
+      item(deleteLabel, 'delete', () => void deleteKeys(step.panel ? [step.panel.key] : step.cells.map(c => c.key))),
       pageImage ? item('元のページごと削除', 'delete_forever', () => void deleteKeys([pageImage.key])) : null,
     );
     const r = anchor.getBoundingClientRect();

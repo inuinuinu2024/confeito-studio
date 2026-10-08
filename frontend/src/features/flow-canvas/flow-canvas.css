@@ -689,3 +689,258 @@
 .is-spinning {
   animation: spin 0.7s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
+
+/* The shown version of a panel when it was cut again (「切り直し 2」), in the panel row's label */
+.flow-step__version {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px solid var(--flow-accent);
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--flow-accent);
+}
+
+/* Below the size line, so the row title keeps its width */
+.flow-row__label .flow-step__version {
+  order: 2;
+}
+
+/* ── コマの切り直し (panel-cropper.ts): the page with the frame | the cut, its box and the versions ── */
+.panel-cropper {
+  /* The window is outside .flow-canvas: the accent of the flow again */
+  --panel-cropper-accent: #5b8def;
+  width: 1440px;
+  height: 92vh;
+}
+
+.panel-cropper--busy .panel-cropper__frame {
+  cursor: wait;
+}
+
+/* The page (left) and the cut with the versions (right), half and half */
+.panel-cropper__body {
+  display: flex;
+  flex: 1;
+  gap: 16px;
+  min-height: 0;
+}
+
+.panel-cropper__left {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* The stage: the page is placed and scaled by the view (zoom / pan in panel-cropper.ts) */
+.panel-cropper__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--color-surface-container-lowest);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.panel-cropper__stage--panning {
+  cursor: grabbing;
+}
+
+.panel-cropper__canvas {
+  position: absolute;
+  overflow: hidden;
+}
+
+/* Zoom tools above the page, at its right */
+.panel-cropper__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  align-items: center;
+}
+
+.panel-cropper__tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  color: var(--color-on-surface-variant);
+}
+
+.panel-cropper__tool:hover {
+  background: var(--color-surface-container-high);
+  color: var(--color-on-surface);
+}
+
+.panel-cropper__zoom {
+  min-width: 44px;
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+  text-align: center;
+}
+
+.panel-cropper__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The shown version's box, once the frame has been moved away from it */
+.panel-cropper__current {
+  position: absolute;
+  border: 1px dashed var(--color-warning);
+  pointer-events: none;
+}
+
+.panel-cropper__frame {
+  position: absolute;
+  border: 2px solid var(--panel-cropper-accent);
+  /* Dims everything outside the frame */
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+  cursor: move;
+  touch-action: none;
+}
+
+.panel-cropper__handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--panel-cropper-accent);
+  background: var(--color-surface);
+}
+
+.panel-cropper__handle--nw,
+.panel-cropper__handle--n,
+.panel-cropper__handle--ne {
+  top: -7px;
+}
+
+.panel-cropper__handle--sw,
+.panel-cropper__handle--s,
+.panel-cropper__handle--se {
+  bottom: -7px;
+}
+
+.panel-cropper__handle--nw,
+.panel-cropper__handle--w,
+.panel-cropper__handle--sw {
+  left: -7px;
+}
+
+.panel-cropper__handle--ne,
+.panel-cropper__handle--e,
+.panel-cropper__handle--se {
+  right: -7px;
+}
+
+.panel-cropper__handle--n,
+.panel-cropper__handle--s {
+  left: calc(50% - 7px);
+  cursor: ns-resize;
+}
+
+.panel-cropper__handle--e,
+.panel-cropper__handle--w {
+  top: calc(50% - 7px);
+  cursor: ew-resize;
+}
+
+.panel-cropper__handle--nw,
+.panel-cropper__handle--se {
+  cursor: nwse-resize;
+}
+
+.panel-cropper__handle--ne,
+.panel-cropper__handle--sw {
+  cursor: nesw-resize;
+}
+
+.panel-cropper__side {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The cut as large as the right half allows (below it: the buttons and the versions) */
+.panel-cropper__preview-box {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--color-surface-container-lowest);
+}
+
+.panel-cropper__preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.panel-cropper__buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.panel-cropper__history-label {
+  margin-top: 8px;
+}
+
+.panel-cropper__versions {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.panel-cropper__version {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 4px;
+  background: var(--color-surface-container);
+  color: var(--color-on-surface);
+  text-align: left;
+}
+
+.panel-cropper__version:hover:not(:disabled) {
+  background: var(--color-surface-container-high);
+}
+
+.panel-cropper__version--shown {
+  border-color: var(--panel-cropper-accent);
+}
+
+.panel-cropper__version-label {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.panel-cropper__version-meta {
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--color-on-surface-variant);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-cropper__status {
+  min-height: 18px;
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+}

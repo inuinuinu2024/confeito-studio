@@ -478,6 +478,19 @@ def test_split_panels_preview(client) -> None:
     assert res.json()["request_body"]["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "LOW"}
 
 
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [
+        ({"panel_key": "missing/split/01.png", "box": "[0, 0, 1, 1]"}, "コマ分割の結果のコマではありません"),
+        ({"panel_key": "missing/split/01.png", "box": "[0, 0]"}, "切り出す範囲の指定が正しくありません"),
+    ],
+)
+def test_recrop_panel_error_is_bad_request(client, data: dict, message: str) -> None:
+    res = client.post("/api/image/recrop-panel", data=data)
+    assert res.status_code == 400
+    assert message in str(res.json()["detail"])
+
+
 def test_merge_panels_error_is_bad_request(client) -> None:
     res = client.post("/api/image/merge-panels", data={"target_folder": "missing"})
     assert res.status_code == 400

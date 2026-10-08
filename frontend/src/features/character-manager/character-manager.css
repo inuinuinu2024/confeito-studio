@@ -157,9 +157,8 @@
 }
 
 /* アイコンの切り取り (icon-cropper.ts) */
-.icon-cropper-overlay .cs-modal {
-  width: min(820px, calc(100vw - 32px));
-  max-height: calc(100vh - 64px);
+.icon-cropper {
+  width: 820px;
 }
 
 .icon-cropper__sources {

@@ -155,7 +155,9 @@ async function flowState(page: Page) {
       })),
       // Row labels (コマ #1 150 × 200, 開始画像 …), top to bottom.
       rows: Array.from(document.querySelectorAll('.flow-row__label')).map(l =>
-        Array.from(l.querySelectorAll('.flow-step__title, .flow-step__size, .flow-step__variant-label'))
+        Array.from(
+          l.querySelectorAll('.flow-step__title, .flow-step__version, .flow-step__size, .flow-step__variant-label'),
+        )
           .map(e => e.textContent)
           .join(' '),
       ),
@@ -849,7 +851,7 @@ async function runScenarios(
     // fitted at first; the wheel zooms, dragging moves it; 100% / 全体を表示; Esc closes. The selection stays.
     const view = () =>
       page.evaluate(() => ({
-        title: document.querySelector('.cs-image-viewer__title')?.textContent ?? null,
+        title: document.querySelector('.cs-image-viewer .cs-window__title')?.textContent ?? null,
         subtitle: document.querySelector('.cs-image-viewer__subtitle')?.textContent ?? null,
         zoom: document.querySelector('.cs-image-viewer__zoom')?.textContent ?? null,
         transform: document.querySelector<HTMLElement>('.cs-image-viewer__img')?.style.transform ?? null,
@@ -1031,11 +1033,11 @@ async function runScenarios(
       await clickTool(page, tool);
       await page.waitForSelector('.tool-window');
       await page.locator('.tool-window button', { hasText: 'JSONプレビュー' }).click();
-      const dialog = page.locator('dialog[open]');
+      const dialog = page.locator('.cs-json-window');
       await dialog.waitFor();
       const text = (await dialog.locator('pre').textContent()) ?? '';
       result[tool] = JSON.parse(maskTimestamps(text).replace(/"<DATETIME>"/g, '"<DATETIME>"'));
-      await dialog.locator('button', { hasText: '閉じる' }).click();
+      await dialog.locator('.cs-window__close').click();
       await dialog.waitFor({ state: 'detached' });
       await closeToolWindow(page);
     }
@@ -1082,7 +1084,7 @@ async function runScenarios(
     await openPicker();
     const emptyPicker = await topModal().locator('.prompt-library').textContent();
     await page.keyboard.press('Escape');
-    await page.locator('.prompt-dialog-overlay').waitFor({ state: 'detached' });
+    await page.locator('.prompt-dialog').waitFor({ state: 'detached' });
 
     await textarea.fill('線画を維持して着彩して');
     await register('着彩', '塗り');
@@ -1095,7 +1097,7 @@ async function runScenarios(
     const categorySuggestions = await topModal()
       .locator('datalist option')
       .evaluateAll(els => els.map(e => (e as HTMLOptionElement).value));
-    await withVisibleToasts(page, () => screenshot('prompt-register', '.prompt-dialog-overlay .cs-modal'));
+    await withVisibleToasts(page, () => screenshot('prompt-register', '.prompt-dialog'));
     await topModal().locator('button', { hasText: '登録' }).click();
     const overwriteMessage = await topModal().locator('.cs-modal__message').textContent();
     await screenshot('prompt-overwrite-confirm', '.cs-modal-overlay--open >> nth=-1');
@@ -1117,7 +1119,7 @@ async function runScenarios(
     await openPicker();
     const listed = await pickerItems();
     const categoryOptions = await topModal().locator('.prompt-library__category-select option').allTextContents();
-    await screenshot('prompt-picker', '.prompt-dialog-overlay .cs-modal');
+    await screenshot('prompt-picker', '.prompt-dialog');
     await topModal().locator('.prompt-library__category-select').selectOption({ label: '背景' });
     const filtered = await pickerItems();
     await topModal().locator('.prompt-library__category-select').selectOption({ label: 'すべて' });
@@ -1134,7 +1136,7 @@ async function runScenarios(
     // Esc closes only the picker, not the tool window.
     await openPicker();
     await page.keyboard.press('Escape');
-    await page.locator('.prompt-dialog-overlay').waitFor({ state: 'detached' });
+    await page.locator('.prompt-dialog').waitFor({ state: 'detached' });
     const openAfterEscape = (await page.locator(win).count()) === 1;
 
     // Running saves the field's text with the other settings (E2E has no API key, so the run fails).
@@ -1524,7 +1526,7 @@ async function runScenarios(
       });
     };
     await page.route(/\/api\/characters\/detect-faces$/, stubFaces);
-    const cropper = page.locator('.icon-cropper-overlay.cs-modal-overlay--open');
+    const cropper = page.locator('.icon-cropper');
     const cropperState = () =>
       page.evaluate(() => {
         const frame = document.querySelector<HTMLElement>('.icon-cropper__frame');
@@ -1608,7 +1610,7 @@ async function runScenarios(
         sourcesDisabled: Array.from(document.querySelectorAll<HTMLButtonElement>('.icon-cropper__source')).map(
           b => b.disabled,
         ),
-        confirmDisabled: Array.from(document.querySelectorAll<HTMLButtonElement>('.icon-cropper-overlay button')).find(
+        confirmDisabled: Array.from(document.querySelectorAll<HTMLButtonElement>('.icon-cropper button')).find(
           b => b.textContent === '決定',
         )?.disabled,
         status: document.querySelector('.icon-cropper__status')?.textContent,
@@ -1629,7 +1631,7 @@ async function runScenarios(
     await page.waitForFunction(() => document.querySelector('.icon-cropper__status')?.textContent?.includes('中断'));
     const afterAbort = await busyState();
     releaseDetection();
-    await cropper.locator('button', { hasText: 'キャンセル' }).click();
+    await cropper.locator('.cs-window__close').click();
     await page.unroute(/\/api\/characters\/detect-faces$/, holdFaces);
     await page.route(/\/api\/characters\/detect-faces$/, stubFaces);
     const detectionBusy = {
@@ -1681,7 +1683,7 @@ async function runScenarios(
     await tiles.nth(1).locator('img').click();
     await page.waitForSelector('.cs-image-viewer');
     const viewer = {
-      title: await page.locator('.cs-image-viewer__title').textContent(),
+      title: await page.locator('.cs-image-viewer .cs-window__title').textContent(),
       imageBox: await page.locator('.cs-image-viewer__img').boundingBox(),
     };
     await screenshot('character-image-viewer');
@@ -1969,6 +1971,127 @@ async function runScenarios(
       savedOpen,
       merged,
       flow: await flowState(page),
+    };
+  });
+
+  await step('12b-recrop-panel', async () => {
+    // A click on the 原画 of a panel's row opens the panel cropper (docs/specs/flow-canvas.md 「コマの切り直し」): the
+    // page before the split with the frame where the panel was cut. Moving the frame and 「この範囲で切り出し直す」
+    // saves a new version (コマ切り直し) shown in the row at once: what was made from the panel as split (生成 1, 2)
+    // is hidden. Picking 「分割時」 in コマ割りの履歴 shows the panel as split and those images again.
+    const cropper = () =>
+      page.evaluate(() => {
+        const frame = document.querySelector<HTMLElement>('.panel-cropper__frame');
+        const current = document.querySelector<HTMLElement>('.panel-cropper__current');
+        return {
+          title: document.querySelector('.panel-cropper .cs-window__title')?.textContent ?? null,
+          zoom: document.querySelector('.panel-cropper__zoom')?.textContent ?? null,
+          page: (() => {
+            const area = document.querySelector<HTMLElement>('.panel-cropper__canvas');
+            return area ? [area.style.left, area.style.top, area.style.width, area.style.height] : null;
+          })(),
+          frame:
+            frame && !frame.hidden ? [frame.style.left, frame.style.top, frame.style.width, frame.style.height] : null,
+          currentShown: !!current && !current.hidden,
+          preview: (() => {
+            const c = document.querySelector<HTMLCanvasElement>('.panel-cropper__preview');
+            return c ? [c.width, c.height] : null;
+          })(),
+          recropEnabled: !document.querySelector<HTMLButtonElement>('.panel-cropper__side .cs-btn--primary')?.disabled,
+          versions: Array.from(document.querySelectorAll('.panel-cropper__version')).map(
+            v =>
+              `${v.querySelector('.panel-cropper__version-label')?.textContent}${
+                v.classList.contains('panel-cropper__version--shown') ? ' [shown]' : ''
+              }`,
+          ),
+          status: document.querySelector('.panel-cropper__status')?.textContent ?? null,
+        };
+      });
+    const openCropper = async () => {
+      await revealCell(page, '02.png');
+      await (await flowCell(page, '02.png')).locator('.flow-cell__thumb').click();
+      await page.waitForSelector('.panel-cropper');
+      await page.waitForFunction(
+        () => !!document.querySelector<HTMLImageElement>('.panel-cropper__image')?.naturalWidth,
+      );
+      await page.waitForFunction(() => !document.querySelector<HTMLElement>('.panel-cropper__frame')?.hidden);
+    };
+
+    await openCropper();
+    const opened = await cropper();
+    await screenshot('panel-cropper');
+    // The view: the wheel zooms around the cursor, dragging the page outside the frame moves it, コマに合わせる
+    // fills the stage with the frame, 全体を表示 fits the page again. The box does not change.
+    const stage = (await page.locator('.panel-cropper__stage').boundingBox())!;
+    await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2);
+    await page.mouse.wheel(0, -100);
+    await page.waitForTimeout(150);
+    const zoomed = await cropper();
+    await page.mouse.move(stage.x + 40, stage.y + stage.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(stage.x + 120, stage.y + stage.height / 2 + 40, { steps: 5 });
+    await page.mouse.up();
+    const panned = await cropper();
+    await screenshot('panel-cropper-zoomed');
+    await page.locator('.panel-cropper__tool[title="コマに合わせる"]').click();
+    const focused = await cropper();
+    await screenshot('panel-cropper-focused');
+    await page.locator('.panel-cropper__tool[title="全体を表示"]').click();
+    const fittedAgain = await cropper();
+    // The left edge of the frame dragged 50 screen px to the left (the page is shown at 192%: 26 px of the page).
+    const handle = (await page.locator('.panel-cropper__handle--w').boundingBox())!;
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handle.x + handle.width / 2 - 50, handle.y + handle.height / 2, { steps: 5 });
+    await page.mouse.up();
+    const moved = await cropper();
+    await screenshot('panel-cropper-moved');
+    await page.locator('.panel-cropper__side .cs-btn--primary').click();
+    const recutToast = await waitForToast(page, /切り出し直しました/);
+    await page.waitForFunction(() => document.querySelectorAll('.panel-cropper__version').length === 2);
+    const recut = await cropper();
+    await screenshot('panel-cropper-recut');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.panel-cropper', { state: 'detached' });
+    await page.waitForTimeout(300);
+    const flowRecut = await flowState(page);
+    await screenshot('flow-recut');
+
+    // コマ結合 pastes the re-cut for panel 02 at its box (the mark on 生成 1 waits for the panel as split).
+    await selectCell(page, '02.png');
+    await clickTool(page, 'コマ結合');
+    const card = page.locator('.tool-window .cs-card');
+    await card.filter({ hasText: 'コマ数' }).waitFor();
+    const mergeCard = maskTimestamps(await card.innerText());
+    await closeToolWindow(page);
+
+    // Back to the panel as split: its images made from it come back.
+    await openCropper();
+    await page.locator('.panel-cropper__version', { hasText: '分割時' }).click();
+    await page.waitForFunction(() =>
+      document.querySelector('.panel-cropper__version--shown')?.textContent?.includes('分割時'),
+    );
+    const pickedBack = await cropper();
+    await page.mouse.click(5, 5);
+    await page.waitForSelector('.panel-cropper', { state: 'detached' });
+    await waitForCell(page, 'gen.png');
+    await page.waitForTimeout(300);
+    const flowBack = await flowState(page);
+    await screenshot('flow-recut-picked-back');
+    return {
+      opened,
+      zoomed,
+      panned,
+      focused,
+      fittedAgain,
+      moved,
+      recutToast,
+      recut,
+      flowRecut,
+      mergeCard,
+      pickedBack,
+      flowBack,
+      info: await newestInfo(page, apiBase, 'e2e-panels', 'コマ切り直し'),
     };
   });
 
@@ -2584,11 +2707,11 @@ async function runScenarios(
         .locator('input');
     const previewJson = async () => {
       await page.locator(`${sidebar} button`, { hasText: 'JSONプレビュー' }).click();
-      const dialog = page.locator('dialog[open]');
+      const dialog = page.locator('.cs-json-window');
       await dialog.waitFor();
-      const title = await dialog.locator('h3').textContent();
+      const title = await dialog.locator('.cs-window__title').textContent();
       const json = JSON.parse((await dialog.locator('pre').textContent()) ?? '');
-      await dialog.locator('button', { hasText: '閉じる' }).click();
+      await dialog.locator('.cs-window__close').click();
       await dialog.waitFor({ state: 'detached' });
       return { title, json };
     };
@@ -2703,10 +2826,10 @@ async function runScenarios(
 
     // The text sent to Gemini carries each image's heading, flags and description.
     await page.locator(`${win} button`, { hasText: 'JSONプレビュー' }).click();
-    const dialog = page.locator('dialog[open]');
+    const dialog = page.locator('.cs-json-window');
     await dialog.waitFor();
     const json = (await dialog.locator('pre').textContent()) ?? '';
-    await dialog.locator('button', { hasText: '閉じる' }).click();
+    await dialog.locator('.cs-window__close').click();
     const text =
       (JSON.parse(json).input as { type: string; text?: string }[]).find(p => p.type === 'text')?.text ?? null;
 
@@ -2794,13 +2917,13 @@ async function runScenarios(
 
     // The request: the automatic aspect ratio, and the 原画 as 画像1 (before the reference images) with its heading.
     await page.locator(`${win} button`, { hasText: 'JSONプレビュー' }).click();
-    const dialog = page.locator('dialog[open]');
+    const dialog = page.locator('.cs-json-window');
     await dialog.waitFor();
     const preview = JSON.parse((await dialog.locator('pre').textContent()) ?? '') as {
       input: { type: string; text?: string }[];
       response_format: Record<string, string>;
     };
-    await dialog.locator('button', { hasText: '閉じる' }).click();
+    await dialog.locator('.cs-window__close').click();
     const request = {
       responseFormat: preview.response_format,
       parts: preview.input.map(p => p.type),

@@ -1,7 +1,10 @@
-/** Modal dialogs (styles: shared/styles/components.css). */
+/** Modal dialogs (styles: shared/styles/components.css). Windows are shared/ui/window.ts. */
 import { h } from './dom';
 import { button, type ButtonVariant } from './form';
 import { showToast } from './toast';
+import { escapeClosable, openWindow } from './window';
+
+export { escapeClosable };
 
 export interface Modal {
   overlay: HTMLDivElement;
@@ -41,57 +44,20 @@ export function createModal(opts: {
   return modal;
 }
 
-/** Shows `data` as pretty-printed JSON with copy / close buttons. */
+/** Shows `data` as pretty-printed JSON in a window (shared/ui/window.ts) with a コピー button in its header. */
 export function openJsonPreview(data: unknown, title = 'JSON Preview'): void {
   const json = JSON.stringify(data, null, 2);
-  const dialog = h('dialog', { class: 'cs-json-dialog' });
-  dialog.append(
-    h(
-      'div',
-      { class: 'cs-json-dialog__header' },
-      h('h3', { class: 'cs-json-dialog__title', text: title }),
-      h(
-        'div',
-        { class: 'cs-json-dialog__actions' },
-        button(
-          'コピー',
-          () => {
-            void navigator.clipboard.writeText(json);
-            showToast('JSONをクリップボードにコピーしました');
-          },
-          { size: 'dialog' },
-        ),
-        button('閉じる', () => dialog.close(), { size: 'dialog' }),
-      ),
-    ),
-    h('pre', { text: json }),
+  const copy = button(
+    'コピー',
+    () => {
+      void navigator.clipboard.writeText(json);
+      showToast('JSONをクリップボードにコピーしました');
+    },
+    { variant: 'outline', size: 'small' },
   );
-  dialog.addEventListener('close', () => dialog.remove());
-  document.body.appendChild(dialog);
-  dialog.showModal();
+  const win = openWindow({ title, className: 'cs-json-window', headerTools: [copy] });
+  win.body.append(h('pre', { class: 'cs-json-window__json', text: json }));
 }
-
-/**
- * Lets Esc answer the dialog in `overlay` while it is the topmost one: `onEscape` runs and the key
- * goes no further, so the tool window (or a dialog below) stays open. Returns the function that
- * removes the overlay (and stops listening); call it however the dialog closes.
- */
-export function escapeClosable(overlay: HTMLElement, onEscape: () => void): () => void {
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape') return;
-    const open = document.querySelectorAll('.cs-modal-overlay--open, dialog[open]');
-    if (open[open.length - 1] !== overlay) return;
-    e.stopImmediatePropagation();
-    onEscape();
-  };
-  // Capture phase: runs before the tool window's own Esc handler.
-  document.addEventListener('keydown', onKeyDown, true);
-  return () => {
-    document.removeEventListener('keydown', onKeyDown, true);
-    overlay.remove();
-  };
-}
-
 export interface DialogChoice<T extends string> {
   value: T;
   label: string;

@@ -107,16 +107,38 @@ export interface MergePanelsResult {
   auto_select_key: string;
 }
 
+/** `[xmin, ymin, xmax, ymax]` in pixels of the page (Pillow / PASCAL VOC, like panels.json `pixel_box`). */
+export type PixelBox = [number, number, number, number];
+
 /**
  * Pastes the panels of `<targetFolder>/panels.json` back into one image. `overrides` replaces panels
- * (panel file name -> archive key of the image to paste instead, resized to the panel).
+ * (panel file name -> archive key of the image to paste instead, resized to the panel); `boxes` places the
+ * panels cut again (コマ切り直し) at their own box (panel file name -> box), resized to it.
  */
-export function mergePanels(targetFolder: string, overrides: Record<string, string> = {}): Promise<MergePanelsResult> {
+export function mergePanels(
+  targetFolder: string,
+  overrides: Record<string, string> = {},
+  boxes: Record<string, PixelBox> = {},
+): Promise<MergePanelsResult> {
+  const json = (value: object) => (Object.keys(value).length ? JSON.stringify(value) : undefined);
   return postForm(
     '/image/merge-panels',
-    formData({
-      target_folder: targetFolder,
-      overrides: Object.keys(overrides).length ? JSON.stringify(overrides) : undefined,
-    }),
+    formData({ target_folder: targetFolder, overrides: json(overrides), boxes: json(boxes) }),
   );
+}
+
+export interface RecropPanelResult {
+  status: 'success';
+  /** Result folder key "<archive>/<stamp>_コマ切り直し". */
+  folder: string;
+  /** Key of the new panel image (same file name as the panel). */
+  key: string;
+  pixel_box: PixelBox;
+  width: number;
+  height: number;
+}
+
+/** Cuts panel `panelKey` (an output of a コマ分割) again from the split page with `box` (page pixels). */
+export function recropPanel(panelKey: string, box: PixelBox): Promise<RecropPanelResult> {
+  return postForm('/image/recrop-panel', formData({ panel_key: panelKey, box: JSON.stringify(box) }));
 }

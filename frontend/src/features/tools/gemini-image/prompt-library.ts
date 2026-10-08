@@ -4,10 +4,11 @@
  * (edit / delete / order) in the Prompt Manager (docs/specs/prompt-manager.md).
  */
 import { createPrompt, listPrompts, type PromptStore, updatePrompt } from '../../../shared/api/prompts';
-import { createModal, confirmDialog, escapeClosable } from '../../../shared/ui/dialogs';
+import { confirmDialog } from '../../../shared/ui/dialogs';
 import { h } from '../../../shared/ui/dom';
 import { button, field, select, suggestInput } from '../../../shared/ui/form';
 import { showError, showToast } from '../../../shared/ui/toast';
+import { openWindow } from '../../../shared/ui/window';
 import {
   type CategoryFilter,
   categoryLabel,
@@ -23,7 +24,8 @@ import {
 } from '../../../shared/utils/prompts';
 import './prompt-library.css';
 
-const OVERLAY_CLASS = 'prompt-dialog-overlay';
+/** Class of the prompt windows (size: prompt-library.css; the character picker uses it too). */
+const WINDOW_CLASS = 'prompt-dialog';
 /** The <select> value for すべて (category names are never empty-with-a-marker like this). */
 const ALL = '\u0000all';
 
@@ -67,8 +69,8 @@ export function openRegisterDialog(text: string): void {
     maxLength: MAX_CATEGORY_LENGTH,
   });
   const textarea = h('textarea', { class: 'cs-textarea prompt-editor__text', value: text });
-  const modal = createModal({ title: 'プロンプトを登録', overlayClass: OVERLAY_CLASS, closeOnBackdrop: false });
-  const dispose: () => void = escapeClosable(modal.overlay, () => dispose());
+  const win = openWindow({ title: 'プロンプトを登録', className: WINDOW_CLASS });
+  const dispose = win.close;
   void fetchStore().then(store => store && category.setSuggestions(store.categories));
 
   const register = async (): Promise<boolean> => {
@@ -114,25 +116,15 @@ export function openRegisterDialog(text: string): void {
     },
     { variant: 'primary', size: 'dialog' },
   );
-  modal.panel.append(
-    field('名前', nameInput),
-    field('カテゴリー', category.el),
-    field('本文', textarea),
-    h(
-      'div',
-      { class: 'cs-modal__actions' },
-      button('キャンセル', dispose, { variant: 'outline', size: 'dialog' }),
-      save,
-    ),
-  );
-  modal.open();
+  win.body.append(field('名前', nameInput), field('カテゴリー', category.el), field('本文', textarea));
+  win.footer(save);
   nameInput.focus();
 }
 
 /** The registered prompts to choose from; 使う passes the text to `onUse` and closes the picker. */
 export function openPromptPicker(onUse: (text: string) => void): void {
-  const modal = createModal({ title: '登録したプロンプト', overlayClass: OVERLAY_CLASS, closeOnBackdrop: false });
-  const dispose: () => void = escapeClosable(modal.overlay, () => dispose());
+  const win = openWindow({ title: '登録したプロンプト', className: WINDOW_CLASS });
+  const dispose = win.close;
   const list = h('div', { class: 'prompt-library' }, h('div', { class: 'prompt-library__empty', text: '読み込み中…' }));
   const filters = h('div', { class: 'prompt-library__filters' });
   let store: PromptStore | null = null;
@@ -183,20 +175,18 @@ export function openPromptPicker(onUse: (text: string) => void): void {
     else list.replaceChildren(...prompts.map(item));
   };
 
-  modal.panel.append(
+  win.body.append(
     filters,
     list,
     h('div', {
       class: 'prompt-library__hint',
       text: '編集・削除・並べ替えは Prompt Manager（左端のアイコン）で行えます。',
     }),
-    h('div', { class: 'cs-modal__actions' }, button('閉じる', dispose, { variant: 'outline', size: 'dialog' })),
   );
-  modal.open();
   search.focus();
 
   void fetchStore().then(loaded => {
-    if (!modal.overlay.isConnected) return;
+    if (!win.overlay.isConnected) return;
     if (!loaded) {
       list.replaceChildren(h('div', { class: 'prompt-library__empty', text: '読み込めませんでした。' }));
       return;

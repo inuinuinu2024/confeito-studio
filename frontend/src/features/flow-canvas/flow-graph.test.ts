@@ -1,19 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import type { FlowData, FlowImage, FlowRun } from '../../shared/types/flow';
 import {
+  adoptableStack,
   buildGraph,
   cascadeRuns,
   hiddenPage,
+  mergeBoxes,
   mergeChoice,
   pageMerges,
   splitPageOf,
   mergeOverrides,
   panelOf,
+  panelVersions,
   planDeletion,
   rowLabels,
   shownRun,
+  shownVersion,
   stackIdOf,
   upstreamRun,
+  versionOf,
   visibleFlow,
 } from './flow-graph';
 import { edgePath, layoutFlow, LAYOUT, stepHeight, stepWidth } from './flow-layout';
@@ -332,5 +337,86 @@ describe('planDeletion', () => {
     const plan = planDeletion(buildGraph(data), ['a/page.png']);
     expect(plan.whole).toBe(true);
     expect(plan.downstream).toBe(6);
+  });
+});
+
+describe('panel versions (コマ切り直し)', () => {
+  /** sample() + two re-cuts of panel 01 (k1, k2) and a 着彩 of the newest re-cut (q1). */
+  function recut(selection: Record<string, string> = {}, merge: Record<string, string> = {}): FlowData {
+    const data = sample(selection);
+    const cut = (folder: string, at: string, box: unknown) => ({
+      ...run(folder, 'コマ切り直し', 'a/s1/01.png', ['01.png'], at),
+      settings: { split: 'a/s1', panel: '01.png', pixel_box: box },
+    });
+    data.runs.push(
+      cut('k1', '2026-01-01 11:00:00', [0, 0, 6, 10]),
+      cut('k2', '2026-01-01 11:01:00', 'broken'),
+      run('q1', '着彩', 'a/k2/01.png', ['q.png'], '2026-01-01 11:02:00'),
+    );
+    return { ...data, merge };
+  }
+  const stackId = 'a/s1/01.png|コマ切り直し';
+  const panel = img('a/s1/01.png');
+
+  it('lists the panel as split and its re-cuts, oldest first', () => {
+    const { versions, stackId: id } = panelVersions(buildGraph(recut()), panel);
+    expect(id).toBe(stackId);
+    expect(versions.map(v => [v.label, v.image.key, v.box])).toEqual([
+      ['分割時', 'a/s1/01.png', null],
+      ['切り直し 1', 'a/k1/01.png', [0, 0, 6, 10]],
+      ['切り直し 2', 'a/k2/01.png', null],
+    ]);
+    expect(panelVersions(buildGraph(sample()), panel)).toMatchObject({ stackId: null });
+  });
+
+  it('shows the newest version unless another one (or the panel as split) was picked', () => {
+    expect(shownVersion(buildGraph(recut()), panel)?.label).toBe('切り直し 2');
+    expect(shownVersion(buildGraph(recut({ [stackId]: 'a/k1' })), panel)?.label).toBe('切り直し 1');
+    expect(shownVersion(buildGraph(recut({ [stackId]: 'a/s1' })), panel)?.label).toBe('分割時');
+    expect(shownVersion(buildGraph(recut({ [stackId]: 'a/deleted' })), panel)?.label).toBe('切り直し 2');
+  });
+
+  it("puts the shown version in the panel's row, with only what was made from it", () => {
+    const flow = visibleFlow(buildGraph(recut()));
+    const row = flow.steps.get('a/page.png|コマ分割#1')!;
+    expect(row.cells.map(c => c.key)).toEqual(['a/k2/01.png']);
+    expect(row.panel?.key).toBe('a/s1/01.png');
+    expect(row.versionLabel).toBe('切り直し 2');
+    expect(row.cellChildren[0].map(s => s.id)).toEqual(['a/k2/01.png|着彩']);
+    expect(flow.stepOfCell.has('a/p1/p.png')).toBe(false); // made from the panel as split: hidden
+    expect(flow.steps.has(stackId)).toBe(false); // the re-cuts are not a step of their own
+
+    const asSplit = visibleFlow(buildGraph(recut({ [stackId]: 'a/s1' })));
+    const back = asSplit.steps.get('a/page.png|コマ分割#1')!;
+    expect(back.cells.map(c => c.key)).toEqual(['a/s1/01.png']);
+    expect(back.versionLabel).toBeUndefined();
+    expect(asSplit.stepOfCell.has('a/p1/p.png')).toBe(true); // shown again
+    expect(asSplit.stepOfCell.has('a/q1/q.png')).toBe(false);
+  });
+
+  it('finds the version an image was made from, and the panel through it', () => {
+    const graph = buildGraph(recut());
+    expect(versionOf(graph, 'a/q1/q.png')).toBe('a/k2/01.png');
+    expect(versionOf(graph, 'a/p1/p.png')).toBe('a/s1/01.png');
+    expect(versionOf(graph, 'a/page.png')).toBeNull();
+    expect(panelOf(graph, 'a/q1/q.png')).toBe('a/s1/01.png');
+    expect(upstreamRun(graph, 'a/q1/q.png', 'コマ分割')?.folder).toBe('a/s1');
+    expect(adoptableStack(graph, graph.runs.get('a/k1')!)).toBeNull();
+  });
+
+  it('merges the shown version: its image at its box, marks only from it', () => {
+    const split = (g: ReturnType<typeof buildGraph>) => g.runs.get('a/s1')!;
+    const shownK1 = buildGraph(recut({ [stackId]: 'a/k1' }));
+    expect(mergeChoice(shownK1, panel)).toEqual({ key: 'a/k1/01.png', marked: false });
+    expect(mergeOverrides(shownK1, split(shownK1))).toEqual({ '01.png': 'a/k1/01.png' });
+    expect(mergeBoxes(shownK1, split(shownK1))).toEqual({ '01.png': [0, 0, 6, 10] });
+
+    // A mark on an image made from another version waits until that version is shown again.
+    const merge = { 'a/s1/01.png': 'a/q1/q.png' };
+    expect(mergeChoice(buildGraph(recut({}, merge)), panel)).toEqual({ key: 'a/q1/q.png', marked: true });
+    const asSplit = buildGraph(recut({ [stackId]: 'a/s1' }, merge));
+    expect(mergeChoice(asSplit, panel)).toEqual({ key: 'a/s1/01.png', marked: false });
+    expect(mergeOverrides(asSplit, split(asSplit))).toEqual({});
+    expect(mergeBoxes(asSplit, split(asSplit))).toEqual({});
   });
 });

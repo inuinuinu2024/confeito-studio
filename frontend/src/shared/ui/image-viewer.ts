@@ -2,11 +2,11 @@
  * A window in the app that shows one image large, only to look at it (docs/specs/flow-canvas.md 「拡大表示」).
  * It opens fitted to the window (small images enlarged too); the wheel zooms around the cursor, dragging moves the image, the buttons
  * fit it / show it at 100% (actual pixels), and a double click switches between the two.
- * ×, Esc and a click outside the window close it; nothing else changes.
+ * It is a 別ウィンドウ (shared/ui/window.ts): ×, Esc and a click outside the window close it; nothing else changes.
  * Styles: shared/styles/components.css (cs-image-viewer).
  */
-import { escapeClosable } from './dialogs';
 import { h, icon } from './dom';
+import { openWindow } from './window';
 
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 16;
@@ -21,30 +21,28 @@ export interface ImageViewerOptions {
 }
 
 export function openImageViewer(src: string, title: string, options: ImageViewerOptions = {}): void {
-  const closeButton = h('button', { class: 'cs-image-viewer__close', title: '閉じる' }, icon('close', 20));
   const img = h('img', { class: 'cs-image-viewer__img', src, alt: title, draggable: false });
   const stage = h('div', { class: 'cs-image-viewer__body' }, img);
   const zoomLabel = h('span', { class: 'cs-image-viewer__zoom', text: '' });
   const tool = (label: string, iconName: string, onClick: () => void) =>
     h('button', { class: 'cs-image-viewer__tool', title: label, onclick: onClick }, icon(iconName, 18));
-  const panel = h(
-    'div',
-    { class: 'cs-image-viewer', attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-label': title } },
-    h(
-      'div',
-      { class: 'cs-image-viewer__head' },
-      h('span', { class: 'cs-image-viewer__title', text: title }),
+  const win = openWindow({
+    title,
+    className: 'cs-image-viewer',
+    headerTools: [
       options.subtitle ? h('span', { class: 'cs-image-viewer__subtitle', text: options.subtitle }) : null,
       tool('縮小', 'remove', () => zoomAround(scale / WHEEL_STEP)),
       zoomLabel,
       tool('拡大', 'add', () => zoomAround(scale * WHEEL_STEP)),
       tool('全体を表示', 'fit_screen', () => fit()),
       tool('100%（実寸）', 'crop_free', () => zoomAround(1)),
-      closeButton,
-    ),
-    stage,
-  );
-  const overlay = h('div', { class: 'cs-modal-overlay cs-modal-overlay--open cs-image-viewer-overlay' }, panel);
+    ],
+    onClose: () => {
+      resizeObserver.disconnect();
+      options.onClose?.();
+    },
+  });
+  win.body.append(stage);
 
   // ── Zoom and position: the image's top left at (x, y) in the stage, `scale` screen px per image px ──
   let x = 0;
@@ -120,21 +118,6 @@ export function openImageViewer(src: string, title: string, options: ImageViewer
   });
   img.addEventListener('load', () => fit(), { once: true });
 
-  const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  const close = () => {
-    resizeObserver.disconnect();
-    remove();
-    options.onClose?.();
-    returnFocus?.focus();
-  };
-  closeButton.addEventListener('click', close);
-  // Outside the window (the backdrop) closes it too; inside, dragging moves the image.
-  overlay.addEventListener('click', e => {
-    if (e.target === overlay) close();
-  });
-  document.body.appendChild(overlay);
-  const remove = escapeClosable(overlay, close);
   resizeObserver.observe(stage);
   if (img.complete && img.naturalWidth) fit();
-  closeButton.focus();
 }

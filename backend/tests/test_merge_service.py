@@ -93,6 +93,33 @@ def test_merge_replaces_panels_with_overrides_resized_to_the_panel(archives_dir:
     assert info["settings"] == {"panels": {"02.png": "page/colored/big.png"}}
 
 
+def test_merge_pastes_larger_panels_first_so_insets_stay_on_top(archives_dir: Path) -> None:
+    # 01 is a small inset panel inside 02 (the whole page), numbered before it.
+    panels_json = {
+        "image_size": {"width": 20, "height": 20},
+        "panels": [
+            {"filename": "01.png", "pixel_box": [5, 5, 10, 10]},
+            {"filename": "02.png", "pixel_box": [0, 0, 20, 20]},
+        ],
+    }
+    save_archive(
+        "page",
+        [
+            ("split/01.png", make_png(5, 5, (255, 0, 0, 255))),
+            ("split/02.png", make_png(20, 20, (0, 0, 255, 255))),
+            ("split/panels.json", json.dumps(panels_json).encode()),
+        ],
+    )
+
+    result = merge_service.merge_panels("page/split")
+
+    merged = Image.open(archives_dir / result["auto_select_key"])
+    assert merged.getpixel((7, 7)) == (255, 0, 0, 255)
+    assert merged.getpixel((1, 1)) == (0, 0, 255, 255)
+    info = json.loads((archives_dir / result["folder"] / "info.json").read_text(encoding="utf-8"))
+    assert info["sources"] == ["page/split/01.png", "page/split/02.png"]  # still in panel order
+
+
 def test_merge_reports_missing_override() -> None:
     _make_split_folder("split/")
     with pytest.raises(merge_service.MergeServiceError, match=r"コマ画像 \(page/gone.png\)"):
@@ -108,3 +135,37 @@ def test_parse_overrides_rejects_bad_input(text: str) -> None:
 def test_parse_overrides() -> None:
     assert merge_service.parse_overrides(None) == {}
     assert merge_service.parse_overrides('{"01.png": "a/b.png"}') == {"01.png": "a/b.png"}
+
+
+def test_merge_places_panels_cut_again_at_their_own_box(archives_dir: Path) -> None:
+    # Panel 02 was cut again (コマ切り直し) as the 4x4 box at (12, 2): its image is pasted there at that size.
+    _make_split_folder("split/")
+    save_archive("page", [("recrop/02.png", make_png(8, 8, (0, 255, 0, 255)))])
+    boxes = {"02.png": [12, 2, 16, 6]}
+
+    result = merge_service.merge_panels("page/split", {"02.png": "page/recrop/02.png"}, boxes)
+
+    merged = Image.open(archives_dir / result["auto_select_key"])
+    assert merged.getpixel((2, 2)) == (255, 0, 0, 255)
+    assert merged.getpixel((13, 3)) == (0, 255, 0, 255)
+    assert merged.getpixel((18, 8)) == (0, 0, 0, 0)  # the old box of panel 02 is not pasted any more
+    info = json.loads((archives_dir / result["folder"] / "info.json").read_text(encoding="utf-8"))
+    assert info["sources"] == ["page/split/01.png", "page/recrop/02.png"]
+    assert info["settings"] == {"panels": {"02.png": "page/recrop/02.png"}, "boxes": boxes}
+
+
+def test_merge_rejects_a_box_outside_the_page() -> None:
+    _make_split_folder("split/")
+    with pytest.raises(merge_service.MergeServiceError, match=r"切り直したコマ \(02.png\) の範囲"):
+        merge_service.merge_panels("page/split", {}, {"02.png": [30, 0, 40, 10]})
+
+
+@pytest.mark.parametrize("text", ["{", "[]", '{"02.png": [1, 2]}', '{"02.png": "x"}'])
+def test_parse_boxes_rejects_bad_input(text: str) -> None:
+    with pytest.raises(merge_service.MergeServiceError):
+        merge_service.parse_boxes(text)
+
+
+def test_parse_boxes() -> None:
+    assert merge_service.parse_boxes(None) == {}
+    assert merge_service.parse_boxes('{"01.png": [0, 0, 5, 5]}') == {"01.png": [0, 0, 5, 5]}

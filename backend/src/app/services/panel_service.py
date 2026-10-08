@@ -3,6 +3,10 @@
 Output (see docs/specs/tools/panel-split-merge.md): ``01.png, 02.png, ..., panels.json, info.json`` in
 ``<root archive>/<YYYYMMDD_HHMMSS>_コマ分割/``, or a new archive of that name without ``target_folder``
 (``archive_service.save_result``).
+
+A panel can be cut again from the page with a box chosen by hand (コマ切り直し, ``recrop_panel``): a result
+``<archive>/<YYYYMMDD_HHMMSS>_コマ切り直し/<panel file name>`` whose source is the panel, so every re-cut of a
+panel is one more version of it (docs/specs/flow-canvas.md 「コマの切り直し」).
 """
 
 import base64
@@ -18,9 +22,17 @@ from ..errors import BadRequestError, exception_text
 from ..providers import gemini
 from . import panel_geometry as geo
 from . import usage_service
-from .archive_service import save_result
+from .archive_service import (
+    RESULT_INFO_FILE,
+    ArchiveServiceError,
+    extract_file,
+    normalize_rel_path,
+    save_result,
+    split_archive_path,
+)
 
 TOOL_NAME = "コマ分割"
+RECROP_TOOL_NAME = "コマ切り直し"
 
 
 class PanelServiceError(BadRequestError):
@@ -104,7 +116,7 @@ def split_panels(
     except Exception as e:
         raise PanelServiceError("画像ファイルを読み込めませんでした。", raw_response=exception_text(e)) from e
 
-    boxes = detect_panels(image, reading_order, model, level, key)
+    boxes = geo.order_by_markers(detect_panels(image, reading_order, model, level, key))
     if not boxes:
         boxes = [{"panel_number": 1, "box_2d": [0, 0, 1000, 1000]}]  # treat the page as one panel
 
@@ -159,4 +171,82 @@ def split_panels(
         "image_height": height,
         "model": model,
         "thinking_level": level,
+    }
+
+
+def parse_box(text: str | None) -> list[float]:
+    """The ``box`` form field of /recrop-panel: JSON ``[xmin, ymin, xmax, ymax]`` in pixels of the page."""
+    try:
+        data = json.loads(text or "")
+    except ValueError as e:
+        raise PanelServiceError("切り出す範囲を JSON として読めません。", raw_response=exception_text(e)) from e
+    if not isinstance(data, list) or len(data) != 4:
+        raise PanelServiceError("切り出す範囲の指定が正しくありません。", raw_response=text)
+    return data
+
+
+def _read_json(archive: str, path: str) -> dict[str, Any] | None:
+    try:
+        content, _ = extract_file(archive, path)
+        data = json.loads(content.decode("utf-8"))
+    except (ArchiveServiceError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def recrop_panel(panel_key: str, box: list[float]) -> dict[str, Any]:
+    """Cuts panel ``panel_key`` (an output of a コマ分割) again from the split page with ``box``
+    (``[xmin, ymin, xmax, ymax]`` in page pixels) and saves it as a コマ切り直し result of the panel."""
+    key = normalize_rel_path(panel_key or "")
+    archive, path = split_archive_path(key)
+    folder_path, _, filename = path.rpartition("/")
+    if not archive or not filename:
+        raise PanelServiceError("切り出し直すコマが指定されていません。")
+    prefix = f"{folder_path}/" if folder_path else ""
+    split_folder = f"{archive}/{folder_path}" if folder_path else archive
+
+    info = _read_json(archive, f"{prefix}{RESULT_INFO_FILE}")
+    if not info or info.get("tool") != TOOL_NAME:
+        raise PanelServiceError(f"「{filename}」はコマ分割の結果のコマではありません。")
+    panels_meta = _read_json(archive, f"{prefix}panels.json") or {}
+    panels = panels_meta.get("panels") if isinstance(panels_meta.get("panels"), list) else []
+    if not any(isinstance(p, dict) and p.get("filename") == filename for p in panels):
+        raise PanelServiceError(f"コマ分割の panels.json に「{filename}」がありません。")
+    page_key = info.get("source")
+    if not isinstance(page_key, str) or not page_key:
+        raise PanelServiceError("分割前のページが記録されていないため、切り出し直せません。")
+
+    try:
+        content, _ = extract_file(*split_archive_path(page_key))
+        page = Image.open(io.BytesIO(content))
+        page.load()
+    except ArchiveServiceError as e:
+        raise PanelServiceError(f"分割前のページ（{page_key}）が見つかりません。", raw_response=e.message) from e
+    except Exception as e:
+        raise PanelServiceError("分割前のページを読み込めませんでした。", raw_response=exception_text(e)) from e
+
+    pixel_box = geo.clamp_pixel_box(box, *page.size)
+    if pixel_box is None:
+        raise PanelServiceError("切り出す範囲がページの外か、大きさが 0 です。", raw_response=json.dumps(box))
+
+    now = datetime.now()
+    folder = save_result(
+        archive,
+        f"{now:%Y%m%d_%H%M%S}_{RECROP_TOOL_NAME}",
+        [(filename, geo.to_png_bytes(page.crop(pixel_box)))],
+        {
+            "tool": RECROP_TOOL_NAME,
+            "source": key,
+            "settings": {"split": split_folder, "panel": filename, "pixel_box": list(pixel_box)},
+        },
+        now,
+    )
+    xmin, ymin, xmax, ymax = pixel_box
+    return {
+        "status": "success",
+        "folder": folder,
+        "key": f"{folder}/{filename}",
+        "pixel_box": list(pixel_box),
+        "width": xmax - xmin,
+        "height": ymax - ymin,
     }
