@@ -2,7 +2,8 @@
 
 Layout (under ``settings.archives_dir``)::
 
-    <archive>/                       top-level folder, e.g. "20260101_100000_image"
+    <archive>/                       top-level folder, e.g. "20260101_100000_image" (the archive's id)
+        .archive.json                the display name and creation time (``read_meta``; optional)
         <file or sub/dir>
     .trash/<archive>/                deleted archives (restore_archive)
     .trash/.items/<archive>/<path>   files / sub-folders deleted from an archive (restore_archive_contents)
@@ -14,18 +15,24 @@ Tool results are written with ``save_result`` (one folder per run, plus info.jso
 The frontend addresses entries with keys of the form ``"<archive>/<relative path>"``.
 Every path is resolved through ``resolve_path`` which rejects traversal outside the
 archive folder. Archive names starting with "." are reserved for these folders.
+
+The folder name is the archive's id and never changes; the name shown to the user is kept in
+``.archive.json`` (an archive without it shows its folder name). Display names are kept unique.
 """
 
 import json
 import logging
 import os
+import re
 import shutil
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, NotRequired, TypedDict
 
 from ..config import settings
 from ..errors import AppError, BadRequestError, ConflictError, NotFoundError, exception_text
+from .json_file import read_json_object, write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +80,19 @@ class ResultInfo(TypedDict):
 RESULT_INFO_FILE = "info.json"
 FLOW_FILE = ".flow.json"
 """Per-archive state of the Normal mode flow (services/flow_service.py); not listed as content."""
+ARCHIVE_META_FILE = ".archive.json"
+"""Per-archive display name and creation time (``read_meta``); not listed as content."""
+HIDDEN_FILES = {FLOW_FILE, ARCHIVE_META_FILE}
+META_FORMAT = "confeito-archive"
+DISPLAY_NAME_MAX = 100
+_STAMP_PREFIX = re.compile(r"^(\d{8}_\d{6})(?:_|$)")
+
+
+class ArchiveMeta(TypedDict):
+    """What ``.archive.json`` holds (``created_at`` as "YYYY-MM-DD HH:MM:SS")."""
+
+    name: str
+    created_at: str
 
 
 class ArchiveEntry(TypedDict):
@@ -159,6 +179,112 @@ def _remove(path: Path) -> None:
         path.unlink()
 
 
+# ── Display name (.archive.json) ──────────────────────────────────────
+
+
+def _created_from_folder(archive_dir: Path) -> str:
+    """The creation time of an archive without .archive.json: the stamp of its folder name, else its mtime."""
+    match = _STAMP_PREFIX.match(archive_dir.name)
+    if match:
+        try:
+            return f"{datetime.strptime(match.group(1), '%Y%m%d_%H%M%S'):%Y-%m-%d %H:%M:%S}"
+        except ValueError:
+            pass
+    try:
+        return f"{datetime.fromtimestamp(archive_dir.stat().st_mtime):%Y-%m-%d %H:%M:%S}"
+    except OSError:
+        return ""
+
+
+def _read_meta_at(archive_dir: Path) -> ArchiveMeta:
+    data = read_json_object(archive_dir / ARCHIVE_META_FILE) or {}
+    name, created_at = data.get("name"), data.get("created_at")
+    return {
+        "name": name if isinstance(name, str) and name.strip() else archive_dir.name,
+        "created_at": created_at if isinstance(created_at, str) and created_at else _created_from_folder(archive_dir),
+    }
+
+
+def read_meta(archive_name: str) -> ArchiveMeta:
+    """The display name and creation time of an archive (its folder name when .archive.json is missing or broken)."""
+    return _read_meta_at(existing_archive_dir(archive_name))
+
+
+def _meta_object(meta: ArchiveMeta) -> dict[str, Any]:
+    return {"format": META_FORMAT, "version": 1, **meta}
+
+
+def meta_bytes(meta: ArchiveMeta) -> bytes:
+    """The content of an .archive.json."""
+    return (json.dumps(_meta_object(meta), ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+
+def write_meta(archive_dir: Path, meta: ArchiveMeta) -> None:
+    write_json_atomic(archive_dir / ARCHIVE_META_FILE, _meta_object(meta), "アーカイブの情報を保存できませんでした。")
+
+
+def normalize_display_name(name: str) -> str:
+    """``name`` without surrounding spaces; empty, too long names and control characters are refused."""
+    name = name.strip()
+    if not name:
+        raise ArchiveValidationError("アーカイブの名前を入力してください。")
+    if len(name) > DISPLAY_NAME_MAX:
+        raise ArchiveValidationError(f"アーカイブの名前は {DISPLAY_NAME_MAX} 文字以内にしてください。")
+    if any(unicodedata.category(c) == "Cc" for c in name):
+        raise ArchiveValidationError("アーカイブの名前に使えない文字が含まれています。", raw_response=repr(name))
+    return name
+
+
+def display_names(exclude: str | None = None) -> set[str]:
+    """The display names in use (``exclude``: an archive id left out)."""
+    root = settings.archives_dir
+    if not root.is_dir():
+        return set()
+    return {
+        _read_meta_at(folder)["name"]
+        for folder in root.iterdir()
+        if folder.is_dir() and not folder.name.startswith(".") and folder.name != exclude
+    }
+
+
+def unique_display_name(name: str, taken: set[str]) -> str:
+    """``name``, or ``name (2)``, ``name (3)`` ... when it is in ``taken``."""
+    candidate, n = name, 1
+    while candidate in taken:
+        n += 1
+        candidate = f"{name} ({n})"
+    return candidate
+
+
+def display_name_from_folder(folder_name: str) -> str:
+    """The display name of a new archive: its folder name without the "YYYYMMDD_HHMMSS_" stamp."""
+    return _STAMP_PREFIX.sub("", folder_name, count=1) or folder_name
+
+
+def new_archive_meta(name: str, now: datetime | None = None) -> ArchiveMeta:
+    """The .archive.json of a new archive: ``name`` (shortened to fit) made unique among the display names."""
+    base = name.strip()[:DISPLAY_NAME_MAX].strip() or "アーカイブ"
+    base = "".join(c for c in base if unicodedata.category(c) != "Cc") or "アーカイブ"
+    return {
+        "name": unique_display_name(base, display_names()),
+        "created_at": f"{now or datetime.now():%Y-%m-%d %H:%M:%S}",
+    }
+
+
+def rename_archive(archive_name: str, new_name: str) -> ArchiveMeta:
+    """Changes the display name (the folder name stays); a name another archive uses is refused."""
+    archive_dir = existing_archive_dir(archive_name)
+    name = normalize_display_name(new_name)
+    meta = _read_meta_at(archive_dir)
+    if name == meta["name"]:
+        return meta
+    if name in display_names(exclude=archive_name):
+        raise ArchiveConflictError(f"同じ名前のアーカイブ「{name}」があります。")
+    meta = {"name": name, "created_at": meta["created_at"]}
+    write_meta(archive_dir, meta)
+    return meta
+
+
 # ── Queries ───────────────────────────────────────────────────────────
 
 
@@ -172,7 +298,7 @@ def list_archives() -> list[ArchiveEntry]:
     return [
         {
             "key": folder.name,
-            "name": folder.name,
+            "name": _read_meta_at(folder)["name"],
             "type": "folder",
             "folderId": None,
             "timestamp": int(folder.stat().st_mtime * 1000),
@@ -213,7 +339,7 @@ def list_archive_contents(archive_name: str) -> list[ArchiveEntry]:
 
         parent_id = f"{archive_name}/{rel_root}" if rel_root != "." else archive_name
         for file_name in files:
-            if rel_root == "." and file_name == FLOW_FILE:
+            if rel_root == "." and file_name in HIDDEN_FILES:
                 continue
             file_rel_path = f"{rel_root}/{file_name}" if rel_root != "." else file_name
             entries.append(
@@ -259,7 +385,7 @@ def save_archive(name: str, files_data: list[tuple[str, bytes]]) -> str:
     return name
 
 
-def _unique_name(parent: Path, name: str) -> str:
+def unique_name(parent: Path, name: str) -> str:
     """``name``, or ``name_2``, ``name_3`` ... when ``parent`` already has an entry with that name."""
     candidate, n = name, 1
     while (parent / candidate).exists():
@@ -286,13 +412,16 @@ def save_result(
     root_name = split_archive_path(root)[0] if root else ""
     validate_archive_name(folder_name)
     if root_name:
-        name = _unique_name(resolve_path(root_name), folder_name)
+        name = unique_name(resolve_path(root_name), folder_name)
         archive, prefix, key = root_name, f"{name}/", f"{root_name}/{name}"
     else:
-        name = _unique_name(settings.archives_dir, folder_name)
+        name = unique_name(settings.archives_dir, folder_name)
         archive, prefix, key = name, "", name
 
     files = [(f"{prefix}{path}", content) for path, content in files_data]
+    if not root_name:
+        meta = new_archive_meta(display_name_from_folder(folder_name), now)
+        files.append((ARCHIVE_META_FILE, meta_bytes(meta)))
     if info is not None:
         record = {
             "tool": info["tool"],

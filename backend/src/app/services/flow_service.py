@@ -20,6 +20,7 @@ from typing import Any, TypedDict
 
 from PIL import Image
 
+from ..config import settings as app_settings
 from ..errors import exception_text
 from .archive_service import (
     FLOW_FILE,
@@ -28,6 +29,7 @@ from .archive_service import (
     ArchiveServiceError,
     ArchiveValidationError,
     existing_archive_dir,
+    read_meta,
     resolve_path,
 )
 from .json_file import read_json_object, write_json_atomic
@@ -54,6 +56,19 @@ class FlowRun(TypedDict):
     sources: list[str]
     settings: dict[str, Any]
     outputs: list[FlowImage]
+
+
+class ArchiveSummary(TypedDict):
+    """One row of the Archive Manager (``timestamp``: last modified, ms)."""
+
+    key: str
+    name: str
+    created_at: str
+    timestamp: int
+    images: int
+    results: int
+    size: int
+    cover: str | None
 
 
 class Flow(TypedDict):
@@ -151,6 +166,51 @@ def get_flow(archive_name: str) -> Flow:
         "selection": _read_map(archive_dir, "selection"),
         "merge": _read_map(archive_dir, "merge"),
     }
+
+
+def _summary(archive_dir: Path) -> ArchiveSummary:
+    name = archive_dir.name
+    entries = sorted(archive_dir.iterdir(), key=lambda p: p.name)
+    roots = [p.name for p in entries if is_image(p)]
+    runs = [
+        (p.name, images)
+        for p in entries
+        if p.is_dir() and not p.name.startswith(".") and (images := sorted(c.name for c in p.iterdir() if is_image(c)))
+    ]
+    size = sum(f.stat().st_size for f in archive_dir.rglob("*") if f.is_file())
+    cover = f"{name}/{roots[0]}" if roots else f"{name}/{runs[0][0]}/{runs[0][1][0]}" if runs else None
+    meta = read_meta(name)
+    return {
+        "key": name,
+        "name": meta["name"],
+        "created_at": meta["created_at"],
+        "timestamp": int(archive_dir.stat().st_mtime * 1000),
+        "images": len(roots) + sum(len(images) for _, images in runs),
+        "results": len(runs),
+        "size": size,
+        "cover": cover,
+    }
+
+
+def archive_summaries() -> list[ArchiveSummary]:
+    """Every archive with what the Archive Manager lists, newest first (same order as ``list_archives``).
+
+    The images and results counted are those the Workspace shows (images directly in the archive and in
+    its result folders); the size is every file. An archive that cannot be read (removed meanwhile) is left out.
+    """
+    root = app_settings.archives_dir
+    if not root.is_dir():
+        return []
+    result: list[ArchiveSummary] = []
+    for folder in root.iterdir():
+        if not folder.is_dir() or folder.name.startswith("."):
+            continue
+        try:
+            result.append(_summary(folder))
+        except (OSError, ArchiveNotFoundError):
+            continue
+    result.sort(key=lambda s: s["timestamp"], reverse=True)
+    return result
 
 
 def set_selection(archive_name: str, stack: str, folder: str | None) -> None:

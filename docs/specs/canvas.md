@@ -4,7 +4,7 @@ Workspace（モード名 `normal`）の処理フローは [flow-canvas.md](./flo
 
 ## 表示モード（左端のボタン、同時に 1 つ）
 ボタンは上から Workspace、仕切り線、Parallel View、Overlay View（比較のモード）。もう一度押すと Workspace に戻る。
-仕切り線の下のマネージャーのうち Prompt Manager と Character Manager も表示モードの 1 つ（サイドバーとメイン領域を使う。[prompt-manager.md](./prompt-manager.md)・[character-manager.md](./character-manager.md)）。
+仕切り線の下のマネージャーのうち Archive Manager（メイン領域だけを使う。[archive-manager.md](./archive-manager.md)）と Prompt Manager・Character Manager も表示モードの 1 つ（サイドバーとメイン領域を使う。[prompt-manager.md](./prompt-manager.md)・[character-manager.md](./character-manager.md)）。
 Batch モードはない（複数の画像への処理は Workspace で複数選択して実行する）。
 
 ## 比較する画像

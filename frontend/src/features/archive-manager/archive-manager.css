@@ -1,0 +1,244 @@
+/* ── Archive Manager (ArchiveManager.ts): the archive list in place of the canvas ── */
+.archive-manager {
+  display: none;
+  position: relative;
+  grid-column: 2 / 4;
+  grid-row: 2 / 3;
+  min-height: 0;
+  background-color: var(--color-surface);
+}
+
+.manga-grid--archive > .archive-manager {
+  display: flex;
+}
+
+.archive-manager__inner {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px 24px 24px;
+}
+
+.archive-manager--loading .archive-list {
+  opacity: 0.6;
+  transition: opacity 150ms ease;
+}
+
+.archive-manager__header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.archive-manager__heading {
+  display: flex;
+  align-items: baseline;
+  flex: 1;
+  gap: 12px;
+  min-width: 200px;
+}
+
+.archive-manager__title {
+  margin: 0;
+  font-family: var(--font-headline);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+.archive-manager__subtitle,
+.archive-manager__selection {
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+}
+
+.archive-manager__selection {
+  min-height: 16px;
+}
+
+.archive-manager__search {
+  width: 200px;
+}
+
+.archive-manager__empty {
+  padding: 32px 8px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--color-on-surface-variant);
+}
+
+/* ── List: one grid row per archive ── */
+.archive-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-surface-container-low);
+}
+
+.archive-list__body {
+  overflow-y: auto;
+}
+
+.archive-row {
+  display: grid;
+  grid-template-columns: 32px 56px minmax(160px, 1fr) 128px 168px 80px 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-outline-variant);
+  font-size: 13px;
+  color: var(--color-on-surface);
+  cursor: pointer;
+}
+
+.archive-list__body > .archive-row:last-child {
+  border-bottom: none;
+}
+
+.archive-row:not(.archive-row--head):hover {
+  background: var(--color-surface-container-high);
+}
+
+.archive-row--checked {
+  background: var(--color-surface-container);
+}
+
+.archive-row--head {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  background: var(--color-surface-container);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-outline);
+  cursor: default;
+}
+
+.archive-row__check-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  cursor: pointer;
+}
+
+.archive-row__check {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.archive-row__thumb-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 42px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  color: var(--color-outline);
+}
+
+.archive-row--head .archive-row__thumb-cell {
+  height: auto;
+}
+
+.archive-row:not(.archive-row--head) .archive-row__thumb-cell {
+  background: var(--color-surface-container-lowest);
+}
+
+.archive-row__thumb {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.archive-row__name-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.archive-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archive-row__name-input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+}
+
+.archive-row__edit {
+  visibility: hidden;
+  flex-shrink: 0;
+}
+
+.archive-row:hover .archive-row__edit {
+  visibility: visible;
+}
+
+.archive-row__badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--color-on-surface-variant);
+  border: 1px solid var(--color-outline);
+}
+
+.archive-row--new {
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+.archive-row__created,
+.archive-row__counts,
+.archive-row__size {
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+  white-space: nowrap;
+}
+
+.archive-row__size {
+  text-align: right;
+}
+
+.archive-row__open-cell {
+  display: flex;
+  justify-content: center;
+}
+
+/* ── Dropping zip files ── */
+.archive-manager__drop {
+  display: none;
+  position: absolute;
+  inset: 12px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px dashed var(--color-outline);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-surface) 85%, transparent);
+  font-size: 14px;
+  color: var(--color-on-surface);
+  pointer-events: none;
+}
+
+.archive-manager--dragging .archive-manager__drop {
+  display: flex;
+}

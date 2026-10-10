@@ -10,6 +10,7 @@ import { choiceDialog } from '../../shared/ui/dialogs';
 import { h } from '../../shared/ui/dom';
 import { showError, showToast } from '../../shared/ui/toast';
 import { fileStamp } from '../../shared/utils/datetime';
+import { downloadBlob } from '../../shared/utils/download';
 
 function showWarnings(warnings: string[]): void {
   for (const warning of warnings) showToast(warning, 'warning');
@@ -20,10 +21,8 @@ export async function exportAll(): Promise<void> {
   try {
     const { warnings, characters } = await listCharacters();
     showWarnings(warnings);
-    const url = URL.createObjectURL(await exportCharacters());
     const name = `confeito-characters-${fileStamp()}.zip`;
-    h('a', { href: url, download: name }).click();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    downloadBlob(await exportCharacters(), name);
     showToast(`キャラクター ${characters.length} 件を ${name} に書き出しました`, 'success');
   } catch (err) {
     showError('キャラクターを書き出せませんでした', err);

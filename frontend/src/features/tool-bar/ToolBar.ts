@@ -1,8 +1,8 @@
 /**
  * ToolBar — left column of view mode buttons (state lives in shared/state/view-mode.ts), in groups
  * separated by thin dividers: Normal | the comparison views Parallel, Overlay | the managers
- * (Prompt Manager / Character Manager are the "prompt" / "character" view modes; Object / Style are not
- * implemented yet) | the monitors (Cost Monitor is the "cost" view mode).
+ * (Archive Manager / Prompt Manager / Character Manager are the "archive" / "prompt" / "character" view modes;
+ * Object / Style are not implemented yet) | the monitors (Cost Monitor is the "cost" view mode).
  */
 import './tool-bar.css';
 import { on } from '../../shared/events';
@@ -19,6 +19,7 @@ const MODES: Record<ViewMode, ButtonDef> = {
   normal: { title: 'Workspace', icon: 'account_tree' },
   parallel: { title: 'Parallel View', icon: 'compare' },
   overlay: { title: 'Overlay View', icon: 'photo_library' },
+  archive: { title: 'Archive Manager', icon: 'inventory_2' },
   prompt: { title: 'Prompt Manager', icon: 'chat' },
   character: { title: 'Character Manager', icon: 'person' },
   cost: { title: 'Cost Monitor', icon: 'browse_activity' },
@@ -31,6 +32,7 @@ const ITEMS: (ViewMode | 'divider' | ButtonDef)[] = [
   'parallel',
   'overlay',
   'divider',
+  'archive',
   'prompt',
   'character',
   { title: 'Object Manager', icon: 'eyeglasses' },
@@ -67,6 +69,7 @@ export function createToolBar(): HTMLElement {
     'normal-mode:toggle',
     'parallel-mode:toggle',
     'overlay-mode:toggle',
+    'archive-mode:toggle',
     'prompt-mode:toggle',
     'character-mode:toggle',
     'cost-mode:toggle',

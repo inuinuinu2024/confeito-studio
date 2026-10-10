@@ -116,7 +116,8 @@
 }
 
 /* A button that cannot be pressed now (e.g. while a run or a detection is going on) */
-.cs-btn:disabled {
+.cs-btn:disabled,
+.cs-icon-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }

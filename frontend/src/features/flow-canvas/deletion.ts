@@ -28,9 +28,12 @@ export function targetsLabel(targets: readonly DeletionTarget[]): string {
   return targets.length === 1 ? `「${targets[0].name}」を` : `${targets.length} 件を`;
 }
 
-/** The trash requests for a plan: the archive itself, or its pages and result folders. */
-export function deletionTargets(graph: FlowGraph, plan: DeletionPlan): DeletionTarget[] {
-  if (plan.whole) return [{ archive: graph.archive, path: '', name: graph.archive }];
+/**
+ * The trash requests for a plan: the archive itself (shown as `archiveName`, its display name), or its
+ * pages and result folders.
+ */
+export function deletionTargets(graph: FlowGraph, plan: DeletionPlan, archiveName = graph.archive): DeletionTarget[] {
+  if (plan.whole) return [{ archive: graph.archive, path: '', name: archiveName }];
   const target = (key: string, name: string) => ({ archive: graph.archive, path: splitArchiveKey(key)[1], name });
   return [
     ...plan.roots.map(root => target(root.key, root.name)),

@@ -18,6 +18,7 @@ frontend/src/
 │   │                         # window（別ウィンドウの共通部品。見出し・×・外のクリックで閉じる）, image-viewer（画像を大きく見るウィンドウ。ズーム・移動）,
 │   │                         # category-sidebar（マネージャー共通のカテゴリー一覧）
 │   ├── utils/                # datetime, error-message(describeError), image(Blob/Canvas 変換), history(削除の Undo。削除と Undo を 1 つずつ順に実行),
+│   │                         # download(ブラウザのダウンロードで保存), archives(画像の書き出しのファイル名・表示名の確認・容量の表示・検索),
 │   │                         # categories(カテゴリー付き一覧の共通処理), prompts(登録プロンプトの入力チェック・絞り込み・エクスポート形式),
 │   │                         # characters(登録キャラクターの絞り込み・ツールで使う時の説明文), icon-crop(アイコンの切り取り枠の計算),
 │   │                         # rect-crop(コマの切り直しの枠（自由な長方形）の計算),
@@ -25,14 +26,15 @@ frontend/src/
 │   └── styles/               # variables(トークン), base, components(cs-*), layout(グリッド), manager(マネージャー共通の mgr-*)
 └── features/
     ├── top-bar/              # アプリ名・アイコン, 設定ウィンドウ（API・表示）, ショートカット
-    ├── tool-bar/             # 左端の表示モード切替ボタン（Prompt Manager / Character Manager / Cost Monitor も表示モード）
+    ├── tool-bar/             # 左端の表示モード切替ボタン（Archive Manager / Prompt Manager / Character Manager / Cost Monitor も表示モード）
+    ├── archive-manager/      # Archive Manager（メイン領域のアーカイブ一覧。開く・名前の変更・zip のエクスポート / インポート・削除）
     ├── prompt-manager/       # Prompt Manager（カテゴリー一覧 = 左サイドバー、一覧と編集欄 = メイン領域。transfer.ts = エクスポート / インポート）
     ├── cost-monitor/         # Cost Monitor（メイン領域のダッシュボード。daily-chart.ts = 日別の積み上げ棒（SVG・日の選択）、
     │                         # bar-list.ts = ツール別の横棒、day-detail.ts = 選んだ日の内訳、parts.ts = 金額（円優先）・表の部品）
     ├── character-manager/    # Character Manager（Prompt Manager と同じ構成。image-list.ts = 編集欄の画像、icon-cropper.ts = アイコンの切り取り、transfer.ts = zip のエクスポート / インポート）
     ├── flow-canvas/          # Workspace（Normal モード）の処理フロー。FlowCanvas.ts = 画面と操作、flow-graph.ts = info.json から図・スタック・
     │                         # 削除範囲・コマ結合の差し替えを作る純粋関数、flow-layout.ts = 自動配置と線、pan-zoom.ts、thumbnails.ts、
-    │                         # deletion.ts = 削除と Undo、side-pane.ts = 3 枚構成の左右のペイン（元ページ / コマ結合後）、
+    │                         # deletion.ts = 削除と Undo（Archive Manager も使う）、export-images.ts = 画像の書き出し、side-pane.ts = 3 枚構成の左右のペイン（元ページ / コマ結合後）、
     │                         # panel-cropper.ts = コマの切り直し（ページ上の範囲の表示・切り直し・版の切り替え）
     ├── canvas/               # 比較キャンバス（Parallel / Overlay。canvas-state / render / zoom / toolbars）
     ├── ai-panel/             # ツール一覧・並び替え・実行（tool-runner、run-targets = まとめて実行の対象と通知文）・ツールウィンドウ（components/ToolWindow.ts）
@@ -55,12 +57,12 @@ frontend/src/
 | イベント | 送信元 → 受信先 | 意味 |
 |---|---|---|
 | `flow:selection-changed` | DocumentManager（FlowCanvas が選択を変えた時）→ 受け手は任意 | 選択中の画像（選んだ順）が変わった |
-| `archives:changed` | ツール/削除処理 → FlowCanvas, Canvas | ファイルが変わった。FlowCanvas はアーカイブ一覧と処理フローを読み直し、`select` の画像を選ぶ（そのアーカイブへ切り替える）。`archive` があればそのアーカイブを表示。Canvas は比較中の画像を読み直す |
-| `archives:location-changed` | 設定ウィンドウ（保存先）→ FlowCanvas | アーカイブのフォルダを切り替えた。選択・サムネイル・Undo の履歴を捨て、新しいフォルダの一番新しいアーカイブを表示 |
-| `<mode>-mode:toggle` | view-mode.ts → 各機能 | 表示モードの ON/OFF（normal = Workspace /parallel/overlay/prompt/character/cost）。prompt は Prompt Manager、character は Character Manager、cost は Cost Monitor（app.ts がメイン領域を入れ替える）。Canvas は parallel / overlay の開始時に選択から比較する画像を取る |
+| `archives:changed` | ツール/削除処理/Archive Manager → FlowCanvas, Canvas, ArchiveManager | ファイルが変わった。FlowCanvas はアーカイブ一覧と処理フローを読み直し、`select` の画像を選ぶ（そのアーカイブへ切り替える）。`archive` があればそのアーカイブを表示（Archive Manager の「開く」もこれ）。Canvas は比較中の画像を読み直す。Archive Manager は表示中なら一覧を読み直す |
+| `archives:location-changed` | 設定ウィンドウ（保存先）→ FlowCanvas, ArchiveManager | アーカイブのフォルダを切り替えた。選択・サムネイル・Undo の履歴を捨て、新しいフォルダの一番新しいアーカイブを表示 |
+| `<mode>-mode:toggle` | view-mode.ts → 各機能 | 表示モードの ON/OFF（normal = Workspace /parallel/overlay/archive/prompt/character/cost）。archive は Archive Manager、prompt は Prompt Manager、character は Character Manager、cost は Cost Monitor（app.ts がメイン領域を入れ替える）。Canvas は parallel / overlay の開始時に選択から比較する画像を取る |
 | `tool:start` / `tool:progress` / `tool:end` | tool-runner, ツール → StatusBar, FlowCanvas（`tool:end` は Cost Monitor も受けて読み直す） | 実行状況。FlowCanvas は実行中の結果をまとめて選ぶ |
 | `tool:target` | tool-runner → FlowCanvas | まとめて実行の 1 枚ごとの状態（running / done / failed）。セルに印を付ける |
-| `canvas:bg-color`, `settings:updated`, `history:changed` | 設定ウィンドウ, history | 背景色 / API キー保存 / Undo できるかが変わった（Workspace の削除・元に戻すボタン） |
+| `canvas:bg-color`, `settings:updated`, `history:changed` | 設定ウィンドウ, history | 背景色 / API キー保存 / Undo できるかが変わった（Workspace・Archive Manager の削除・元に戻すボタン） |
 
 ### 状態の持ち場所
 - **表示モード**: `shared/state/view-mode.ts` が唯一の正。変更は `setViewMode()` / `toggleViewMode()` のみ。

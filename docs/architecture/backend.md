@@ -11,8 +11,9 @@ backend/src/app/
 ├── errors.py        # AppError 階層と unexpected_errors_as()
 ├── routers/         # HTTP 層。入力を受けてサービスを呼ぶだけ（try/except を書かない）
 ├── services/        # 業務ロジック。FastAPI に依存しない
-│   ├── archive_service.py   # アーカイブ（フォルダ）の読み書き・ゴミ箱・パス検証
-│   ├── flow_service.py      # Workspace の処理フロー（開始画像・結果フォルダの info.json・.flow.json の表示中の候補）とサムネイル
+│   ├── archive_service.py   # アーカイブ（フォルダ）の読み書き・表示名（.archive.json）・ゴミ箱・パス検証
+│   ├── archive_transfer.py  # アーカイブの zip のエクスポート / インポート（キーの書き換え）と画像の書き出し（zip）
+│   ├── flow_service.py      # Workspace の処理フロー（開始画像・結果フォルダの info.json・.flow.json の表示中の候補）とサムネイル、Archive Manager の一覧（archive_summaries）
 │   ├── panel_service.py     # コマ分割（Gemini 呼び出し + 切り出し + 保存）
 │   ├── panel_geometry.py    # コマ分割の純粋関数（プロンプト・座標変換・レスポンス解析）
 │   ├── merge_service.py     # コマ結合（コマの差し替え overrides を含む）
@@ -78,10 +79,15 @@ backend/src/app/
 |---|---|---|
 | GET | `/health` | 起動待ち・ステータスバー (`api/system.ts`) |
 | POST | `/shutdown` | 全タブクローズ時に Vite プラグインが呼ぶ |
-| GET | `/archives` | トップレベル一覧（新しい順） |
+| GET | `/archives` | トップレベル一覧（新しい順。`key` = フォルダ名、`name` = 表示名） |
+| GET | `/archives/details` | Archive Manager の一覧 `[{key, name, created_at, timestamp, images, results, size, cover}]`（新しい順。`flow_service.archive_summaries`） |
+| PUT | `/archives/{name}/meta` | `{name}`: 表示名を変える（`.archive.json`。フォルダ名は変えない。同じ表示名があれば 409）→ `{name, created_at}` |
+| POST | `/archives/export` | `{names}`: アーカイブの zip（`manifest.json` ＋ フォルダごと）。ファイル名は `X-File-Name`（URL エンコード）。一時ファイルを送って消す |
+| POST | `/archives/import` | multipart `file`（zip）: 中のアーカイブを新しいアーカイブとして追加 → `{imported: [{key, name}], skipped_files, warnings}`。読めない zip は 400 |
+| POST | `/archives/export-images` | `{keys}`: 画像をフォルダなしで並べた zip（名前は `<結果フォルダ>_<ファイル名>`、重なれば `_2`）。ファイル名は `X-File-Name` |
 | POST | `/archives` | multipart: `name`, `files[]`, `paths[]` で保存（既存なら追記・上書き） |
-| POST | `/archives/results` | ツールの結果を保存: multipart `root?`, `name`, `info?`(JSON), `files[]`, `paths[]` → `{folder}`（`save_result`。同名は `_2`…、info.json を付ける） |
-| GET | `/archives/{name}/contents` | 配下の全フォルダ・ファイル（`folderId` で親子。`.flow.json` は含めない） |
+| POST | `/archives/results` | ツールの結果を保存: multipart `root?`, `name`, `info?`(JSON), `files[]`, `paths[]` → `{folder, archive_name}`（`save_result`。同名は `_2`…、info.json を付ける。新しいアーカイブには `.archive.json`。`archive_name` は表示名） |
+| GET | `/archives/{name}/contents` | 配下の全フォルダ・ファイル（`folderId` で親子。`.flow.json`・`.archive.json` は含めない） |
 | GET | `/archives/{name}/flow` | Workspace の処理フロー `{archive, roots, runs, selection}`。roots = 直下の画像、runs = 直下の結果フォルダ（info.json の `tool`/`created_at`/`source`/`sources`/`settings` と、直下の画像 `outputs[{key,name,width,height}]`。古い順）、selection = `.flow.json` の表示中の候補、merge = コマ結合に使う画像のマーク |
 | PUT | `/archives/{name}/flow/selection` | `{stack, folder}`: スタックの表示中の候補を `.flow.json` に保存（`folder: null` で既定 = 最新に戻す） |
 | PUT | `/archives/{name}/flow/merge` | `{panel, image}`: コマ結合でコマ `panel` に貼る画像のマークを `.flow.json` に保存（`image: null` でマークを外す = 原画） |

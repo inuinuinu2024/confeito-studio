@@ -1,12 +1,12 @@
 /**
  * 画像読み込み — imports an image file as a new archive "<YYYYMMDD_HHMMSS>_<name>" (a "_2" ...
- * suffix when taken) containing only the file; the canvas then shows that archive with the image selected.
+ * suffix when taken; shown as "<name>") containing only the file; the canvas then shows that archive with the image selected.
  * It needs no selection (runs once).
  * The file is chosen in the OS file dialog, which the backend opens in the folder set in the tool
  * window (the browser's picker cannot start in a given folder). Canvas drag & drop runs the same
  * import (`importImageTool`). Spec: docs/specs/tools/image-loader.md
  */
-import { saveResult } from '../../shared/api/archives';
+import { saveResultIn } from '../../shared/api/archives';
 import { ApiError } from '../../shared/api/http';
 import { checkFolder, pickImageFile } from '../../shared/api/local-files';
 import { emit } from '../../shared/events';
@@ -29,7 +29,7 @@ const FOLDER_HELP = [
 async function importImageFile(file: File, signal: AbortSignal): Promise<string> {
   const baseName = (file.name.replace(/\.[^/.]+$/, '') || file.name).replace(/[\\/:*?"<>|]/g, '_');
   // The archive is the page itself: no info.json (the original file name stays as the image name).
-  const archive = await saveResult({
+  const { folder: archive, archiveName } = await saveResultIn({
     root: null,
     name: `${fileStamp()}_${baseName}`,
     info: null,
@@ -38,7 +38,7 @@ async function importImageFile(file: File, signal: AbortSignal): Promise<string>
   await discardIfStopped(signal, archive);
 
   emit('archives:changed', { select: [`${archive}/${file.name}`] });
-  return `「${archive}」を作成し、${file.name} を読み込みました`;
+  return `「${archiveName}」を作成し、${file.name} を読み込みました`;
 }
 
 /** The 画像読み込み tool for a file that is already chosen (canvas drag & drop). */

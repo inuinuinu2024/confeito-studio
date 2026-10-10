@@ -49,6 +49,7 @@ import { DocumentManager } from '../document/DocumentManager';
 import { importImageTool } from '../tools/image-loader';
 import { TOOLS } from '../tools';
 import { deleteTargets, deletionTargets } from './deletion';
+import { downloadImages } from './export-images';
 import {
   adoptableStack,
   buildGraph,
@@ -137,6 +138,11 @@ export function createFlowCanvas(): HTMLElement {
   const archiveSelect = h('select', { class: 'cs-select flow-toolbar__archive', title: '表示するアーカイブ' });
   const refreshIcon = icon('refresh', 16);
   const refreshButton = h('button', { class: 'flow-toolbar__button', title: '最新の状態に更新' }, refreshIcon);
+  const exportButton = h(
+    'button',
+    { class: 'flow-toolbar__button', title: '選択した画像を書き出す（ダウンロード）', disabled: true },
+    icon('download', 16),
+  );
   const deleteButton = h(
     'button',
     { class: 'flow-toolbar__button', title: '選択した結果を削除 (Delete)', disabled: true },
@@ -154,6 +160,7 @@ export function createFlowCanvas(): HTMLElement {
     icon('folder', 16),
     archiveSelect,
     refreshButton,
+    exportButton,
     deleteButton,
     undoButton,
     selectionInfo,
@@ -221,8 +228,12 @@ export function createFlowCanvas(): HTMLElement {
     syncActionButtons();
   };
 
-  /** Delete: greyed out with nothing selected or while a deletion / undo runs; undo: with nothing to undo. */
+  /**
+   * Export / delete: greyed out with nothing selected (delete also while a deletion / undo runs);
+   * undo: with nothing to undo.
+   */
   const syncActionButtons = () => {
+    exportButton.disabled = !selected.length;
     deleteButton.disabled = !selected.length || historyManager.isBusy();
     undoButton.disabled = !historyManager.canUndo();
   };
@@ -664,6 +675,7 @@ export function createFlowCanvas(): HTMLElement {
     const url = URL.createObjectURL(blob);
     openImageViewer(url, `${where} — ${image.name}`, {
       subtitle: image.width && image.height ? `${image.width} × ${image.height} px` : undefined,
+      onDownload: () => void downloadImages([image.key]),
       onClose: () => URL.revokeObjectURL(url),
     });
   };
@@ -800,10 +812,11 @@ export function createFlowCanvas(): HTMLElement {
   const deleteKeys = async (keys: readonly string[]) => {
     if (!graph || !keys.length || historyManager.isBusy()) return;
     const plan = planDeletion(graph, keys);
-    const targets = deletionTargets(graph, plan);
+    const archiveName = archives.find(a => a.key === graph?.archive)?.name ?? graph.archive;
+    const targets = deletionTargets(graph, plan, archiveName);
     if (!targets.length) return;
     const message = plan.whole
-      ? `アーカイブ「${graph.archive}」を削除します（開始画像と結果 ${plan.runs.length} 件）。`
+      ? `アーカイブ「${archiveName}」を削除します（開始画像と結果 ${plan.runs.length} 件）。`
       : [
           `選択した${plan.roots.length ? '画像・' : ''}結果を削除します（${targets.length - plan.downstream} 件）。`,
           plan.downstream ? `この先の結果 ${plan.downstream} 件も一緒に削除されます。` : '',
@@ -925,6 +938,7 @@ export function createFlowCanvas(): HTMLElement {
     }
   });
 
+  exportButton.addEventListener('click', () => void downloadImages(selected));
   deleteButton.addEventListener('click', () => void deleteSelection());
   undoButton.addEventListener('click', () => void historyManager.undo());
   on('history:changed', syncActionButtons);

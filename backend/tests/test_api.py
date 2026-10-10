@@ -95,9 +95,14 @@ def test_save_result_route(client, archives_dir: Path) -> None:
         )
 
     info = json.dumps({"tool": "背景除去", "source": "page/page.png", "settings": {}})
-    assert post(name="r", root="page", info=info).json() == {"status": "success", "folder": "page/r"}
+    assert post(name="r", root="page", info=info).json() == {
+        "status": "success",
+        "folder": "page/r",
+        "archive_name": "page",
+    }
     assert post(name="r", root="page").json()["folder"] == "page/r_2"
-    assert post(name="r").json()["folder"] == "r"
+    new_archive = post(name="r").json()
+    assert (new_archive["folder"], new_archive["archive_name"]) == ("r", "r")
     assert json.loads((archives_dir / "page" / "r" / "info.json").read_text(encoding="utf-8"))["tool"] == "背景除去"
     assert not (archives_dir / "page" / "r_2" / "info.json").exists()
     assert post(name="r", info="{").status_code == 400

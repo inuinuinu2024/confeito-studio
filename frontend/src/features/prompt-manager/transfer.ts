@@ -4,6 +4,7 @@ import { choiceDialog } from '../../shared/ui/dialogs';
 import { h } from '../../shared/ui/dom';
 import { showError, showToast } from '../../shared/ui/toast';
 import { fileStamp } from '../../shared/utils/datetime';
+import { downloadBlob } from '../../shared/utils/download';
 import { countImportConflicts, exportData, parseImportFile } from '../../shared/utils/prompts';
 
 function showWarnings(warnings: string[]): void {
@@ -16,10 +17,8 @@ export async function exportPrompts(): Promise<void> {
     const { warnings, ...store } = await listPrompts();
     showWarnings(warnings);
     const blob = new Blob([`${JSON.stringify(exportData(store), null, 2)}\n`], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
     const name = `confeito-prompts-${fileStamp()}.json`;
-    h('a', { href: url, download: name }).click();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    downloadBlob(blob, name);
     showToast(`プロンプト ${store.prompts.length} 件を ${name} に書き出しました`, 'success');
   } catch (err) {
     showError('プロンプトを書き出せませんでした', err);

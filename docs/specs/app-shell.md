@@ -6,10 +6,10 @@
 - CSS Grid（`.manga-grid`）で 4 列 × 3 行: 上段 = トップバー（全幅）、中段 = 表示モードボタン | 左サイドバー | メイン領域 | AI パネル、下段 = ステータスバー（全幅）。
   メイン領域は Workspace では処理フローのキャンバス（[flow-canvas.md](./flow-canvas.md)）、Parallel / Overlay では比較キャンバス（[canvas.md](./canvas.md)）。
 - 左端の列（`features/tool-bar/ToolBar.ts`）は上から 4 つのグループ: Workspace（account_tree のアイコン）、Parallel View / Overlay View、
-  マネージャー（Prompt Manager: chat / Character Manager: person / Object Manager: eyeglasses / Style Manager: brush のアイコン）、
+  マネージャー（Archive Manager: inventory_2 / Prompt Manager: chat / Character Manager: person / Object Manager: eyeglasses / Style Manager: brush のアイコン）、
   モニター（Cost Monitor: browse_activity のアイコン）。
   グループの間には細い仕切り線（1px）を引く。
-  Prompt Manager・Character Manager・Cost Monitor は表示モードの 1 つ（[prompt-manager.md](./prompt-manager.md)・[character-manager.md](./character-manager.md)・[cost-monitor.md](./cost-monitor.md)）。
+  Archive Manager・Prompt Manager・Character Manager・Cost Monitor は表示モードの 1 つ（[archive-manager.md](./archive-manager.md)・[prompt-manager.md](./prompt-manager.md)・[character-manager.md](./character-manager.md)・[cost-monitor.md](./cost-monitor.md)）。
   ほかのマネージャー（Object / Style）は未実装で、押すと「開発中」トースト（「「Object Manager」は現在開発中です」など）を出すだけ（表示モードは変わらない）。
 - 左サイドバーはマネージャー（Prompt Manager・Character Manager）のカテゴリー一覧だけが使い、ほかのモードでは幅 0。
   左右のサイドバーは端のドラッグで 150〜600px に変更できる。

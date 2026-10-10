@@ -1,12 +1,18 @@
 """/api/archives — folder-based archive storage (see services/archive_service.py)."""
 
+from functools import partial
+from pathlib import Path
+from typing import Any
+from urllib.parse import quote
+
 from fastapi import APIRouter, File, Form, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from ..services import archive_service as svc
-from ..services import flow_service
+from ..services import archive_transfer, flow_service
 
 router = APIRouter(prefix="/archives", tags=["archives"])
 
@@ -15,6 +21,24 @@ class PathsRequest(BaseModel):
     """Paths relative to the archive folder."""
 
     paths: list[str]
+
+
+class ExportRequest(BaseModel):
+    """Archive ids to write into one zip."""
+
+    names: list[str]
+
+
+class ImagesRequest(BaseModel):
+    """Image keys ("<archive>/<path>") to write into one zip."""
+
+    keys: list[str]
+
+
+class MetaRequest(BaseModel):
+    """The new display name of an archive."""
+
+    name: str
 
 
 class FlowSelectionRequest(BaseModel):
@@ -54,18 +78,64 @@ async def save_result(
 ) -> dict:
     """Saves a tool result into ``<root>/<name>/`` (new archive ``<name>`` without ``root``) plus info.json.
 
-    Returns the folder key actually used (``_2`` ... is appended instead of overwriting).
+    Returns the folder key actually used (``_2`` ... is appended instead of overwriting) and the
+    display name of its archive.
     """
     if len(files) != len(paths):
         raise svc.ArchiveValidationError("ファイルとパスの数が一致しません。")
     files_data = [(path, await file.read()) for file, path in zip(files, paths, strict=True)]
     folder = svc.save_result(root, name, files_data, svc.parse_result_info(info))
-    return {"status": "success", "folder": folder}
+    archive_name = svc.read_meta(svc.split_archive_path(folder)[0])["name"]
+    return {"status": "success", "folder": folder, "archive_name": archive_name}
 
 
 @router.get("")
 async def list_archives() -> list[svc.ArchiveEntry]:
     return svc.list_archives()
+
+
+@router.put("/{archive_name}/meta")
+async def rename_archive(archive_name: str, req: MetaRequest) -> svc.ArchiveMeta:
+    """Changes the display name (the folder name, i.e. the archive's id, stays)."""
+    return svc.rename_archive(archive_name, req.name)
+
+
+def _zip_download(path: Path, name: str) -> FileResponse:
+    """The temp zip ``path`` as a download (file name in ``X-File-Name``), removed after sending."""
+    return FileResponse(
+        path,
+        media_type="application/zip",
+        filename=name,
+        headers={"X-File-Name": quote(name)},
+        background=BackgroundTask(path.unlink, missing_ok=True),
+    )
+
+
+@router.get("/details")
+async def archive_details() -> list[flow_service.ArchiveSummary]:
+    """Every archive with its display name, counts, size and cover image (Archive Manager), newest first."""
+    return await run_in_threadpool(flow_service.archive_summaries)
+
+
+@router.post("/export")
+async def export_archives(req: ExportRequest) -> FileResponse:
+    """The archives as one zip download."""
+    write = partial(archive_transfer.export_archives, req.names)
+    return _zip_download(*await run_in_threadpool(archive_transfer.to_temp, write))
+
+
+@router.post("/export-images")
+async def export_images(req: ImagesRequest) -> FileResponse:
+    """The images side by side in one zip download (the work to use outside the app)."""
+    write = partial(archive_transfer.export_images, req.keys)
+    return _zip_download(*await run_in_threadpool(archive_transfer.to_temp, write))
+
+
+@router.post("/import")
+async def import_archives(file: UploadFile = File(...)) -> dict[str, Any]:
+    """Adds every archive in the zip as a new archive (an id / display name in use gets "_2" / " (2)")."""
+    result = await run_in_threadpool(archive_transfer.import_zip, file.file, file.filename or "archive.zip")
+    return {"imported": result.imported, "skipped_files": result.skipped_files, "warnings": result.warnings}
 
 
 @router.get("/{archive_name}/contents")

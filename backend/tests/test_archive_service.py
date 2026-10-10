@@ -203,3 +203,56 @@ def test_split_archive_path() -> None:
     assert svc.split_archive_path("\\root\\sub\\") == ("root", "sub")
     assert svc.split_archive_path("root") == ("root", "")
     assert svc.split_archive_path("") == ("", "")
+
+
+# ── Display name (.archive.json) ─────────────────────────────────────
+
+
+def test_new_archive_gets_a_display_name_without_the_stamp(archives_dir: Path) -> None:
+    first = svc.save_result(None, "20260102_030405_page", [("page.png", b"1")], now=datetime(2026, 1, 2, 3, 4, 5))
+    second = svc.save_result(None, "20260102_030405_page", [("page.png", b"2")])
+
+    assert [first, second] == ["20260102_030405_page", "20260102_030405_page_2"]
+    assert svc.read_meta(first) == {"name": "page", "created_at": "2026-01-02 03:04:05"}
+    assert svc.read_meta(second)["name"] == "page (2)"
+    meta = json.loads((archives_dir / first / ".archive.json").read_text(encoding="utf-8"))
+    assert meta["format"] == "confeito-archive" and meta["version"] == 1
+    assert {e["key"]: e["name"] for e in svc.list_archives()} == {first: "page", second: "page (2)"}
+    # Hidden like .flow.json; a result inside an archive does not get one.
+    assert all(e["name"] != ".archive.json" for e in svc.list_archive_contents(first))
+    key = svc.save_result(first, "20260102_030500_背景除去", [("nobg.png", b"x")])
+    assert not (archives_dir / key / ".archive.json").exists()
+
+
+def test_archive_without_meta_shows_its_folder_name(archives_dir: Path) -> None:
+    svc.save_archive("20260101_100000_old", [("a.png", b"1")])
+    svc.save_archive("plain", [("a.png", b"1")])
+    (archives_dir / "broken").mkdir()
+    (archives_dir / "broken" / ".archive.json").write_text("{", encoding="utf-8")
+
+    assert svc.read_meta("20260101_100000_old") == {"name": "20260101_100000_old", "created_at": "2026-01-01 10:00:00"}
+    assert svc.read_meta("plain")["name"] == "plain"
+    assert svc.read_meta("plain")["created_at"]  # the folder's modification time
+    assert svc.read_meta("broken")["name"] == "broken"
+
+
+def test_rename_archive(archives_dir: Path) -> None:
+    svc.save_archive("a", [("a.png", b"1")])
+    svc.save_archive("b", [("b.png", b"1")])
+
+    assert svc.rename_archive("a", "  第1話  ")["name"] == "第1話"
+    assert svc.read_meta("a")["name"] == "第1話"
+    assert (archives_dir / "a" / "a.png").exists()  # the folder (id) stays
+    assert svc.rename_archive("a", "第1話")["name"] == "第1話"  # same name: nothing changes
+    with pytest.raises(svc.ArchiveConflictError):
+        svc.rename_archive("b", "第1話")
+    for bad in ["", "   ", "x" * 101, "a\nb"]:
+        with pytest.raises(svc.ArchiveValidationError):
+            svc.rename_archive("b", bad)
+    with pytest.raises(svc.ArchiveNotFoundError):
+        svc.rename_archive("missing", "x")
+
+
+def test_long_name_is_cut(archives_dir: Path) -> None:
+    key = svc.save_result(None, "20260101_100000_" + "長" * 105, [("a.png", b"1")])
+    assert svc.read_meta(key)["name"] == "長" * 100

@@ -249,7 +249,10 @@ async function showArchive(page: Page, name: RegExp): Promise<void> {
     (options, source) => options.find(o => new RegExp(source).test(o.textContent ?? ''))?.getAttribute('value'),
     name.source,
   );
-  if (!value) throw new Error(`archive ${name} is not in the list`);
+  if (!value) {
+    const names = await page.$$eval('.flow-toolbar__archive option', options => options.map(o => o.textContent));
+    throw new Error(`archive ${name} is not in the list: ${JSON.stringify(names)}`);
+  }
   await page.locator('.flow-toolbar__archive').selectOption(value);
   await page.waitForFunction(
     value => (document.querySelector('.flow-toolbar__archive') as HTMLSelectElement | null)?.value === value,
@@ -2427,6 +2430,153 @@ async function runScenarios(
       afterArchiveUndo,
       afterUndo: await flowState(page),
       archiveAfterUndo: await shownArchive(),
+    };
+  });
+
+  await step('14b-archive-manager', async () => {
+    // docs/specs/archive-manager.md: rename (display name only), export as zip, import it again as a new archive
+    // (the flow comes back the same), delete and undo; then the Workspace's image export (flow-canvas.md 「画像の書き出し」).
+    // Everything it adds or renames is put back at the end (the later steps look for "e2e-panels").
+    const M = '.archive-manager';
+    const rowOf = (key: string) => page.locator(`${M} .archive-row[data-key="${key}"]`);
+    const view = () =>
+      page.$$eval(`${'.archive-manager'} .archive-list__body .archive-row`, rows =>
+        rows.map(r => ({
+          key: (r as HTMLElement).dataset.key,
+          name: r.querySelector('.archive-row__name')?.textContent ?? '',
+          counts: r.querySelector('.archive-row__counts')?.textContent ?? '',
+          badge: r.querySelector('.archive-row__badge')?.textContent ?? null,
+          thumb: !!r.querySelector('img.archive-row__thumb'),
+        })),
+      );
+    const flowJson = (archive: string) =>
+      page.evaluate(
+        async ({ apiBase, archive }) => (await fetch(`${apiBase}/archives/${encodeURIComponent(archive)}/flow`)).json(),
+        { apiBase, archive },
+      );
+
+    await page.locator('.left-toolbar__btn[title="Archive Manager"]').click();
+    await page.waitForSelector(`${M} .archive-row[data-key="e2e-panels"]`);
+    await page.waitForTimeout(300);
+    const opened = {
+      active: await page.$$eval('.left-toolbar__btn--active', els => els.map(e => e.getAttribute('title'))),
+      aiPanelHidden: !(await page.locator('.ai-panel').isVisible()),
+      rows: masked(await view()),
+      exportEnabled: await page.locator(`${M} button`, { hasText: 'エクスポート' }).isEnabled(),
+    };
+    await screenshot('archive-manager');
+
+    // Rename in place: the key (folder) stays, the Workspace's drop-down shows the new name.
+    await rowOf('e2e-panels').hover();
+    await rowOf('e2e-panels').locator('.archive-row__edit').click();
+    await rowOf('e2e-panels').locator('.archive-row__name-input').fill('E2E 第1話');
+    await page.keyboard.press('Enter');
+    const renameToast = await waitForToast(page, /アーカイブの名前を「E2E 第1話」に変更しました/);
+    await page.waitForFunction(
+      () =>
+        document.querySelector('.archive-row[data-key="e2e-panels"] .archive-row__name')?.textContent === 'E2E 第1話',
+    );
+
+    // Export the checked archive (browser download).
+    await rowOf('e2e-panels').locator('.archive-row__check').check();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator(`${M} button`, { hasText: 'エクスポート' }).click(),
+    ]);
+    const exportToast = maskTimestamps(await waitForToast(page, /アーカイブ 1 件を .* に書き出しました/));
+    const exportPath = path.join(path.dirname(settingsDir), 'exported-archive.zip');
+    await download.saveAs(exportPath);
+
+    // Import it again: a new archive next to the original, with a free key and name.
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.locator(`${M} button`, { hasText: 'インポート' }).click(),
+    ]);
+    await chooser.setFiles(exportPath);
+    const importToast = await waitForToast(page, /「E2E 第1話 \(2\)」を読み込みました/);
+    await page.waitForSelector(`${M} .archive-row[data-key="e2e-panels_2"] .archive-row__badge`);
+    const afterImport = masked(await view());
+    await screenshot('archive-manager-after-import');
+    const original = JSON.stringify(await flowJson('e2e-panels')).replaceAll('e2e-panels', 'X');
+    const copy = JSON.stringify(await flowJson('e2e-panels_2')).replaceAll('e2e-panels_2', 'X');
+
+    // A click on the row opens it in the Workspace.
+    await rowOf('e2e-panels_2').locator('.archive-row__counts').click();
+    await page.waitForFunction(
+      () => (document.querySelector('.flow-toolbar__archive') as HTMLSelectElement | null)?.value === 'e2e-panels_2',
+    );
+    await waitForCell(page, '02.png');
+    await page.waitForTimeout(300);
+    const openedCopy = await flowState(page);
+
+    // Image export from the Workspace: one image as it is, several in one zip.
+    await selectCell(page, '02.png');
+    const [single] = await Promise.all([page.waitForEvent('download'), flowButton(page, '選択した画像を書き出す')]);
+    const singleToast = maskTimestamps(await waitForToast(page, /を書き出しました/));
+    await selectCell(page, '01.png', ['Control']);
+    const [several] = await Promise.all([page.waitForEvent('download'), flowButton(page, '選択した画像を書き出す')]);
+    const severalToast = maskTimestamps(await waitForToast(page, /画像 2 枚を .* に書き出しました/));
+    await screenshot('flow-image-export');
+
+    // Delete the copy from the Archive Manager, undo, delete again.
+    await page.locator('.left-toolbar__btn[title="Archive Manager"]').click();
+    await page.waitForSelector(`${M} .archive-row[data-key="e2e-panels_2"]`);
+    const keptCheck = await rowOf('e2e-panels').locator('.archive-row__check').isChecked();
+    await rowOf('e2e-panels').locator('.archive-row__check').uncheck();
+    await rowOf('e2e-panels_2').locator('.archive-row__check').check();
+    await page.locator(`${M} button[title="チェックしたアーカイブを削除"]`).click();
+    await page.waitForSelector('.cs-modal-overlay--open');
+    const deleteMessage = await page.locator('.cs-modal__message').textContent();
+    await page.locator('.cs-modal button', { hasText: /^削除$/ }).click();
+    const deleteToast = await waitForToast(page, /「E2E 第1話 \(2\)」を削除しました/);
+    await page.waitForFunction(() => !document.querySelector('.archive-row[data-key="e2e-panels_2"]'));
+    await page.locator(`${M} button[title^="削除を元に戻す"]`).click();
+    await page.waitForSelector(`${M} .archive-row[data-key="e2e-panels_2"]`);
+    const restored = (await view()).some(r => r.key === 'e2e-panels_2');
+
+    // Put things back for the later steps: the copy goes (trash, outside the undo history), the name returns.
+    await page.evaluate(async apiBase => {
+      await fetch(`${apiBase}/archives/e2e-panels_2`, { method: 'DELETE' });
+      await fetch(`${apiBase}/archives/e2e-panels/meta`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'e2e-panels' }),
+      });
+    }, apiBase);
+    await page.locator(`${M} button[title="最新の状態に更新"]`).click();
+    await page.waitForFunction(() => !document.querySelector('.archive-row[data-key="e2e-panels_2"]'));
+    await setMode(page, 'Normal');
+    await flowButton(page, '最新の状態に更新');
+    await page.waitForFunction(() =>
+      Array.from(document.querySelectorAll('.flow-toolbar__archive option')).some(o => o.textContent === 'e2e-panels'),
+    );
+    await showArchive(page, /^e2e-panels$/);
+    await waitForCell(page, '02.png');
+    // The refresh toasts must be gone: later steps wait for a fresh one.
+    await page.waitForFunction(
+      () =>
+        !Array.from(document.querySelectorAll('.toast')).some(t => t.textContent?.includes('最新の状態に更新しました')),
+      undefined,
+      { timeout: 15000 },
+    );
+    return {
+      opened,
+      renameToast,
+      exportToast,
+      exportName: maskTimestamps(download.suggestedFilename()),
+      importToast,
+      afterImport,
+      sameFlow: original === copy || { original, copy },
+      openedCopy: { archive: openedCopy.archive, archives: openedCopy.archives, rows: openedCopy.rows },
+      singleName: single.suggestedFilename(),
+      singleToast,
+      severalName: maskTimestamps(several.suggestedFilename()),
+      severalToast,
+      keptCheck,
+      deleteMessage,
+      deleteToast,
+      restored,
+      finalArchive: (await flowState(page)).archive,
     };
   });
 

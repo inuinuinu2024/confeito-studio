@@ -109,7 +109,7 @@ def test_split_without_target_creates_new_archive(fake: FakeGemini, archives_dir
     root = result["folder"]
     assert "/" not in root and root.endswith("_コマ分割")
     assert result["auto_select_key"] == f"{root}/01.png"
-    assert {p.name for p in (archives_dir / root).iterdir()} == {"01.png", "panels.json", "info.json"}
+    assert {p.name for p in (archives_dir / root).iterdir()} == {"01.png", "panels.json", "info.json", ".archive.json"}
     assert json.loads((archives_dir / root / "info.json").read_text(encoding="utf-8"))["source"] is None
 
 

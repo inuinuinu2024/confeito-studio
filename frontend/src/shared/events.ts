@@ -24,6 +24,8 @@ export interface AppEventMap {
   'normal-mode:toggle': { enabled: boolean };
   'parallel-mode:toggle': { enabled: boolean };
   'overlay-mode:toggle': { enabled: boolean };
+  /** The Archive Manager (features/archive-manager/) replaces the canvas (export / import / rename / delete). */
+  'archive-mode:toggle': { enabled: boolean };
   /** The Prompt Manager (features/prompt-manager/) replaces the canvas with its sidebar and main area. */
   'prompt-mode:toggle': { enabled: boolean };
   /** The Character Manager (features/character-manager/) replaces the canvas with its sidebar and main area. */

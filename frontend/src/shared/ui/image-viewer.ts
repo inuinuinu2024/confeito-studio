@@ -16,6 +16,8 @@ const FIT_PADDING = 16;
 export interface ImageViewerOptions {
   /** Shown after the title (e.g. "1600 × 1200 px"). */
   subtitle?: string;
+  /** With it, a download button in the header calls it (saving the image is the caller's job). */
+  onDownload?: () => void;
   /** Called once the window is closed (e.g. to revoke the object URL of `src`). */
   onClose?: () => void;
 }
@@ -36,6 +38,7 @@ export function openImageViewer(src: string, title: string, options: ImageViewer
       tool('拡大', 'add', () => zoomAround(scale * WHEEL_STEP)),
       tool('全体を表示', 'fit_screen', () => fit()),
       tool('100%（実寸）', 'crop_free', () => zoomAround(1)),
+      options.onDownload ? tool('この画像を書き出す（ダウンロード）', 'download', options.onDownload) : null,
     ],
     onClose: () => {
       resizeObserver.disconnect();

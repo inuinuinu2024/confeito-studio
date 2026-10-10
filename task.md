@@ -5,6 +5,10 @@
   前払い（Prepay）の利用分がエクスポートに載るかを実物で確かめてから作る。将来の Web 版（BYOK）では利用者ごとに GCP の許可が要る点も検討する（docs/specs/cost-monitor.md）。
 
 ## 完了タスク
+- [x] **アーカイブをアプリで出し入れする方式に**: アーカイブはアプリの内部データとし（形式・保存先の設定はそのまま）、表示名を `.archive.json` に分けた（フォルダ名 = ID は変えない。表示名は重ねない）。
+  左端のマネージャーに Archive Manager（一覧・検索・開く・名前の変更・zip のエクスポート / インポート・削除と Undo）を追加。インポートは常に新しいアーカイブとして追加し、
+  ID が変わった時は info.json と .flow.json のキーを書き換え、サブフォルダの日時も戻す。Workspace のツールバーと拡大表示に画像の書き出し（1 枚はそのまま・複数は zip）。
+  書き出し・取り込みは将来の Web 版を見据えてブラウザのダウンロード / ファイル選択に統一（docs/specs/archive-manager.md, archives.md, flow-canvas.md「画像の書き出し」）。
 - [x] **Nano Banana画像生成の原画を Image 1 に**: 原画を参照画像より前に送り、原画がある間は参照画像カード・`Inputs/` の番号を Image 2 から。
   送信テキストを見直し: 種類ごとの指示文、★ は「ほかの参照画像より優先して反映」、原画と参照画像の関係、見出し `# 指示`（docs/specs/tools/nano-banana-pro.md, gemini-image.md）。
 - [x] **Character Manager の画像ごとの本文と拡大表示**: 画像ごとに本文（`image_texts`）を持ち、ツールでは各画像の説明に入る。サムネイルのクリックで画像を大きく見るだけのウィンドウ（docs/specs/character-manager.md）。

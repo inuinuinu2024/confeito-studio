@@ -5,7 +5,7 @@
  * then builds the shell grid: TopBar / ToolBar / main area / AI panel / StatusBar.
  * The main area is the flow canvas in Normal mode and the comparison canvas in Parallel / Overlay mode,
  * which hide the AI panel (they only compare images). The managers (Prompt Manager, Character Manager) put
- * their own sidebar and main area there, and the Cost Monitor its dashboard.
+ * their own sidebar and main area there, the Archive Manager its list and the Cost Monitor its dashboard.
  */
 import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
@@ -21,6 +21,7 @@ import './shared/styles/components.css';
 import './shared/styles/layout.css';
 
 import { createAIPanel } from './features/ai-panel/AIPanel';
+import { createArchiveManager } from './features/archive-manager/ArchiveManager';
 import { createCanvas } from './features/canvas/Canvas';
 import { createCharacterManager } from './features/character-manager/CharacterManager';
 import { createCostMonitor } from './features/cost-monitor/CostMonitor';
@@ -68,10 +69,11 @@ async function initApp(): Promise<void> {
     const mode = getViewMode();
     workspace.classList.toggle(
       'manga-grid--no-tools',
-      ['parallel', 'overlay', 'prompt', 'character', 'cost'].includes(mode),
+      ['parallel', 'overlay', 'archive', 'prompt', 'character', 'cost'].includes(mode),
     );
     workspace.classList.toggle('manga-grid--compare', ['parallel', 'overlay'].includes(mode));
-    workspace.classList.toggle('manga-grid--manager', ['prompt', 'character', 'cost'].includes(mode));
+    workspace.classList.toggle('manga-grid--manager', ['archive', 'prompt', 'character', 'cost'].includes(mode));
+    workspace.classList.toggle('manga-grid--archive', mode === 'archive');
     workspace.classList.toggle('manga-grid--prompt', mode === 'prompt');
     workspace.classList.toggle('manga-grid--character', mode === 'character');
     workspace.classList.toggle('manga-grid--cost', mode === 'cost');
@@ -80,6 +82,7 @@ async function initApp(): Promise<void> {
     'normal-mode:toggle',
     'parallel-mode:toggle',
     'overlay-mode:toggle',
+    'archive-mode:toggle',
     'prompt-mode:toggle',
     'character-mode:toggle',
     'cost-mode:toggle',
@@ -102,6 +105,7 @@ async function initApp(): Promise<void> {
     promptManager.main,
     characterManager.sidebar,
     characterManager.main,
+    createArchiveManager(),
     createCostMonitor(),
   );
 
