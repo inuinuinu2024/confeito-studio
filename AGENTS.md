@@ -68,7 +68,7 @@
 | Workspace（処理フローの表示・選択・削除） | `features/flow-canvas/`（図の組み立て `flow-graph.ts`、配置 `flow-layout.ts`、コマの切り直し `panel-cropper.ts`）、`backend/src/app/services/flow_service.py`（切り直しの保存は `panel_service.recrop_panel`）、仕様は docs/specs/flow-canvas.md |
 | Archive Manager・アーカイブの出し入れ（表示名・zip のエクスポート / インポート・画像の書き出し） | `features/archive-manager/`（純粋な処理は `shared/utils/archives.ts`）、Workspace の画像の書き出しは `features/flow-canvas/export-images.ts`、`backend/src/app/services/archive_transfer.py`（表示名は `archive_service.py` の `.archive.json`、一覧は `flow_service.archive_summaries`）、仕様は docs/specs/archive-manager.md・archives.md |
 | まとめて実行（選択した画像へ順に実行） | `features/ai-panel/tool-runner.ts`・`run-targets.ts`、ツールの `targets()`、仕様は docs/specs/ai-panel.md「まとめて実行」 |
-| 比較キャンバス（Parallel / Overlay） | `features/canvas/`（描画 `render.ts`、状態 `canvas-state.ts`、ズーム `zoom.ts`） |
+| 比較キャンバス（Parallel / Slider / Overlay）・原画との比較 | `features/canvas/`（表示 `comparison-view.ts`、描画 `render.ts`、状態 `canvas-state.ts`、ズーム `zoom.ts`、生成画像のクリックで開くウィンドウ `compare-window.ts`。比べる相手は `flow-graph.ts` の `compareTargets`・`flowOrigin`） |
 | API の追加 | `backend/src/app/routers/` + `services/` → `frontend/src/shared/api/`、手順は backend.md |
 | 保存形式・ツールの結果の保存先 | `backend/src/app/services/archive_service.py`（`save_result`）、`frontend/src/features/tools/result.ts`、仕様は docs/specs/archives.md（アーカイブはアプリの内部データ。ユーザーはフォルダを直接開かない前提） |
 | トースト・エラー表示の文言 | `shared/ui/toast.ts`・`shared/utils/error-message.ts`・`ai-panel/tool-runner.ts`、仕様は docs/specs/notifications.md |

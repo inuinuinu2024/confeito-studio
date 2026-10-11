@@ -36,6 +36,8 @@ export interface ZoomController {
   syncScroll(from: HTMLElement): void;
   /** Runs a layout change that resizes the panes, keeping the point at the centre of the view and the zoom. */
   relayout(change: () => void): void;
+  /** Stops watching the pane size (a view that is thrown away). */
+  destroy(): void;
 }
 
 /** One pane: its scrolling viewport and the zoomed element inside it. */
@@ -172,7 +174,8 @@ export function createZoomController(
 
   slider.addEventListener('input', () => setZoom(parseInt(slider.value, 10)));
   // Window / sidebar resizes (and the Parallel panes appearing) change the 100% size and the free margins.
-  new ResizeObserver(() => apply(state.zoom, undefined, undefined, true)).observe(scrollArea);
+  const resizeObserver = new ResizeObserver(() => apply(state.zoom, undefined, undefined, true));
+  resizeObserver.observe(scrollArea);
 
   const button = (content: string | HTMLElement, title: string, onClick: () => void) =>
     h('button', { title, onclick: onClick }, content);
@@ -189,5 +192,14 @@ export function createZoomController(
     button(icon('height', 16), 'Fit Height', fitHeight),
   );
 
-  return { bar, apply, resetTo100, fitToScreen, zoomBy, syncScroll, relayout };
+  return {
+    bar,
+    apply,
+    resetTo100,
+    fitToScreen,
+    zoomBy,
+    syncScroll,
+    relayout,
+    destroy: () => resizeObserver.disconnect(),
+  };
 }

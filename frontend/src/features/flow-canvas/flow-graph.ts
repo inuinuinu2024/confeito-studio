@@ -253,6 +253,24 @@ export function versionOf(graph: FlowGraph, key: string): string | null {
   return null;
 }
 
+/**
+ * The first image of the flow `key` was made from (docs/specs/flow-canvas.md 「原画との比較」): its inputs followed
+ * back to a panel version (a panel as split or a コマ切り直し), a start image, or a result whose input is unknown.
+ * Null when `key` itself is such an image.
+ */
+export function flowOrigin(graph: FlowGraph, key: string): FlowImage | null {
+  const seen = new Set<string>();
+  let current = key;
+  while (!seen.has(current)) {
+    seen.add(current);
+    const run = graph.runOfImage.get(current);
+    if (!run || run.tool === SPLIT_TOOL || run.tool === RECROP_TOOL) break;
+    if (!run.source || !graph.images.has(run.source)) break;
+    current = run.source;
+  }
+  return current === key ? null : (graph.images.get(current) ?? null);
+}
+
 /** What the canvas shows: every tree with the shown run of each stack, and the edges between them. */
 export function visibleFlow(graph: FlowGraph): VisibleFlow {
   const steps = new Map<string, FlowStep>();
@@ -463,6 +481,23 @@ export function rowLabels(step: FlowStep): (RowLabel | null)[] {
     const from = step.cells.findIndex(c => c.key === source);
     return { name: nameOf(i), from: from >= 0 ? nameOf(from) : '原画' };
   });
+}
+
+/**
+ * What the generated image `step.cells[index]` can be compared with (docs/specs/flow-canvas.md 「原画との比較」):
+ * the first image of its flow ("原画（01.png）"), then the other images generated in the same box
+ * ("生成 1（gen.png）", the numbers of the cell labels). [] when the first image is unknown.
+ */
+export function compareTargets(graph: FlowGraph, step: FlowStep, index: number): { label: string; image: FlowImage }[] {
+  const image = step.cells[index];
+  const origin = image ? flowOrigin(graph, image.key) : null;
+  if (!origin) return [];
+  const labels = rowLabels(step);
+  const generated = step.cells.flatMap((cell, i) => {
+    const label = labels[i];
+    return label && i !== index ? [{ label: `${label.name}（${cell.name}）`, image: cell }] : [];
+  });
+  return [{ label: `原画（${origin.name}）`, image: origin }, ...generated];
 }
 
 /** The imported page a split page's panels came from (null for other steps). */

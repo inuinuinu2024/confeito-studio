@@ -1,5 +1,5 @@
 /**
- * View mode store: exactly one of normal / parallel / overlay / archive (Archive Manager) /
+ * View mode store: exactly one of normal / archive (Archive Manager) /
  * prompt (Prompt Manager) / character (Character Manager) / cost (Cost Monitor) is active.
  *
  * `setViewMode()` is the only way to change it. Listeners receive the per-mode
@@ -10,13 +10,11 @@
  */
 import { emit } from '../events';
 
-export type ViewMode = 'normal' | 'parallel' | 'overlay' | 'archive' | 'prompt' | 'character' | 'cost';
+export type ViewMode = 'normal' | 'archive' | 'prompt' | 'character' | 'cost';
 
-const MODE_ORDER: ViewMode[] = ['normal', 'parallel', 'overlay', 'archive', 'prompt', 'character', 'cost'];
+const MODE_ORDER: ViewMode[] = ['normal', 'archive', 'prompt', 'character', 'cost'];
 const TOGGLE_EVENT = {
   normal: 'normal-mode:toggle',
-  parallel: 'parallel-mode:toggle',
-  overlay: 'overlay-mode:toggle',
   archive: 'archive-mode:toggle',
   prompt: 'prompt-mode:toggle',
   character: 'character-mode:toggle',

@@ -279,27 +279,6 @@ async function deleteCells(page: Page, names: string[]): Promise<string> {
 }
 
 /** Waits until the canvas shows its empty message, and returns it (timestamps masked). */
-async function waitForEmptyMessage(page: Page, pattern: RegExp): Promise<string> {
-  await page.waitForFunction(
-    source =>
-      Array.from(document.querySelectorAll<HTMLElement>('.canvas-empty')).some(
-        empty =>
-          empty.getClientRects().length > 0 &&
-          new RegExp(source).test(empty.querySelector('.canvas-empty__message')?.textContent ?? ''),
-      ),
-    pattern.source,
-    { timeout: 10000 },
-  );
-  return maskTimestamps(
-    await page.evaluate(
-      () =>
-        Array.from(document.querySelectorAll<HTMLElement>('.canvas-empty'))
-          .filter(e => e.getClientRects().length > 0)
-          .map(e => e.querySelector('.canvas-empty__message')?.textContent ?? '')[0] ?? '',
-    ),
-  );
-}
-
 /** The card of a tool's window (what it will process), closing the window afterwards. */
 async function toolCard(page: Page, toolName: string): Promise<string> {
   await clickTool(page, toolName);
@@ -309,15 +288,6 @@ async function toolCard(page: Page, toolName: string): Promise<string> {
   await closeToolWindow(page);
   return card;
 }
-
-const waitForCanvasWidth = (page: Page, width: number) =>
-  page.waitForFunction(
-    width =>
-      !document.querySelector<HTMLElement>('.canvas-area .canvas-empty')?.getClientRects().length &&
-      Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas')).some(c => c.width === width),
-    width,
-    { timeout: 10000 },
-  );
 
 /** The result info.json of the newest run of `tool` in `archive`, read through the API. */
 async function newestInfo(page: Page, apiBase: string, archive: string, tool: string) {
@@ -336,54 +306,6 @@ async function newestInfo(page: Page, apiBase: string, archive: string, tool: st
     { apiBase, archive, tool },
   );
   return info && masked(info);
-}
-
-async function canvasState(page: Page) {
-  return page
-    .evaluate(() => {
-      const visible = (el: Element | null) => !!el && (el as HTMLElement).getClientRects().length > 0;
-      const sample = (c: HTMLCanvasElement) => {
-        if (!c.width || !c.height) return [];
-        const ctx = c.getContext('2d');
-        if (!ctx) return [];
-        const coords: [number, number][] = [
-          [2, 2],
-          [c.width - 3, 2],
-          [2, c.height - 3],
-          [c.width - 3, c.height - 3],
-        ];
-        for (let gy = 0; gy < 5; gy++) {
-          for (let gx = 0; gx < 5; gx++) {
-            coords.push([Math.floor(((gx + 0.5) / 5) * c.width), Math.floor(((gy + 0.5) / 5) * c.height)]);
-          }
-        }
-        return coords.map(([x, y]) => {
-          const [r, g, b, a] = ctx.getImageData(Math.min(c.width - 1, x), Math.min(c.height - 1, y), 1, 1).data;
-          return ((r << 24) | (g << 16) | (b << 8) | a) >>> 0;
-        });
-      };
-      const canvases = Array.from(document.querySelectorAll<HTMLCanvasElement>('.canvas-area canvas'));
-      const zoomBar = document.querySelector<HTMLElement>('.canvas-area .canvas-zoom-bar');
-      const toolbar = document.querySelector<HTMLElement>('.canvas-toolbar');
-      return {
-        canvases: canvases.map(c => ({
-          w: c.width,
-          h: c.height,
-          visible: visible(c),
-          title: c.title,
-          pixels: sample(c),
-        })),
-        zoomLabel: document.querySelector('.canvas-area .canvas-zoom-bar__label')?.textContent ?? null,
-        zoomBarVisible: visible(zoomBar),
-        toolbarVisible: visible(toolbar),
-        toolbarGroupsVisible: Array.from(document.querySelectorAll('.canvas-toolbar__group')).map(visible),
-        // Message shown while nothing is displayed (null when hidden).
-        emptyMessage: visible(document.querySelector('.canvas-area .canvas-empty'))
-          ? (document.querySelector('.canvas-area .canvas-empty__message')?.textContent ?? null)
-          : null,
-      };
-    })
-    .then(masked);
 }
 
 async function toolWindowState(page: Page) {
@@ -453,7 +375,7 @@ async function withVisibleToasts<T>(page: Page, fn: () => Promise<T>): Promise<T
 
 /**
  * Creates a deterministic PNG in the page (with a transparent margin so background colour shows) and drops it
- * on `target` (the flow canvas; the comparison canvas in Parallel / Overlay mode).
+ * on `target` (the flow canvas; the comparison window).
  */
 async function dropTestImage(
   page: Page,
@@ -640,7 +562,10 @@ async function closeToolWindow(page: Page): Promise<void> {
   await win.waitFor({ state: 'detached', timeout: 3000 });
 }
 
-/** Parallel mode layout: the fixed panes, their scroll positions, the boundary / divider and the per-pane notices. */
+/**
+ * The comparison window's Parallel layout (docs/specs/canvas.md): the fixed panes, their scroll positions, the
+ * boundary / divider and the per-pane notices.
+ */
 async function parallelState(page: Page) {
   return page.evaluate(() => {
     const round = (r: DOMRect) => ({
@@ -651,7 +576,7 @@ async function parallelState(page: Page) {
     });
     const shown = (el: Element | null) =>
       !!el && el.getClientRects().length > 0 && getComputedStyle(el).display !== 'none';
-    const split = document.querySelector<HTMLElement>('.canvas-split')!;
+    const split = document.querySelector<HTMLElement>('.compare-window .canvas-split')!;
     const panes = Array.from(split.querySelectorAll<HTMLElement>('.canvas-split__pane')).map(pane => {
       const viewport = pane.querySelector<HTMLElement>('.canvas-split__viewport')!;
       const canvas = pane.querySelector('canvas');
@@ -678,17 +603,15 @@ async function parallelState(page: Page) {
       divider: shown(divider)
         ? { ...round(divider.getBoundingClientRect()), color: getComputedStyle(divider).backgroundColor }
         : null,
-      zoomLabel: document.querySelector('.canvas-area .canvas-zoom-bar__label')?.textContent ?? null,
-      zoomBarVisible: shown(document.querySelector('.canvas-area .canvas-zoom-bar')),
-      globalEmptyVisible: shown(document.querySelector('.canvas-area .canvas-empty')),
+      zoomLabel: document.querySelector('.compare-window .canvas-zoom-bar__label')?.textContent ?? null,
+      zoomBarVisible: shown(document.querySelector('.compare-window .canvas-zoom-bar')),
+      emptyVisible: shown(document.querySelector('.compare-window .canvas-empty')),
     };
   });
 }
 
 const MODE_BUTTONS = {
   Normal: 'Workspace',
-  Parallel: 'Parallel View',
-  Overlay: 'Overlay View',
 } as const;
 
 async function setMode(page: Page, mode: keyof typeof MODE_BUTTONS): Promise<void> {
@@ -731,7 +654,7 @@ async function runScenarios(
     await screenshot('boot');
     return {
       topbarActions: await page.$$eval('.topbar__action-btn', els => els.map(e => e.getAttribute('title'))),
-      // Buttons top to bottom, with dividers between Normal and Parallel, before the managers and before Cost Monitor.
+      // Buttons top to bottom, with dividers between Normal and the managers and before Cost Monitor.
       toolbarItems: await page.$$eval('.left-toolbar > *', els =>
         els.map(e => e.getAttribute('title') ?? (e.classList.contains('left-toolbar__divider') ? '---' : '?')),
       ),
@@ -917,44 +840,6 @@ async function runScenarios(
     await page.locator('.flow-zoom-bar button[title="全体を表示"]').click();
     const fitted = await view();
     return { start, zoomIn, ctrlWheel, panned, selectionAfterPan, fitted };
-  });
-
-  await step('07-overlay-mode', async () => {
-    // One image selected: it becomes U and T stays empty (docs/specs/canvas.md 「比較する画像」).
-    await setMode(page, 'Overlay');
-    await waitForCanvasWidth(page, 640);
-    await page.waitForTimeout(300);
-    const state = {
-      flowVisible: await page.locator('.flow-canvas').isVisible(),
-      aiPanelVisible: await page.locator('aside.ai-panel').isVisible(),
-      canvas: await canvasState(page),
-    };
-    await screenshot('overlay-mode');
-    await setMode(page, 'Normal');
-    return {
-      ...state,
-      modesAfter: await page.$$eval('.left-toolbar__btn', els =>
-        els.map(e => e.classList.contains('left-toolbar__btn--active')),
-      ),
-      flowVisibleAfter: await page.locator('.flow-canvas').isVisible(),
-    };
-  });
-
-  await step('08-parallel-mode', async () => {
-    // The right sidebar closes; the selected image is L, R asks for a second image.
-    await setMode(page, 'Parallel');
-    await waitForCanvasWidth(page, 640);
-    await page.waitForTimeout(500);
-    const state = {
-      aiPanelVisible: await page.locator('aside.ai-panel').isVisible(),
-      flowVisible: await page.locator('.flow-canvas').isVisible(),
-      panes: await parallelState(page),
-      canvas: await canvasState(page),
-    };
-    await screenshot('parallel-mode-start');
-    await setMode(page, 'Normal');
-    await page.waitForSelector('aside.ai-panel', { state: 'visible' });
-    return { ...state, aiPanelRestored: await page.locator('aside.ai-panel').isVisible() };
   });
 
   await step('09-tool-windows', async () => {
@@ -1228,7 +1113,6 @@ async function runScenarios(
               }
             : document.querySelector('.mgr-main--prompt .mgr-editor__empty')?.textContent,
           flowShown: shown('.flow-canvas'),
-          canvasShown: shown('.canvas-area'),
           aiPanelShown: shown('.ai-panel'),
           activeModes: Array.from(document.querySelectorAll('.left-toolbar__btn--active')).map(e =>
             e.getAttribute('title'),
@@ -1473,7 +1357,6 @@ async function runScenarios(
                 }
               : document.querySelector(`${M} .mgr-editor__empty`)?.textContent,
             flowShown: shown('.flow-canvas'),
-            canvasShown: shown('.canvas-area'),
             aiPanelShown: shown('.ai-panel'),
             promptManagerShown: shown('.mgr-sidebar--prompt'),
             activeModes: Array.from(document.querySelectorAll('.left-toolbar__btn--active')).map(e =>
@@ -1977,6 +1860,221 @@ async function runScenarios(
     };
   });
 
+  await step('12a-compare-original', async () => {
+    // A click on an image generated from a 原画 opens the comparison window (docs/specs/flow-canvas.md 「原画との比較」):
+    // the first image of its flow (panel 02, green) on the left, the generated image (生成 2, orange) on the right, in
+    // Parallel; the header switches to Overlay (U = panel 02, T = 生成 2). The tools are those of the comparison
+    // canvas (docs/specs/canvas.md). Other images still open in the viewer.
+    const W = '.compare-window';
+    const selectedCells = async () => {
+      const flow = await flowState(page);
+      return [flow.selection, ...flow.steps.flatMap(st => st.cells.filter(c => c.includes('selected')))];
+    };
+    const selectedBefore = await selectedCells();
+    const compare = () =>
+      page.evaluate(() => {
+        const win = document.querySelector('.compare-window')!;
+        const shown = (el: Element | null) =>
+          !!el && el.getClientRects().length > 0 && getComputedStyle(el).display !== 'none';
+        /** The pixel at (x, the middle) of a shown canvas; x defaults to the centre. */
+        const pixel = (canvas: HTMLCanvasElement | null, x?: number) => {
+          if (!canvas || !shown(canvas)) return null;
+          const data = canvas.getContext('2d')!.getImageData(x ?? canvas.width / 2, canvas.height / 2, 1, 1).data;
+          return Array.from(data).join(',');
+        };
+        return {
+          title: win.querySelector('.cs-window__title')?.textContent ?? null,
+          // What the generated image is compared with: the chosen option and the list.
+          target: (() => {
+            const select = win.querySelector<HTMLSelectElement>('.compare-window__target');
+            return select
+              ? {
+                  chosen: select.selectedOptions[0]?.textContent ?? null,
+                  options: Array.from(select.options, o => o.text),
+                }
+              : null;
+          })(),
+          activeMode: win.querySelector('.compare-window__mode--active')?.textContent ?? null,
+          panes: Array.from(win.querySelectorAll<HTMLElement>('.canvas-split__pane')).map(pane => ({
+            visible: shown(pane),
+            canvas: pane.querySelector('canvas')?.title ?? null,
+            centre: pixel(pane.querySelector('canvas')),
+            leftEdge: pixel(pane.querySelector('canvas'), 4),
+            notice: shown(pane.querySelector('.canvas-split__pane-empty'))
+              ? (pane.querySelector('.canvas-split__pane-message')?.textContent ?? null)
+              : null,
+          })),
+          // The floating toolbar: Transpose / Flip in Slider, the tint / opacity in Overlay, none in Parallel.
+          toolbar: shown(win.querySelector('.canvas-toolbar')),
+          sliderToolbar: shown(win.querySelectorAll('.canvas-toolbar__group')[0] ?? null),
+          overlayToolbar: shown(win.querySelectorAll('.canvas-toolbar__group')[1] ?? null),
+          sliderOptionsOn: win.querySelectorAll('.canvas-toolbar__group .toggle--on').length,
+          zoom: win.querySelector('.canvas-zoom-bar__label')?.textContent ?? null,
+        };
+      });
+    const bothDrawn = () =>
+      page.waitForFunction(() => {
+        const canvases = Array.from(document.querySelectorAll<HTMLCanvasElement>('.compare-window canvas'));
+        return canvases.length === 2 && canvases.every(c => c.width > 1);
+      });
+    const drag = async (x: number, y: number, dx: number, dy: number) => {
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + dx, y + dy, { steps: 5 });
+      await page.mouse.up();
+      await page.waitForTimeout(150);
+    };
+    /** Whether the view swallows an arrow key (it only does while T is selected). */
+    const arrowPrevented = () =>
+      page.evaluate(() => {
+        const ev = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
+        document.body.dispatchEvent(ev);
+        return ev.defaultPrevented;
+      });
+    const setCompareMode = async (mode: 'Parallel' | 'Slider' | 'Overlay') => {
+      await page.locator(`${W} .compare-window__mode`, { hasText: mode }).click();
+      await page.waitForTimeout(300);
+    };
+    /** Transpose, Flip. */
+    const toggles = page.locator(`${W} .canvas-toolbar__group`).first().locator('.toggle');
+
+    await revealCell(page, 'regen.png');
+    await (await flowCell(page, 'regen.png')).locator('.flow-cell__thumb').click();
+    await page.locator(W).waitFor();
+    await bothDrawn();
+    await page.waitForTimeout(300);
+    const parallel = { ...(await compare()), layout: await parallelState(page) };
+    await screenshot('compare-parallel');
+
+    // Dragging moves both images the same way; the panes and the boundary between them stay.
+    const right = (await page.locator(`${W} .canvas-split__pane--right`).boundingBox())!;
+    await drag(right.x + right.width / 2, right.y + right.height / 2, -120, 60);
+    const dragged = await parallelState(page);
+    await page.locator(`${W} .canvas-zoom-bar button[title="Fit to Screen"]`).click();
+    await page.waitForTimeout(200);
+
+    // Slider (between Parallel and Overlay in the header): the panes are stacked; the divider (fixed to the screen)
+    // clips the front one. Transpose and Flip.
+    const modeButtons = await page.locator(`${W} .compare-window__mode`).allTextContents();
+    await setCompareMode('Slider');
+    const slider = { ...(await compare()), layout: await parallelState(page) };
+    await screenshot('compare-slider', W);
+    const split = (await page.locator(`${W} .canvas-split`).boundingBox())!;
+    const handle = (await page.locator(`${W} .canvas-split__divider-handle`).boundingBox())!;
+    const handleX = handle.x + handle.width / 2;
+    await drag(handleX, handle.y + handle.height / 2, split.x + split.width * 0.3 - handleX, 0);
+    const sliderMoved = await parallelState(page);
+    await drag(split.x + split.width * 0.7, split.y + split.height / 2, -100, 50); // pan on the back pane
+    const sliderDragged = await parallelState(page);
+    await toggles.nth(0).click();
+    await page.waitForTimeout(200);
+    const transposed = await parallelState(page);
+    await toggles.nth(1).click();
+    await page.waitForTimeout(200);
+    const flipped = await parallelState(page);
+    await screenshot('compare-slider-flip', W);
+    // Leaving Slider turns Transpose / Flip off and centres the divider again.
+    await setCompareMode('Parallel');
+    await setCompareMode('Slider');
+    const sliderAgain = { ...(await compare()), layout: await parallelState(page) };
+
+    // Overlay: U = panel 02 (tinted blue), T = 生成 2 at 50%.
+    await setCompareMode('Overlay');
+    const overlay = await compare();
+    await screenshot('compare-overlay');
+    // Double click selects T; arrow keys move it (Shift = 10px) and are only taken while T is selected.
+    const arrowFreeBefore = await arrowPrevented();
+    const canvasBox = (await page.locator(`${W} .canvas-split__pane--left canvas`).boundingBox())!;
+    await page.mouse.dblclick(canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height / 2);
+    await page.waitForTimeout(150);
+    for (let i = 0; i < 6; i++) await page.keyboard.press('Shift+ArrowRight'); // 60px
+    await page.waitForTimeout(150);
+    const moved = await compare();
+    const arrowTakenWhileSelected = await arrowPrevented();
+    await screenshot('compare-t-moved', W);
+    // Outside T (the strip it left at the left edge; the toolbar covers the top) deselects it.
+    await page.mouse.click(canvasBox.x + 4, canvasBox.y + canvasBox.height / 2);
+    await page.waitForTimeout(150);
+    const arrowFreeAfter = await arrowPrevented();
+
+    // Images dropped on the window are not imported.
+    const archivesBefore = (await flowState(page)).archives.length;
+    await dropTestImage(page, 'compare-drop.png', 120, 90, `${W} .canvas-area`);
+    await page.waitForTimeout(500);
+    const archivesAfterDrop = (await flowState(page)).archives.length;
+
+    // Back to Parallel: side by side, no floating toolbar, at 100%.
+    await setCompareMode('Parallel');
+    const back = { ...(await compare()), layout: await parallelState(page) };
+
+    // The select box compares with another image generated in the step (生成 1, purple) instead of the 原画; the
+    // choice stays when the view changes.
+    await page.locator(`${W} .compare-window__target`).selectOption({ label: '生成 1（gen.png）' });
+    await page.waitForTimeout(300);
+    const withGen1 = await compare();
+    await screenshot('compare-target-gen1', W);
+    await setCompareMode('Overlay');
+    const withGen1Overlay = await compare();
+    await setCompareMode('Parallel');
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator(`${W} .compare-window__tool[title="この画像を書き出す（ダウンロード）"]`).click(),
+    ]);
+    const downloadToast = await waitForToast(page, /を書き出しました/);
+    await page.keyboard.press('Escape');
+    await page.locator(W).waitFor({ state: 'detached' });
+    const selectedAfter = await selectedCells();
+
+    // 生成 1 is compared with the same panel; an image not generated from a 原画 (背景除去) opens the viewer.
+    await revealCell(page, 'gen.png');
+    await (await flowCell(page, 'gen.png')).locator('.flow-cell__thumb').click();
+    await page.locator(W).waitFor();
+    await bothDrawn();
+    const fromGen = await compare();
+    await page.locator(`${W} .cs-window__close`).click();
+    await page.locator(W).waitFor({ state: 'detached' });
+    await revealCell(page, 'nobg.png');
+    await (await flowCell(page, 'nobg.png')).locator('.flow-cell__thumb').click();
+    await page.locator('.cs-image-viewer').waitFor();
+    const nobgOpens = {
+      viewer: await page.locator('.cs-image-viewer .cs-window__title').textContent(),
+      compare: await page.locator(W).count(),
+    };
+    await page.keyboard.press('Escape');
+    await page.locator('.cs-image-viewer').waitFor({ state: 'detached' });
+
+    return masked({
+      parallel,
+      dragged,
+      slider,
+      sliderMoved,
+      sliderDragged,
+      transposed,
+      flipped,
+      sliderAgain,
+      modeButtons,
+      overlay,
+      moved: { ...moved, changed: JSON.stringify(moved.panes) !== JSON.stringify(overlay.panes) },
+      arrowFreeBefore,
+      arrowTakenWhileSelected,
+      arrowFreeAfter,
+      dropImportedNothing: archivesBefore === archivesAfterDrop,
+      back,
+      withGen1,
+      withGen1Overlay: {
+        activeMode: withGen1Overlay.activeMode,
+        target: withGen1Overlay.target,
+        panes: withGen1Overlay.panes,
+      },
+      download: download.suggestedFilename(),
+      downloadToast,
+      selectionKept: JSON.stringify(selectedBefore) === JSON.stringify(selectedAfter),
+      fromGen: { title: fromGen.title, target: fromGen.target, panes: fromGen.panes },
+      nobgOpens,
+    });
+  });
+
   await step('12b-recrop-panel', async () => {
     // A click on the 原画 of a panel's row opens the panel cropper (docs/specs/flow-canvas.md 「コマの切り直し」): the
     // page before the split with the frame where the panel was cut. Moving the frame and 「この範囲で切り出し直す」
@@ -2179,181 +2277,6 @@ async function runScenarios(
     return { card, summary, afterRun, errorToasts, chained, older, saved, rerun, second };
   });
 
-  await step('13c-parallel-mode', async () => {
-    const toggles = page.locator('.canvas-toolbar__group').first().locator('.toggle');
-    const drag = async (x: number, y: number, dx: number, dy: number) => {
-      await page.mouse.move(x, y);
-      await page.mouse.down();
-      await page.mouse.move(x + dx, y + dy, { steps: 5 });
-      await page.mouse.up();
-      await page.waitForTimeout(150);
-    };
-    const waitForTitle = (side: 'left' | 'right', title: string) =>
-      page.waitForFunction(
-        ({ side, title }) =>
-          document.querySelector<HTMLCanvasElement>(`.canvas-split__pane--${side} canvas`)?.title === title,
-        { side, title },
-        { timeout: 10000 },
-      );
-    const waitForPaneNotice = (side: 'left' | 'right', shown: boolean) =>
-      page.waitForFunction(
-        ({ side, shown }) =>
-          (getComputedStyle(document.querySelector(`.canvas-split__pane--${side} .canvas-split__pane-empty`)!)
-            .display !==
-            'none') ===
-          shown,
-        { side, shown },
-        { timeout: 10000 },
-      );
-
-    // Selected in this order: the 背景除去 result of panel 01 (120x160) is L, panel 01.png (150x200) is R (actual
-    // pixel ratio, both centred in the 150x200 box).
-    await selectCell(page, 'nobg.png');
-    await selectCell(page, '01.png', ['Control']);
-    await setMode(page, 'Parallel');
-    await waitForTitle('right', '150 x 200px');
-    await page.waitForTimeout(300);
-    const sideBySide = await parallelState(page);
-    await screenshot('parallel-side-by-side', '.canvas-area');
-
-    // Dragging moves both images the same way; the panes and the boundary between them stay.
-    const right = (await page.locator('.canvas-split__pane--right').boundingBox())!;
-    await drag(right.x + right.width / 2, right.y + right.height / 2, -120, 60);
-    const dragged = await parallelState(page);
-    await screenshot('parallel-dragged', '.canvas-area');
-    await page.locator('.canvas-zoom-bar button[title="Fit to Screen"]').click();
-    await page.waitForTimeout(200);
-
-    // Slider: the panes are stacked; the divider (fixed to the screen) clips the front one.
-    await toggles.nth(0).click();
-    await page.waitForTimeout(300);
-    const slider = await parallelState(page);
-    await screenshot('parallel-slider', '.canvas-area');
-    const split = (await page.locator('.canvas-split').boundingBox())!;
-    const handle = (await page.locator('.canvas-split__divider-handle').boundingBox())!;
-    const handleX = handle.x + handle.width / 2;
-    await drag(handleX, handle.y + handle.height / 2, split.x + split.width * 0.3 - handleX, 0);
-    const sliderMoved = await parallelState(page);
-    await drag(split.x + split.width * 0.7, split.y + split.height / 2, -100, 50); // pan on the back pane
-    const sliderDragged = await parallelState(page);
-    await screenshot('parallel-slider-dragged', '.canvas-area');
-    await toggles.nth(1).click();
-    await page.waitForTimeout(200);
-    const transposed = await parallelState(page);
-    await screenshot('parallel-slider-transpose', '.canvas-area');
-    await toggles.nth(2).click();
-    await page.waitForTimeout(200);
-    const flipped = await parallelState(page);
-    await screenshot('parallel-slider-flip', '.canvas-area');
-
-    // One image selected: L only; the right pane says how to add the second one.
-    await setMode(page, 'Normal');
-    await selectCell(page, '01.png');
-    await setMode(page, 'Parallel');
-    await waitForPaneNotice('right', true);
-    await page.waitForTimeout(300);
-    const oneImage = await parallelState(page);
-    await screenshot('parallel-right-empty', '.canvas-area');
-
-    // The order of selection decides the sides: 01.png, then the 背景除去 result.
-    await setMode(page, 'Normal');
-    await selectCell(page, 'nobg.png', ['Control']);
-    await setMode(page, 'Parallel');
-    await waitForTitle('right', '120 x 160px');
-    await waitForTitle('left', '150 x 200px');
-    const swapped = await parallelState(page);
-
-    await setMode(page, 'Normal');
-    await page.waitForSelector('aside.ai-panel', { state: 'visible' });
-    await page.waitForTimeout(300);
-    return {
-      sideBySide,
-      dragged,
-      slider,
-      sliderMoved,
-      sliderDragged,
-      transposed,
-      flipped,
-      oneImage,
-      swapped,
-      normal: await flowState(page),
-    };
-  });
-
-  await step('13d-overlay-layers', async () => {
-    // U / T are the first two images selected on the flow canvas (docs/specs/canvas.md 「比較する画像」).
-    const summary = async () => {
-      const c = await canvasState(page);
-      return {
-        size: c.canvases.filter(x => x.visible).map(x => `${x.w}x${x.h}`),
-        pixels: c.canvases[0]?.pixels,
-        emptyMessage: c.emptyMessage,
-        zoomLabel: c.zoomLabel,
-      };
-    };
-    /** Whether the canvas swallows an arrow key (it only does while T is selected). */
-    const arrowPrevented = () =>
-      page.evaluate(() => {
-        const ev = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
-        document.body.dispatchEvent(ev);
-        return ev.defaultPrevented;
-      });
-
-    // U: the 背景除去 result of panel 01 (120x160), T: panel 01.png (150x200), centred over U; the right sidebar closes.
-    await selectCell(page, 'nobg.png');
-    await selectCell(page, '01.png', ['Control']);
-    await setMode(page, 'Overlay');
-    await waitForCanvasWidth(page, 150);
-    await page.waitForTimeout(500);
-    const withTop = { ...(await summary()), aiPanelVisible: await page.locator('aside.ai-panel').isVisible() };
-    await screenshot('overlay-u-t', '.canvas-area');
-
-    // Double click selects T; arrow keys move it (Shift = 10px) and are only taken while T is selected.
-    const arrowFreeBefore = await arrowPrevented();
-    const canvasBox = (await page.locator('.canvas-split__pane--left canvas').boundingBox())!;
-    await page.mouse.dblclick(canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height / 2);
-    await page.waitForTimeout(150);
-    for (let i = 0; i < 6; i++) await page.keyboard.press('Shift+ArrowRight'); // 60px
-    await page.waitForTimeout(150);
-    const moved = await summary();
-    const arrowTakenWhileSelected = await arrowPrevented();
-    await screenshot('overlay-t-moved', '.canvas-area');
-    await page.mouse.click(canvasBox.x + 4, canvasBox.y + 4); // outside T: deselects it
-    await page.waitForTimeout(150);
-    const arrowFreeAfter = await arrowPrevented();
-
-    // Dropping an image file imports nothing in Overlay mode.
-    const archivesBefore = (await flowState(page)).archives.length;
-    await dropTestImage(page, 'overlay-drop.png', 120, 90, '.canvas-area');
-    const dropToast = await waitForToast(page, /Overlay View では画像を取り込めません/);
-    await page.waitForTimeout(500);
-    const archivesAfterDrop = (await flowState(page)).archives.length;
-
-    // Nothing selected: the canvas says how to choose the images.
-    await setMode(page, 'Normal');
-    await page.keyboard.press('Escape');
-    await setMode(page, 'Overlay');
-    const nothingMessage = await waitForEmptyMessage(page, /重ね合わせる画像がありません/);
-    const nothing = await summary();
-    await screenshot('overlay-empty', '.canvas-area');
-
-    await setMode(page, 'Normal');
-    await page.waitForSelector('aside.ai-panel', { state: 'visible' });
-    await page.waitForTimeout(300);
-    return {
-      withTop,
-      moved: { ...moved, changed: JSON.stringify(moved.pixels) !== JSON.stringify(withTop.pixels) },
-      arrowFreeBefore,
-      arrowTakenWhileSelected,
-      arrowFreeAfter,
-      dropToast,
-      dropImportedNothing: archivesBefore === archivesAfterDrop,
-      nothingMessage,
-      nothing,
-      aiPanelVisibleAfter: await page.locator('aside.ai-panel').isVisible(),
-    };
-  });
-
   await step('14-delete-and-undo', async () => {
     // Deleting a panel removes its whole コマ分割 result and everything made from it, after a confirmation; the page
     // is shown again. Deleting the page then deletes the archive. Undo brings back one deletion at a time
@@ -2362,6 +2285,7 @@ async function runScenarios(
       page.evaluate(() => (document.querySelector('.flow-toolbar__archive') as HTMLSelectElement | null)?.value);
 
     // ⋯ of a panel row: the hidden page can be viewed or deleted with everything (cancelled here).
+    await page.locator('.flow-zoom-bar button[title="全体を表示"]').click();
     await page.locator('.flow-row[data-step$="#1"] .flow-step__menu').click();
     const panelMenu = await page.locator('.flow-menu__item').allTextContents();
     await page.locator('.flow-menu__item', { hasText: '元のページごと削除' }).click();

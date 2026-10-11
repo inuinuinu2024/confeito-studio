@@ -9,7 +9,8 @@
  *   Esc clears. The selection (DocumentManager) is what the tools run on, one image after another.
  * - A click on a thumbnail opens the image in the viewer (shared/ui/image-viewer.ts); on the 原画 of a panel's row
  *   it opens the panel cropper instead (panel-cropper.ts): where the panel was cut from the page, cutting it again
- *   (a new version of the panel, shown in its row) and picking an earlier version back.
+ *   (a new version of the panel, shown in its row) and picking an earlier version back. On an image generated from
+ *   a 原画 it opens the comparison window with the first image of its flow instead (canvas/compare-window.ts).
  * - Images generated from an image as 原画 join its box, to its right. Re-runs of a tool on the same image are
  *   side by side in one box: ★ adopts one (saved in the archive) and only its downstream flow is drawn.
  *   Re-runs with several outputs (コマ分割) switch with ‹ ›.
@@ -45,6 +46,7 @@ import { openImageViewer } from '../../shared/ui/image-viewer';
 import { showError, showToast } from '../../shared/ui/toast';
 import { historyManager } from '../../shared/utils/history';
 import { runTool, warnIfToolRunning } from '../ai-panel/tool-runner';
+import { openCompareWindow } from '../canvas/compare-window';
 import { DocumentManager } from '../document/DocumentManager';
 import { importImageTool } from '../tools/image-loader';
 import { TOOLS } from '../tools';
@@ -53,9 +55,11 @@ import { downloadImages } from './export-images';
 import {
   adoptableStack,
   buildGraph,
+  compareTargets,
   type FlowGraph,
   type FlowStep,
   hiddenPage,
+  isOriginalRun,
   mergeChoice,
   pageMerges,
   splitPageOf,
@@ -336,7 +340,7 @@ export function createFlowCanvas(): HTMLElement {
           void openCropper(step).then(opened => {
             if (!opened) void openViewer(image, where);
           });
-        } else void openViewer(image, where);
+        } else openImage(step, index, where);
       } else {
         clickSelect([image.key], e);
       }
@@ -677,6 +681,27 @@ export function createFlowCanvas(): HTMLElement {
       subtitle: image.width && image.height ? `${image.width} × ${image.height} px` : undefined,
       onDownload: () => void downloadImages([image.key]),
       onClose: () => URL.revokeObjectURL(url),
+    });
+  };
+
+  /**
+   * A click on the thumbnail of `step.cells[index]`: an image generated from a 原画 is compared with the first image
+   * of its flow, or another image generated in the step, in the comparison window (docs/specs/flow-canvas.md
+   * 「原画との比較」); any other image opens in the viewer.
+   */
+  const openImage = (step: FlowStep, index: number, where: string) => {
+    const image = step.cells[index];
+    const run = step.cellRuns[index];
+    const targets = graph && run && isOriginalRun(run) ? compareTargets(graph, step, index) : [];
+    if (!targets.length) {
+      void openViewer(image, where);
+      return;
+    }
+    openCompareWindow({
+      title: `${where} — ${image.name}`,
+      targets,
+      processed: image,
+      onDownload: () => void downloadImages([image.key]),
     });
   };
 

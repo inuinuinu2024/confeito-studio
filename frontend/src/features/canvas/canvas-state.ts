@@ -1,21 +1,21 @@
 /**
- * Mutable state of the comparison canvas (Parallel / Overlay mode). Owned by Canvas.ts and passed to the
- * pure-ish renderer (render.ts) and the zoom controller (zoom.ts). Normal mode has the flow canvas instead
- * (features/flow-canvas/).
+ * Mutable state of the comparison canvas (Parallel / Overlay in the comparison window, compare-window.ts). Owned by
+ * comparison-view.ts and passed to the pure-ish renderer (render.ts) and the zoom controller (zoom.ts).
  *
- * "left"/"right" are the two panes: the right one is shown in Parallel mode only. The images compared are
- * the first two selected on the flow canvas when the mode starts (L / R, U / T).
+ * "left"/"right" are the two panes: the right one is shown in Parallel only. The images compared are the first
+ * image of a flow and an image generated from it (L / R, U / T).
  */
 
-import type { ViewLayer } from '../../shared/events';
-
 export type Side = 'left' | 'right';
+
+/** An image compared: Overlay's underdrawing (U) and top image (T), Parallel's left (L) and right (R) pane. */
+export type ViewLayer = 'under' | 'top' | 'left' | 'right';
 
 export interface CanvasState {
   /** Mirrors of the view mode, updated in the order the toggle events arrive. */
   parallel: boolean;
   overlay: boolean;
-  /** Parallel mode sub-options: slider (wipe) view, vertical split, swapped sides. */
+  /** Slider: the two Parallel panes stacked (wipe view); its options: vertical split, swapped sides. */
   slider: boolean;
   vertical: boolean;
   flipped: boolean;
@@ -88,24 +88,26 @@ export function contentSize(s: CanvasState): { w: number; h: number } {
   return { w: 0, h: 0 };
 }
 
-/** How to choose what to compare (docs/specs/canvas.md 「比較する画像」). */
-export const CHOOSE_IN_NORMAL = 'Workspace で比較する画像を選択（Ctrl+クリックで 2 枚目）してから切り替えてください';
+/** Messages shown where an image is missing: in the left / right pane (Parallel) and over the area (Overlay). */
+export interface EmptyMessages {
+  left: string;
+  right: string;
+  overlay: string;
+}
 
 /**
- * Message shown over the canvas area when nothing is displayed (docs/specs/canvas.md 「表示ルール」),
- * or null when something is shown. Parallel mode words it per pane instead (emptyPaneMessage).
+ * Message shown over the canvas area when nothing is displayed, or null when something is shown.
+ * Parallel mode words it per pane instead (emptyPaneMessage).
  */
-export function emptyCanvasMessage(s: CanvasState): string | null {
+export function emptyCanvasMessage(s: CanvasState, messages: EmptyMessages): string | null {
   if (!s.overlay) return null;
-  return s.layers.under || s.layers.top ? null : `重ね合わせる画像がありません。${CHOOSE_IN_NORMAL}`;
+  return s.layers.under || s.layers.top ? null : messages.overlay;
 }
 
 /** Parallel mode: message in a pane without an image, or null. */
-export function emptyPaneMessage(s: CanvasState, side: Side): string | null {
+export function emptyPaneMessage(s: CanvasState, side: Side, messages: EmptyMessages): string | null {
   if (!s.parallel || s.layers[side]) return null;
-  return side === 'left'
-    ? `左に表示する画像がありません。${CHOOSE_IN_NORMAL}`
-    : '右に表示する画像がありません。2 枚選択すると 2 枚目を右に表示します';
+  return messages[side];
 }
 
 /** Slider view: clip-path of the front pane, which keeps the part before the divider at `pct` percent. */

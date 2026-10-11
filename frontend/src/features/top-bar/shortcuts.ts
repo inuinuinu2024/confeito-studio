@@ -2,7 +2,7 @@
  * Global keyboard shortcuts (ignored while typing in an input / textarea / select).
  *   Ctrl+Z undo the latest deletion on the flow canvas · Ctrl+B settings window (背景色指定 page)
  * Ctrl+Z is ignored while a window or dialog is open and when the key repeats (held down).
- * Arrow keys in Overlay mode are handled by the canvas (features/canvas/Canvas.ts).
+ * Arrow keys in the comparison window's Overlay are handled by the view (features/canvas/comparison-view.ts).
  */
 import { historyManager } from '../../shared/utils/history';
 

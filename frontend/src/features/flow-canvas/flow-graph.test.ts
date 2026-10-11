@@ -4,6 +4,8 @@ import {
   adoptableStack,
   buildGraph,
   cascadeRuns,
+  compareTargets,
+  flowOrigin,
   hiddenPage,
   mergeBoxes,
   mergeChoice,
@@ -340,6 +342,73 @@ describe('planDeletion', () => {
   });
 });
 
+describe('flowOrigin', () => {
+  /** sample() + images generated from 原画: c1's output (g1), then g1's output (g2), and the panel 01 (g3). */
+  function generated(): FlowData {
+    const data = sample();
+    const gen = (folder: string, source: string, at: string) => ({
+      ...run(folder, 'Nano Banana画像生成', source, ['g.png'], at),
+      settings: { original: { name: 'original.png' } },
+    });
+    data.runs.push(
+      gen('g1', 'a/c1/c.png', '2026-01-01 12:00:00'),
+      gen('g2', 'a/g1/g.png', '2026-01-01 12:01:00'),
+      gen('g3', 'a/s1/01.png', '2026-01-01 12:02:00'),
+      gen('g4', 'a/x1/gen.png', '2026-01-01 12:03:00'),
+    );
+    return data;
+  }
+
+  it('follows the inputs back to the start image', () => {
+    const graph = buildGraph(generated());
+    expect(flowOrigin(graph, 'a/g2/g.png')?.key).toBe('a/page.png');
+    expect(flowOrigin(graph, 'a/c1/c.png')?.key).toBe('a/page.png');
+  });
+
+  it('stops at the panel of a split page', () => {
+    const graph = buildGraph(generated());
+    expect(flowOrigin(graph, 'a/g3/g.png')?.key).toBe('a/s1/01.png');
+    expect(flowOrigin(graph, 'a/p1/p.png')?.key).toBe('a/s1/01.png');
+  });
+
+  it('stops at a result whose input is unknown', () => {
+    const graph = buildGraph(generated());
+    expect(flowOrigin(graph, 'a/g4/g.png')?.key).toBe('a/x1/gen.png');
+    expect(flowOrigin(graph, 'a/x1/gen.png')).toBeNull();
+    expect(flowOrigin(graph, 'a/x2/n.png')).toBeNull(); // its input was deleted
+  });
+
+  it('lists the 原画 first, then the other images generated in the same box', () => {
+    const graph = buildGraph(generated());
+    const flow = visibleFlow(graph);
+    const targets = (key: string) => {
+      const step = flow.stepOfCell.get(key)!;
+      return compareTargets(
+        graph,
+        step,
+        step.cells.findIndex(c => c.key === key),
+      ).map(t => [t.label, t.image.key]);
+    };
+    // c.png, then 生成 1 (g1) and 生成 2 (g2) in one box; the 原画 is the page the flow started from.
+    expect(targets('a/g2/g.png')).toEqual([
+      ['原画（page.png）', 'a/page.png'],
+      ['生成 1（g.png）', 'a/g1/g.png'],
+    ]);
+    expect(targets('a/g1/g.png')).toEqual([
+      ['原画（page.png）', 'a/page.png'],
+      ['生成 2（g.png）', 'a/g2/g.png'],
+    ]);
+    expect(targets('a/g3/g.png')).toEqual([['原画（01.png）', 'a/s1/01.png']]);
+    expect(targets('a/s1/01.png')).toEqual([]); // the first image itself
+  });
+
+  it('is null for the first image itself', () => {
+    const graph = buildGraph(generated());
+    expect(flowOrigin(graph, 'a/page.png')).toBeNull();
+    expect(flowOrigin(graph, 'a/s1/01.png')).toBeNull();
+  });
+});
+
 describe('panel versions (コマ切り直し)', () => {
   /** sample() + two re-cuts of panel 01 (k1, k2) and a 着彩 of the newest re-cut (q1). */
   function recut(selection: Record<string, string> = {}, merge: Record<string, string> = {}): FlowData {
@@ -402,6 +471,10 @@ describe('panel versions (コマ切り直し)', () => {
     expect(panelOf(graph, 'a/q1/q.png')).toBe('a/s1/01.png');
     expect(upstreamRun(graph, 'a/q1/q.png', 'コマ分割')?.folder).toBe('a/s1');
     expect(adoptableStack(graph, graph.runs.get('a/k1')!)).toBeNull();
+  });
+
+  it('compares an image with the version its flow starts from', () => {
+    expect(flowOrigin(buildGraph(recut()), 'a/q1/q.png')?.key).toBe('a/k2/01.png');
   });
 
   it('merges the shown version: its image at its box, marks only from it', () => {

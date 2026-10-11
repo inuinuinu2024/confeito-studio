@@ -10,20 +10,12 @@
 
 import type { FlowImage } from './types/flow';
 
-/**
- * An image the comparison modes show: Overlay mode's underdrawing (U) and top image (T), Parallel mode's
- * left (L) and right (R) pane (taken from the canvas selection when the mode starts).
- */
-export type ViewLayer = 'under' | 'top' | 'left' | 'right';
-
 /** What happens to one image of a tool run (the flow canvas marks the cell). */
 export type ToolTargetState = 'running' | 'done' | 'failed';
 
 export interface AppEventMap {
   // ── View modes: emitted by setViewMode() (shared/state/view-mode.ts) ──
   'normal-mode:toggle': { enabled: boolean };
-  'parallel-mode:toggle': { enabled: boolean };
-  'overlay-mode:toggle': { enabled: boolean };
   /** The Archive Manager (features/archive-manager/) replaces the canvas (export / import / rename / delete). */
   'archive-mode:toggle': { enabled: boolean };
   /** The Prompt Manager (features/prompt-manager/) replaces the canvas with its sidebar and main area. */

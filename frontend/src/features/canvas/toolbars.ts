@@ -1,4 +1,4 @@
-/** Floating toolbar groups at the top of the canvas (Parallel options and Overlay options). */
+/** Floating toolbar groups at the top of the canvas (Slider options and Overlay options). */
 import { h, icon } from '../../shared/ui/dom';
 import { TINT_COLORS } from './render';
 
@@ -23,32 +23,20 @@ const spacer = () => h('div', { class: 'canvas-toolbar__spacer' });
 
 const TINT_NAMES: Record<string, string> = { blue: '青', green: '緑', red: '赤', gray: '灰' };
 
-export interface ParallelToolbar {
+export interface SliderToolbar {
   el: HTMLDivElement;
-  slider: ToggleSwitch;
   vertical: ToggleSwitch;
   flip: ToggleSwitch;
-  /** Transpose / Flip are only shown while the slider is on. */
-  showSliderOptions(visible: boolean): void;
 }
 
-export function createParallelToolbar(handlers: {
-  onSlider: () => void;
-  onVertical: () => void;
-  onFlip: () => void;
-}): ParallelToolbar {
-  const slider = toggleSwitch(handlers.onSlider);
+/** Slider options: Transpose (a horizontal divider) and Flip (the right image in front). */
+export function createSliderToolbar(handlers: { onVertical: () => void; onFlip: () => void }): SliderToolbar {
   const vertical = toggleSwitch(handlers.onVertical);
   const flip = toggleSwitch(handlers.onFlip);
-  const sliderOptions = [spacer(), label('Transpose'), vertical.el, spacer(), label('Flip'), flip.el];
   return {
-    el: h('div', { class: 'canvas-toolbar__group' }, label('Slider'), slider.el, ...sliderOptions),
-    slider,
+    el: h('div', { class: 'canvas-toolbar__group' }, label('Transpose'), vertical.el, spacer(), label('Flip'), flip.el),
     vertical,
     flip,
-    showSliderOptions(visible) {
-      for (const el of sliderOptions) el.style.display = visible ? '' : 'none';
-    },
   };
 }
 

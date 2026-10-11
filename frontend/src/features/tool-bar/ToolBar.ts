@@ -1,6 +1,6 @@
 /**
  * ToolBar — left column of view mode buttons (state lives in shared/state/view-mode.ts), in groups
- * separated by thin dividers: Normal | the comparison views Parallel, Overlay | the managers
+ * separated by thin dividers: Normal | the managers
  * (Archive Manager / Prompt Manager / Character Manager are the "archive" / "prompt" / "character" view modes;
  * Object / Style are not implemented yet) | the monitors (Cost Monitor is the "cost" view mode).
  */
@@ -17,8 +17,6 @@ interface ButtonDef {
 
 const MODES: Record<ViewMode, ButtonDef> = {
   normal: { title: 'Workspace', icon: 'account_tree' },
-  parallel: { title: 'Parallel View', icon: 'compare' },
-  overlay: { title: 'Overlay View', icon: 'photo_library' },
   archive: { title: 'Archive Manager', icon: 'inventory_2' },
   prompt: { title: 'Prompt Manager', icon: 'chat' },
   character: { title: 'Character Manager', icon: 'person' },
@@ -28,9 +26,6 @@ const MODES: Record<ViewMode, ButtonDef> = {
 /** Top to bottom: a view mode, a divider, or a button that is not implemented yet (shows a "開発中" toast). */
 const ITEMS: (ViewMode | 'divider' | ButtonDef)[] = [
   'normal',
-  'divider',
-  'parallel',
-  'overlay',
   'divider',
   'archive',
   'prompt',
@@ -67,8 +62,6 @@ export function createToolBar(): HTMLElement {
   };
   for (const event of [
     'normal-mode:toggle',
-    'parallel-mode:toggle',
-    'overlay-mode:toggle',
     'archive-mode:toggle',
     'prompt-mode:toggle',
     'character-mode:toggle',

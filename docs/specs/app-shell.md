@@ -4,8 +4,9 @@
 - アプリ名は「ConfeitO Studio」。上部バー左端・ブラウザのタブのタイトル・起動中画面・起動用ショートカット（`setup/ConfeitO Studio.lnk`）に出す。
   リポジトリ名・パッケージ名（`confeito-studio`）・環境変数（`CONFEITO_*`）などの識別子は小文字のまま。
 - CSS Grid（`.manga-grid`）で 4 列 × 3 行: 上段 = トップバー（全幅）、中段 = 表示モードボタン | 左サイドバー | メイン領域 | AI パネル、下段 = ステータスバー（全幅）。
-  メイン領域は Workspace では処理フローのキャンバス（[flow-canvas.md](./flow-canvas.md)）、Parallel / Overlay では比較キャンバス（[canvas.md](./canvas.md)）。
-- 左端の列（`features/tool-bar/ToolBar.ts`）は上から 4 つのグループ: Workspace（account_tree のアイコン）、Parallel View / Overlay View、
+  メイン領域は Workspace では処理フローのキャンバス（[flow-canvas.md](./flow-canvas.md)）。画像の比較は Workspace から開くウィンドウで行う
+  （[flow-canvas.md](./flow-canvas.md)「原画との比較」・[canvas.md](./canvas.md)。表示モードに Parallel / Overlay はない）。
+- 左端の列（`features/tool-bar/ToolBar.ts`）は上から 3 つのグループ: Workspace（account_tree のアイコン）、
   マネージャー（Archive Manager: inventory_2 / Prompt Manager: chat / Character Manager: person / Object Manager: eyeglasses / Style Manager: brush のアイコン）、
   モニター（Cost Monitor: browse_activity のアイコン）。
   グループの間には細い仕切り線（1px）を引く。
@@ -13,8 +14,7 @@
   ほかのマネージャー（Object / Style）は未実装で、押すと「開発中」トースト（「「Object Manager」は現在開発中です」など）を出すだけ（表示モードは変わらない）。
 - 左サイドバーはマネージャー（Prompt Manager・Character Manager）のカテゴリー一覧だけが使い、ほかのモードでは幅 0。
   左右のサイドバーは端のドラッグで 150〜600px に変更できる。
-- 右サイドバーは AI パネル。Parallel / Overlay モード中は右サイドバーを閉じてキャンバスを広げる
-  （ツールは実行しない。[canvas.md](./canvas.md)「比較する画像」）。
+- 右サイドバーは AI パネル（Workspace の時だけ。マネージャーと Cost Monitor では閉じる）。
 - スタイルは `variables.css` のデザイントークンで一元管理（ダークテーマ）。
 
 ## 上部バーとショートカット

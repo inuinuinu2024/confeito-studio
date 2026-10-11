@@ -4,7 +4,7 @@
  *
  * - `getArchive()` / `getFlow()`: set by the flow canvas (features/flow-canvas/) when it loads an archive.
  * - `getSelection()`: the selected images in the order they were selected. Tools run once per image
- *   (features/ai-panel/tool-runner.ts); Parallel / Overlay mode compare the first two.
+ *   (features/ai-panel/tool-runner.ts).
  */
 import { emit } from '../../shared/events';
 import type { FlowData, FlowImage } from '../../shared/types/flow';

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   type CanvasState,
-  CHOOSE_IN_NORMAL,
   contentSize,
   createCanvasState,
   emptyCanvasMessage,
@@ -18,20 +17,28 @@ function stateWith(update: (s: CanvasState) => void): CanvasState {
   return s;
 }
 
+const messages = { left: 'no left', right: 'no right', overlay: 'no overlay' };
+
 describe('emptyCanvasMessage', () => {
   it('leaves Parallel mode to the per-pane messages', () => {
-    expect(emptyCanvasMessage(stateWith(s => (s.parallel = true)))).toBeNull();
+    expect(
+      emptyCanvasMessage(
+        stateWith(s => (s.parallel = true)),
+        messages,
+      ),
+    ).toBeNull();
   });
 
-  it('says how to choose U / T in Overlay mode until one of them is set', () => {
+  it('is shown in Overlay mode until U or T is set', () => {
     const overlay = (update: (s: CanvasState) => void = () => {}) =>
       emptyCanvasMessage(
         stateWith(s => {
           s.overlay = true;
           update(s);
         }),
+        messages,
       );
-    expect(overlay()).toBe(`重ね合わせる画像がありません。${CHOOSE_IN_NORMAL}`);
+    expect(overlay()).toBe('no overlay');
     expect(overlay(s => (s.layers.under = image()))).toBeNull();
     expect(overlay(s => (s.layers.top = image()))).toBeNull();
   });
@@ -44,21 +51,19 @@ describe('emptyPaneMessage', () => {
       update(s);
     });
 
-  it('says how to choose the image of each empty pane', () => {
-    expect(emptyPaneMessage(parallel(), 'left')).toBe(`左に表示する画像がありません。${CHOOSE_IN_NORMAL}`);
-    expect(emptyPaneMessage(parallel(), 'right')).toBe(
-      '右に表示する画像がありません。2 枚選択すると 2 枚目を右に表示します',
-    );
+  it('is shown in each empty pane', () => {
+    expect(emptyPaneMessage(parallel(), 'left', messages)).toBe('no left');
+    expect(emptyPaneMessage(parallel(), 'right', messages)).toBe('no right');
   });
 
   it('never fills an empty pane with the other layer', () => {
     const s = parallel(s => (s.layers.left = image()));
-    expect(emptyPaneMessage(s, 'left')).toBeNull();
-    expect(emptyPaneMessage(s, 'right')).not.toBeNull();
+    expect(emptyPaneMessage(s, 'left', messages)).toBeNull();
+    expect(emptyPaneMessage(s, 'right', messages)).not.toBeNull();
   });
 
   it('is not shown outside Parallel mode', () => {
-    expect(emptyPaneMessage(createCanvasState(), 'left')).toBeNull();
+    expect(emptyPaneMessage(createCanvasState(), 'left', messages)).toBeNull();
   });
 });
 

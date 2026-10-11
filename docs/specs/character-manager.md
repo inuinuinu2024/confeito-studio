@@ -61,7 +61,7 @@
   注意トースト「キャラクターファイル（characters.json）が壊れていたため <退避先> に退避し、登録キャラクターなしで読み込みました。」
 
 ## Character Manager（`features/character-manager/`）
-- 左端の列のマネージャーのグループにある「Character Manager」（person アイコン）で開く。**表示モードの 1 つ**（Workspace / Parallel / Overlay / Prompt Manager と排他）。
+- 左端の列のマネージャーのグループにある「Character Manager」（person アイコン）で開く。**表示モードの 1 つ**（Workspace / Archive Manager / Prompt Manager / Cost Monitor と排他）。
   - もう一度押すと Normal に戻る。ほかのモードのボタンを押すとそのモードに切り替わる。開いている間はアイコンを選択中の色にする。
   - 開くたびにファイルから読み直す（カテゴリーの選択は「すべて」、検索は空、編集欄は空に戻る）。
 - 画面: 左サイドバーにカテゴリー一覧（見出し「CHARACTERS」）、メイン領域にキャラクター一覧（左）と編集欄（右）。右サイドバー（AI パネル）は閉じる。

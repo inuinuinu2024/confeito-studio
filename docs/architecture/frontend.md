@@ -36,7 +36,8 @@ frontend/src/
     │                         # 削除範囲・コマ結合の差し替えを作る純粋関数、flow-layout.ts = 自動配置と線、pan-zoom.ts、thumbnails.ts、
     │                         # deletion.ts = 削除と Undo（Archive Manager も使う）、export-images.ts = 画像の書き出し、side-pane.ts = 3 枚構成の左右のペイン（元ページ / コマ結合後）、
     │                         # panel-cropper.ts = コマの切り直し（ページ上の範囲の表示・切り直し・版の切り替え）
-    ├── canvas/               # 比較キャンバス（Parallel / Overlay。canvas-state / render / zoom / toolbars）
+    ├── canvas/               # 比較キャンバス（Parallel / Slider / Overlay）。compare-window.ts = 生成画像の「原画との比較」ウィンドウ、
+    │                         # comparison-view.ts = その中の比較の表示（canvas-state / render / zoom / toolbars）
     ├── ai-panel/             # ツール一覧・並び替え・実行（tool-runner、run-targets = まとめて実行の対象と通知文）・ツールウィンドウ（components/ToolWindow.ts）
     ├── document/             # DocumentManager（表示中のアーカイブ・その処理フロー・選択中の画像）
     ├── status-bar/
@@ -59,7 +60,7 @@ frontend/src/
 | `flow:selection-changed` | DocumentManager（FlowCanvas が選択を変えた時）→ 受け手は任意 | 選択中の画像（選んだ順）が変わった |
 | `archives:changed` | ツール/削除処理/Archive Manager → FlowCanvas, Canvas, ArchiveManager | ファイルが変わった。FlowCanvas はアーカイブ一覧と処理フローを読み直し、`select` の画像を選ぶ（そのアーカイブへ切り替える）。`archive` があればそのアーカイブを表示（Archive Manager の「開く」もこれ）。Canvas は比較中の画像を読み直す。Archive Manager は表示中なら一覧を読み直す |
 | `archives:location-changed` | 設定ウィンドウ（保存先）→ FlowCanvas, ArchiveManager | アーカイブのフォルダを切り替えた。選択・サムネイル・Undo の履歴を捨て、新しいフォルダの一番新しいアーカイブを表示 |
-| `<mode>-mode:toggle` | view-mode.ts → 各機能 | 表示モードの ON/OFF（normal = Workspace /parallel/overlay/archive/prompt/character/cost）。archive は Archive Manager、prompt は Prompt Manager、character は Character Manager、cost は Cost Monitor（app.ts がメイン領域を入れ替える）。Canvas は parallel / overlay の開始時に選択から比較する画像を取る |
+| `<mode>-mode:toggle` | view-mode.ts → 各機能 | 表示モードの ON/OFF（normal = Workspace /archive/prompt/character/cost）。archive は Archive Manager、prompt は Prompt Manager、character は Character Manager、cost は Cost Monitor（app.ts がメイン領域を入れ替える） |
 | `tool:start` / `tool:progress` / `tool:end` | tool-runner, ツール → StatusBar, FlowCanvas（`tool:end` は Cost Monitor も受けて読み直す） | 実行状況。FlowCanvas は実行中の結果をまとめて選ぶ |
 | `tool:target` | tool-runner → FlowCanvas | まとめて実行の 1 枚ごとの状態（running / done / failed）。セルに印を付ける |
 | `canvas:bg-color`, `settings:updated`, `history:changed` | 設定ウィンドウ, history | 背景色 / API キー保存 / Undo できるかが変わった（Workspace・Archive Manager の削除・元に戻すボタン） |

@@ -1,9 +1,8 @@
 /* ============================================================
    ConfeitO Studio — App shell grid (app.ts)
    Columns: mode toolbar | sidebar (managers only, otherwise 0 wide) | main area | AI panel
-   Main area: the flow canvas in Normal mode (features/flow-canvas/), the comparison canvas in Parallel /
-   Overlay mode (features/canvas/); both span the sidebar column so no empty column shows.
-   The AI panel is hidden in Parallel / Overlay and the managers' modes; the managers
+   Main area: the flow canvas in Normal mode (features/flow-canvas/); it spans the sidebar column so no empty
+   column shows. The AI panel is hidden in the managers' modes; the managers
    (features/prompt-manager/, features/character-manager/) put their sidebar and main area in columns 2 / 3.
    Rows:    top bar | workspace | status bar
    Feature styles live next to each feature (features/<name>/<name>.css).
@@ -18,7 +17,7 @@
   background-color: var(--color-outline-variant);
 }
 
-/* Parallel / Overlay / manager modes: no right sidebar (tools do not run), the main area takes its width */
+/* Manager modes: no right sidebar (tools do not run), the main area takes its width */
 .manga-grid--no-tools {
   grid-template-columns: var(--left-toolbar-width) 0 1fr;
 }
@@ -32,15 +31,12 @@
   grid-template-columns: var(--left-toolbar-width) var(--left-sidebar-width) 1fr;
 }
 
-.manga-grid > .flow-canvas,
-.manga-grid > .canvas-area {
+.manga-grid > .flow-canvas {
   grid-column: 2 / 4;
   grid-row: 2 / 3;
 }
 
-/* Normal mode shows the flow canvas, Parallel / Overlay the comparison canvas, the managers neither */
-.manga-grid--compare > .flow-canvas,
-.manga-grid--manager > .flow-canvas,
-.manga-grid:not(.manga-grid--compare) > .canvas-area {
+/* Normal mode shows the flow canvas, the managers do not */
+.manga-grid--manager > .flow-canvas {
   display: none;
 }
