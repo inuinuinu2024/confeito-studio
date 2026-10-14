@@ -496,6 +496,12 @@ def test_recrop_panel_error_is_bad_request(client, data: dict, message: str) -> 
     assert message in str(res.json()["detail"])
 
 
+def test_add_panel_error_is_bad_request(client) -> None:
+    res = client.post("/api/image/add-panel", data={"split_folder": "missing/split", "box": "[0, 0, 1, 1]"})
+    assert res.status_code == 400
+    assert "コマ分割の結果ではありません" in str(res.json()["detail"])
+
+
 def test_merge_panels_error_is_bad_request(client) -> None:
     res = client.post("/api/image/merge-panels", data={"target_folder": "missing"})
     assert res.status_code == 400

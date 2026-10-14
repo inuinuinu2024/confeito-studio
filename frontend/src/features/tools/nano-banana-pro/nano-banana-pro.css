@@ -1,4 +1,4 @@
-/* ── Nano Banana画像生成 settings (nano-banana-pro.ts) ──────────────
+/* ── AI画像生成 settings (nano-banana-pro.ts) ──────────────
    Three tool-window columns: model / API + prompt | reference images | parameters. */
 
 .nbp-step {
@@ -44,7 +44,7 @@
   justify-content: space-between;
   margin-top: 8px;
   padding-bottom: 4px;
-  border-bottom: 1px solid var(--color-outline-variant);
+  border-bottom: 1px solid var(--color-line);
   font-size: 12px;
   font-weight: 600;
   color: var(--color-on-surface);
@@ -142,7 +142,7 @@
   flex-direction: column;
   gap: 8px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--color-outline-variant);
+  border-bottom: 1px solid var(--color-line);
 }
 
 .nbp-original__card .ref-card__name {

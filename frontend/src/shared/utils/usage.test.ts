@@ -17,18 +17,14 @@ import {
 
 describe('chartSeries', () => {
   it('orders the known tools first and folds past three series into その他', () => {
-    const { series, seriesOf } = chartSeries(['Z', 'コマ分割', 'Y', 'Nano Banana画像生成']);
-    expect(series).toEqual(['Nano Banana画像生成', 'コマ分割', OTHER_SERIES]);
+    const { series, seriesOf } = chartSeries(['Z', 'コマ分割', 'Y', 'AI画像生成']);
+    expect(series).toEqual(['AI画像生成', 'コマ分割', OTHER_SERIES]);
     expect(seriesOf('Y')).toBe(OTHER_SERIES);
     expect(seriesOf('コマ分割')).toBe('コマ分割');
   });
 
   it('keeps three tools as their own series', () => {
-    expect(chartSeries(['Y', 'コマ分割', 'Y', 'Nano Banana画像生成']).series).toEqual([
-      'Nano Banana画像生成',
-      'コマ分割',
-      'Y',
-    ]);
+    expect(chartSeries(['Y', 'コマ分割', 'Y', 'AI画像生成']).series).toEqual(['AI画像生成', 'コマ分割', 'Y']);
   });
 });
 

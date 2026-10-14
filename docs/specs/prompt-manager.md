@@ -1,7 +1,7 @@
 # Prompt Manager と登録プロンプト
 
 ユーザーが登録したプロンプトを、全ツールで共有する 1 つの一覧として管理する。
-管理は Prompt Manager（左端の表示モード）で行い、ツール（今は Nano Banana画像生成）からは登録と呼び出しだけを行う
+管理は Prompt Manager（左端の表示モード）で行い、ツール（今は AI画像生成）からは登録と呼び出しだけを行う
 （ツール側の操作は [tools/gemini-image.md](./tools/gemini-image.md)「プロンプト」）。
 
 ## データ

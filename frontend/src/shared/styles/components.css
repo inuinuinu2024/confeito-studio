@@ -221,6 +221,22 @@
   margin-top: 8px;
 }
 
+/* inputDialog: the label above the text field, and the error under it (empty: no room taken) */
+.cs-modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cs-modal__error {
+  font-size: 12px;
+  color: var(--color-error);
+}
+
+.cs-modal__error:empty {
+  display: none;
+}
+
 /* ── JSON preview (shared/ui/dialogs.ts openJsonPreview, a window) ── */
 .cs-json-window {
   width: 720px;
@@ -339,7 +355,7 @@
   gap: 8px;
   flex-shrink: 0;
   padding: 14px 12px 14px 16px;
-  border-bottom: 1px solid var(--color-outline-variant);
+  border-bottom: 1px solid var(--color-line);
 }
 
 .cs-window__heading {
@@ -393,7 +409,7 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 16px;
-  border-top: 1px solid var(--color-outline-variant);
+  border-top: 1px solid var(--color-line);
 }
 
 /* ── Image viewer (shared/ui/image-viewer.ts): one image large, only to look at ── */

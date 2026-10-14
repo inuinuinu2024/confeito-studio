@@ -127,13 +127,20 @@ def insert(record: dict[str, Any]) -> None:
         conn.execute(_INSERT, _row_values(record))
 
 
+# Tools renamed since: their old records are shown (and totalled) under the new name. The records are not rewritten.
+LEGACY_TOOL_NAMES = {"Nano Banana画像生成": "AI画像生成"}
+_TOOL = (
+    "CASE tool " + " ".join(f"WHEN '{old}' THEN '{new}'" for old, new in LEGACY_TOOL_NAMES.items()) + " ELSE tool END"
+)
+
+
 def _record(row: sqlite3.Row) -> dict[str, Any]:
     usage: Usage = {c: row[c] for c in COUNT_COLUMNS}  # type: ignore[assignment]
     return {
         "id": row["id"],
         "at": row["at"],
         "user": row["user"],
-        "tool": row["tool"],
+        "tool": LEGACY_TOOL_NAMES.get(row["tool"], row["tool"]),
         "model": row["model"],
         "api": row["api"],
         "service_tier": row["service_tier"],
@@ -186,18 +193,19 @@ class _Query:
 
     def breakdown(self, key: str) -> list[dict[str, Any]]:
         """Totals per tool or model, most expensive first."""
+        column = _TOOL if key == "tool" else key
         rows = self.conn.execute(
-            f"SELECT {key}, {_TOTALS} FROM usage_records WHERE {self.where} GROUP BY {key} "
+            f"SELECT {column} AS name, {_TOTALS} FROM usage_records WHERE {self.where} GROUP BY {column} "
             "ORDER BY cost_usd DESC, count DESC",
             self.args,
         )
-        return [{"name": row[key], **_totals(row, key)} for row in rows]
+        return [{"name": row["name"], **_totals(row, "name")} for row in rows]
 
     def daily(self, tz_offset_minutes: int) -> list[sqlite3.Row]:
         return self.conn.execute(
-            "SELECT strftime('%Y-%m-%d', at_ms / 1000, 'unixepoch', ?) AS day, tool, "
+            f"SELECT strftime('%Y-%m-%d', at_ms / 1000, 'unixepoch', ?) AS day, {_TOOL} AS tool, "
             f"COALESCE(SUM(cost_usd), 0) AS cost_usd, COUNT(*) AS count FROM usage_records WHERE {self.where} "
-            "GROUP BY day, tool",
+            f"GROUP BY day, {_TOOL}",
             (f"{tz_offset_minutes:+d} minutes", *self.args),
         ).fetchall()
 

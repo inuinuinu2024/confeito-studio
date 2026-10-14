@@ -13,7 +13,7 @@ router = APIRouter(tags=["generate"])
 
 
 class NanoBananaProRequest(BaseModel):
-    """Interactions API payload built by the Nano Banana画像生成 tool (frontend features/tools/nano-banana-pro/).
+    """Interactions API payload built by the AI画像生成 tool (frontend features/tools/nano-banana-pro/).
 
     Only these fields are forwarded; anything else is dropped.
     """
@@ -29,7 +29,7 @@ class NanoBananaProRequest(BaseModel):
 
 
 class GenerateContentRequest(BaseModel):
-    """generateContent body built by the Nano Banana画像生成 tool, plus ``model`` (moved into the URL by the provider).
+    """generateContent body built by the AI画像生成 tool, plus ``model`` (moved into the URL by the provider).
 
     Only these fields are forwarded; anything else is dropped.
     """

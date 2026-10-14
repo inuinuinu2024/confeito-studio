@@ -1,8 +1,8 @@
-# Nano Banana画像生成（`features/tools/nano-banana-pro/`）
+# AI画像生成（`features/tools/nano-banana-pro/`）
 
 共通の仕組み（参照画像の一覧・プロンプト欄・送信テキスト）は [gemini-image.md](./gemini-image.md)。設定キーは `nanoBananaPro_*`。
 
-- ツール名（TOOLS の一覧・ウィンドウの見出し・トースト・結果フォルダ名）は「Nano Banana画像生成」。
+- ツール名（TOOLS の一覧・ウィンドウの見出し・トースト・結果フォルダ名）は「AI画像生成」。
   旧名「Nano Banana Pro」の名残として、フォルダ名 `nano-banana-pro/`・id・設定キー `nanoBananaPro_*`・API のパス `/api/nano-banana-pro` はそのまま
   （設定を引き継ぐため）。モデルの通称「Nano Banana Pro」「Nano Banana」など（下の表）はツール名とは別。
 
@@ -72,7 +72,7 @@
   ```
 - **戻し方**: 送った画像の中で原画が占める範囲を 0〜1 の比率で覚えておき、返ってきた画像（実際の大きさ）からその範囲を切り出して、
   原画と同じ W x H に高品質補間で拡大縮小する。予定と違う大きさで返ってきても範囲は合う。形式は返ってきた画像と同じ（PNG / JPEG）。
-- **保存**: 戻した画像を結果の画像（`<YYYYMMDD_HHMMSS>_Nano Banana画像生成.*`）にし、返ってきたままの画像を `Raw/generated.*` に保存する。
+- **保存**: 戻した画像を結果の画像（`<YYYYMMDD_HHMMSS>_AI画像生成.*`）にし、返ってきたままの画像を `Raw/generated.*` に保存する。
   ファイルから設定した原画は `Inputs/Original.*` にコピーし `source` は null。Workspace の選択から設定した原画はコピーせず、その画像のキーを `source` にする。
   `info.json` の settings に `original`（`width` / `height` / `aspectRatio` / `padding`（`none` / `vertical` / `horizontal`）/ `sentSize` / `generatedSize`）を加える。
 
@@ -121,11 +121,11 @@
 - 送信先: Interactions は `POST /api/nano-banana-pro`、generateContent は `POST /api/nano-banana-pro/generate-content`。
 
 ## 保存
-- 保存先は共通ルール（[archives.md](../archives.md)「ツールの結果の保存」）: 表示中のアーカイブの中の `YYYYMMDD_HHMMSS_Nano Banana画像生成/`、
-  アーカイブがなければ新しいアーカイブ。`YYYYMMDD_HHMMSS_Nano Banana画像生成.png|.jpg`、`Inputs/Image1.*`, `Inputs/Image2.*`, ...（原画がある時は Image2 から。原画は `Inputs/Original.*`）、
+- 保存先は共通ルール（[archives.md](../archives.md)「ツールの結果の保存」）: 表示中のアーカイブの中の `YYYYMMDD_HHMMSS_AI画像生成/`、
+  アーカイブがなければ新しいアーカイブ。`YYYYMMDD_HHMMSS_AI画像生成.png|.jpg`、`Inputs/Image1.*`, `Inputs/Image2.*`, ...（原画がある時は Image2 から。原画は `Inputs/Original.*`）、
   `Inputs/payload.json`（実際に送ったリクエスト。画像データは省略）、`info.json`（source = null、settings = `model` / `api`）を保存する。
   原画がある時は `Raw/generated.*`・`Inputs/Original.*`・`settings.original` が加わる（上の「原画」）。
 - 画像の拡張子は、実際に返ってきた画像の形式（バックエンドの応答の Content-Type）で決める。
-- 完了後: 「Nano Banana画像生成: 「<結果フォルダ>」に画像を保存しました」のトースト。生成画像を選択する。
+- 完了後: 「AI画像生成: 「<結果フォルダ>」に画像を保存しました」のトースト。生成画像を選択する。
 - エラー時: バックエンドの日本語メッセージをエラートーストに出し、Gemini の生の応答（セーフティブロック等）を原文として併せて表示する
   （[notifications.md](../notifications.md)）。error.txt は書かない。

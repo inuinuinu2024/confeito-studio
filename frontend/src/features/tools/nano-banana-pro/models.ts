@@ -1,5 +1,5 @@
 /**
- * Gemini image models selectable in the Nano Banana画像生成 tool and what each one supports (pure data).
+ * Gemini image models selectable in the AI画像生成 tool and what each one supports (pure data).
  *
  * Source: Gemini API guide "Nano Banana image generation" — aspect ratio / size tables,
  * reference image limits, thinking levels and Google Search grounding per model.

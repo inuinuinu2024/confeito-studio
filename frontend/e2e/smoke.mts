@@ -9,7 +9,11 @@
  *
  * Usage (from frontend/):
  *   npm run e2e
+ *   npm run e2e -- --only 12,14     only the scenarios named 12… and 14… (and the setup ones they need)
  *   node e2e/smoke.mts --headed --out e2e/.output/manual
+ *
+ * The run stops at the first scenario that fails (the next ones are recorded as skipped): one failure leaves the page
+ * in a state the next scenarios would only time out in. --keep-going runs them anyway.
  *
  * Options:
  *   --root <dir>          repository root to run (default: this repository)
@@ -19,6 +23,8 @@
  *   --out <dir>           default e2e/.output/latest
  *   --headed              show the browser window
  *   --keep                keep the temporary data directory
+ *   --only <a,b,…>        run only the scenarios whose name starts with one of these (plus SETUP_STEPS)
+ *   --keep-going          go on after a scenario fails
  *
  * The run never calls external APIs (Gemini) and never touches the real archives/ directory.
  */
@@ -27,7 +33,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page, type Route } from 'playwright-core';
+import { chromium, type Browser, type Locator, type Page, type Route } from 'playwright-core';
 
 const FRONTEND_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -39,7 +45,16 @@ interface Options {
   out: string;
   headed: boolean;
   keep: boolean;
+  /** Name prefixes of the scenarios to run (null: all). */
+  only: string[] | null;
+  keepGoing: boolean;
 }
+
+/**
+ * Scenarios that make what later ones use (the app loaded, the e2e-image archive, the e2e-panels fixture): run with
+ * --only too.
+ */
+const SETUP_STEPS = ['01-boot', '03-import-image', '12-merge-panels'];
 
 function parseArgs(argv: string[]): Options {
   const get = (name: string) => {
@@ -59,6 +74,12 @@ function parseArgs(argv: string[]): Options {
     out: path.resolve(get('--out') ?? path.join(FRONTEND_DIR, 'e2e', '.output', 'latest')),
     headed: argv.includes('--headed'),
     keep: argv.includes('--keep'),
+    only:
+      get('--only')
+        ?.split(',')
+        .map(s => s.trim())
+        .filter(Boolean) ?? null,
+    keepGoing: argv.includes('--keep-going'),
   };
 }
 
@@ -146,28 +167,29 @@ async function flowState(page: Page) {
           const marks = ['selected', 'adopted', 'merge-marked', 'running', 'failed', 'broken'].filter(s =>
             c.classList.contains(`flow-cell--${s}`),
           );
+          // 「AI画像生成 1 ← 原画」 / 「背景除去 1 ← 原画」 on a result, 「原画」 on the 原画 of its box.
           const origin = c.querySelector('.flow-cell__origin');
           const label = origin
-            ? `${origin.querySelector('.flow-cell__origin-name')?.textContent} ${origin.querySelector('.flow-cell__origin-from')?.textContent}: `
+            ? `${Array.from(origin.querySelectorAll('.flow-cell__origin-name, .flow-cell__origin-from'))
+                .map(e => e.textContent)
+                .join(' ')}: `
             : '';
           return `${label}${c.title}${marks.length ? ` [${marks.join(',')}]` : ''}`;
         }),
+        // ▶ between the 原画 and the images generated from it.
+        originArrow: !!step.querySelector('.flow-step__origin-arrow'),
       })),
-      // Row labels (コマ #1 150 × 200, 開始画像 …), top to bottom.
+      // Row labels (コマ 1 150 × 200, 開始画像 …), top to bottom.
       rows: Array.from(document.querySelectorAll('.flow-row__label')).map(l =>
-        Array.from(
-          l.querySelectorAll('.flow-step__title, .flow-step__version, .flow-step__size, .flow-step__variant-label'),
-        )
+        Array.from(l.querySelectorAll('.flow-step__title, .flow-step__size, .flow-step__variant-label'))
           .map(e => e.textContent)
           .join(' '),
       ),
       edges: document.querySelectorAll('.flow-edge').length,
       selection: document.querySelector('.flow-toolbar__selection')?.textContent ?? '',
-      deleteEnabled: !document.querySelector<HTMLButtonElement>('.flow-toolbar__button[title^="選択した結果を削除"]')
-        ?.disabled,
-      undoEnabled: !document.querySelector<HTMLButtonElement>('.flow-toolbar__button[title^="削除を元に戻す"]')
-        ?.disabled,
-      zoom: document.querySelector('.flow-zoom-bar .canvas-zoom-bar__label')?.textContent ?? null,
+      deleteEnabled: !document.querySelector<HTMLButtonElement>('.flow-toolbar__button[title^="削除"]')?.disabled,
+      undoEnabled: !document.querySelector<HTMLButtonElement>('.flow-toolbar__button[title^="元に戻す"]')?.disabled,
+      zoomBar: !!document.querySelector('.flow-center .canvas-zoom-bar'),
       panes: Array.from(document.querySelectorAll<HTMLElement>('.flow-pane')).map(pane => ({
         visible: visible(pane),
         collapsed: pane.classList.contains('flow-pane--collapsed'),
@@ -216,16 +238,30 @@ async function selectCell(
   await (await flowCell(page, name, nth)).click({ modifiers, position: { x: 1, y: 1 } });
 }
 
-/** Fits the flow into view (全体を表示) when the cell is not fully on screen. */
+/** Scrolls the flow (wheel) until the cell is fully on screen, below the toolbar. */
 async function revealCell(page: Page, name: string | RegExp, nth = 0): Promise<void> {
-  const cell = (await (await flowCell(page, name, nth)).boundingBox())!;
+  await revealInFlow(page, await flowCell(page, name, nth));
+}
+
+/** Scrolls the flow (wheel) until `target` (something in the flow) is fully on screen, below the toolbar. */
+async function revealInFlow(page: Page, target: Locator): Promise<void> {
+  const box = (await target.boundingBox())!;
   const view = (await page.locator('.flow-viewport').boundingBox())!;
   const inside =
-    cell.x >= view.x &&
-    cell.y >= view.y &&
-    cell.x + cell.width <= view.x + view.width &&
-    cell.y + cell.height <= view.y + view.height;
-  if (!inside) await page.locator('.flow-zoom-bar button[title="全体を表示"]').click();
+    box.x >= view.x &&
+    box.y >= view.y &&
+    box.x + box.width <= view.x + view.width &&
+    box.y + box.height <= view.y + view.height;
+  if (inside) return;
+  // As little as needed (the first column stays when it can).
+  const along = (start: number, size: number, viewStart: number, viewSize: number, room: number) =>
+    start < viewStart + room ? start - viewStart - room : Math.max(0, start + size + 24 - (viewStart + viewSize));
+  await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
+  await page.mouse.wheel(
+    along(box.x, box.width, view.x, view.width, 24),
+    along(box.y, box.height, view.y, view.height, 24),
+  );
+  await page.waitForTimeout(100);
 }
 
 /** Waits until the flow shows a cell named `name` (optionally selected). */
@@ -487,11 +523,11 @@ async function clickTool(page: Page, toolName: string): Promise<void> {
 }
 
 /**
- * Opens Nano Banana画像生成 and removes the 原画, which the image selected on the canvas fills when the window opens
+ * Opens AI画像生成 and removes the 原画, which the image selected on the canvas fills when the window opens
  * (docs/specs/tools/nano-banana-pro.md 「原画」): for scenarios about the tool without one.
  */
 async function openNanoBananaWithoutOriginal(page: Page): Promise<void> {
-  await clickTool(page, 'Nano Banana画像生成');
+  await clickTool(page, 'AI画像生成');
   await page.waitForSelector('.tool-window');
   const remove = page.locator('.tool-window .nbp-original__card .ref-card__remove');
   if (await remove.count()) {
@@ -628,6 +664,7 @@ async function runScenarios(
   out: string,
   obs: Record<string, unknown>,
   seedUsage: (records: object[]) => void,
+  run: Pick<Options, 'only' | 'keepGoing'>,
 ): Promise<void> {
   let shot = 0;
   /** The registered prompts (CONFEITO_ASSETS_DIR is <dataDir>/assets). */
@@ -638,11 +675,22 @@ async function runScenarios(
     if (selector) await page.locator(selector).first().screenshot({ path: file });
     else await page.screenshot({ path: file });
   };
+  /** The first scenario that failed: the next ones are skipped (unless --keep-going). */
+  let failedStep: string | null = null;
   const step = async (name: string, fn: () => Promise<unknown>) => {
+    const chosen = !run.only || SETUP_STEPS.includes(name) || run.only.some(prefix => name.startsWith(prefix));
+    if (!chosen) return;
+    if (failedStep && !run.keepGoing) {
+      obs[name] = { skipped: `after ${failedStep} failed` };
+      return;
+    }
+    const started = Date.now();
     try {
       obs[name] = await fn();
+      console.log(`[e2e] ${name} ok (${((Date.now() - started) / 1000).toFixed(1)}s)`);
     } catch (err) {
       obs[name] = { error: String(err) };
+      failedStep ??= name;
       console.error(`[e2e] ${name} failed:`, err);
     }
   };
@@ -746,7 +794,7 @@ async function runScenarios(
       },
       { apiBase, archive },
     );
-    await flowButton(page, '最新の状態に更新');
+    await flowButton(page, '更新');
     await waitForToast(page, /最新の状態に更新しました/);
     // The refresh keeps the selection, which is what the tools run on.
     const afterRefresh = await flowState(page);
@@ -808,20 +856,21 @@ async function runScenarios(
     return { opened, zoomed, dragged, actualSize, fitted, selectionAfter: (await flowState(page)).selection };
   });
 
-  await step('06-zoom', async () => {
-    // The flow moves and zooms as a whole: the zoom bar (−, +, 100%, 全体を表示), Ctrl + wheel around the
-    // cursor, dragging the background pans.
+  await step('06-pan', async () => {
+    // The flow is always at 100% from its top left: no zoom bar, Ctrl + wheel does not zoom, dragging the
+    // background does not move it (scroll bars when it does not fit).
     const view = () =>
       page.evaluate(() => {
+        const viewport = document.querySelector('.flow-viewport')!.getBoundingClientRect();
         const r = document.querySelector('.flow-step')!.getBoundingClientRect();
+        const label = document.querySelector('.flow-row__label')?.getBoundingClientRect();
         return {
-          zoom: document.querySelector('.flow-zoom-bar .canvas-zoom-bar__label')?.textContent ?? null,
-          step: [Math.round(r.x), Math.round(r.y), Math.round(r.width)],
+          zoomBar: !!document.querySelector('.flow-center .canvas-zoom-bar'),
+          step: [Math.round(r.x - viewport.x), Math.round(r.y - viewport.y), Math.round(r.width)],
+          label: label ? [Math.round(label.x - viewport.x), Math.round(label.y - viewport.y)] : null,
         };
       });
     const start = await view();
-    await page.locator('.flow-zoom-bar button[title="拡大"]').click();
-    const zoomIn = await view();
     const box = (await page.locator('.flow-viewport').boundingBox())!;
     await page.mouse.move(box.x + 200, box.y + 300);
     await page.keyboard.down('Control');
@@ -833,18 +882,16 @@ async function runScenarios(
     await page.mouse.down();
     await page.mouse.move(box.x + 250, box.y + box.height - 180, { steps: 5 });
     await page.mouse.up();
-    const panned = await view();
-    // Panning is not a click: the selection stays.
-    const selectionAfterPan = (await flowState(page)).selection;
+    const dragged = await view();
+    // A drag is not a click: the selection stays.
+    const selectionAfterDrag = (await flowState(page)).selection;
     await screenshot('flow-panned');
-    await page.locator('.flow-zoom-bar button[title="全体を表示"]').click();
-    const fitted = await view();
-    return { start, zoomIn, ctrlWheel, panned, selectionAfterPan, fitted };
+    return { start, ctrlWheel, dragged, selectionAfterDrag };
   });
 
   await step('09-tool-windows', async () => {
     const result: Record<string, unknown> = {};
-    for (const tool of ['コマ分割', '背景除去', 'Nano Banana画像生成']) {
+    for (const tool of ['コマ分割', '背景除去', 'AI画像生成']) {
       await clickTool(page, tool);
       await page.waitForSelector('.tool-window', { timeout: 5000 });
       await page.waitForTimeout(400);
@@ -917,7 +964,7 @@ async function runScenarios(
 
   await step('10-json-preview', async () => {
     const result: Record<string, unknown> = {};
-    for (const tool of ['コマ分割', 'Nano Banana画像生成']) {
+    for (const tool of ['コマ分割', 'AI画像生成']) {
       await clickTool(page, tool);
       await page.waitForSelector('.tool-window');
       await page.locator('.tool-window button', { hasText: 'JSONプレビュー' }).click();
@@ -960,7 +1007,7 @@ async function runScenarios(
         ]),
       );
 
-    await clickTool(page, 'Nano Banana画像生成');
+    await clickTool(page, 'AI画像生成');
     await page.waitForSelector(win);
     // The field starts empty (no prompts are shipped); running without a prompt only warns.
     const initialText = await textarea.inputValue();
@@ -1029,7 +1076,7 @@ async function runScenarios(
 
     // Running saves the field's text with the other settings (E2E has no API key, so the run fails).
     await page.locator(`${win} .tool-window__run`).click();
-    await waitForToast(page, /Nano Banana画像生成の実行に失敗しました/);
+    await waitForToast(page, /AI画像生成の実行に失敗しました/);
     const userSettings = JSON.parse(fs.readFileSync(path.join(settingsDir, 'user_settings.json'), 'utf-8'));
     await closeToolWindow(page);
     while ((await page.locator('.toast--error').count()) > 0) {
@@ -1647,7 +1694,7 @@ async function runScenarios(
     const afterLeave = await view();
     await page.waitForFunction(() => !document.querySelector('.toast'), undefined, { timeout: 15000 });
 
-    // From Nano Banana画像生成: 花子's images become Character reference images described with the name / text;
+    // From AI画像生成: 花子's images become Character reference images described with the name / text;
     // 太郎 (no images) appends the text to the prompt. Everything is put back afterwards for the next scenarios.
     const win = '.tool-window';
     await openNanoBananaWithoutOriginal(page);
@@ -1742,18 +1789,18 @@ async function runScenarios(
       await held;
       await route.continue();
     });
-    await clickTool(page, 'Nano Banana画像生成');
+    await clickTool(page, 'AI画像生成');
     await page.waitForSelector('.tool-window');
     await page.locator('.tool-window .tool-window__run').click();
     await page.locator('.tool-window').waitFor({ state: 'detached', timeout: 3000 });
     const statusWhileRunning = await page.locator('.statusbar__left').innerText();
     const toolListBusy = (await page.locator('.ai-panel__list--busy').count()) === 1;
     await clickTool(page, '背景除去');
-    const busyToast = await waitForToast(page, /背景除去: 「Nano Banana画像生成」の実行が終わってから実行してください/);
+    const busyToast = await waitForToast(page, /背景除去: 「AI画像生成」の実行が終わってから実行してください/);
     const windowOpenedWhileBusy = (await page.locator('.tool-window').count()) > 0;
     await screenshot('tool-running');
     releaseRun();
-    await waitForToast(page, /Nano Banana画像生成の実行に失敗しました/);
+    await waitForToast(page, /AI画像生成の実行に失敗しました/);
     await page.unroute('**/api/nano-banana-pro**');
     const toolListBusyAfterRun = (await page.locator('.ai-panel__list--busy').count()) === 1;
     await page.waitForTimeout(4500); // longer than the 4s auto-hide of other toasts
@@ -1781,7 +1828,7 @@ async function runScenarios(
     // shown, each panel is a row at the left (docs/specs/flow-canvas.md). コマ結合 runs on the コマ分割 of the
     // selected panel and pastes the newest image made from each panel (docs/specs/tools/panel-split-merge.md).
     await createPanelFixture(page, apiBase);
-    await flowButton(page, '最新の状態に更新');
+    await flowButton(page, '更新');
     await waitForToast(page, /最新の状態に更新しました/);
     await showArchive(page, /^e2e-panels$/);
     const fixture = await flowState(page);
@@ -2009,7 +2056,7 @@ async function runScenarios(
 
     // The select box compares with another image generated in the step (生成 1, purple) instead of the 原画; the
     // choice stays when the view changes.
-    await page.locator(`${W} .compare-window__target`).selectOption({ label: '生成 1（gen.png）' });
+    await page.locator(`${W} .compare-window__target`).selectOption({ label: 'AI画像生成 1（gen.png）' });
     await page.waitForTimeout(300);
     const withGen1 = await compare();
     await screenshot('compare-target-gen1', W);
@@ -2017,16 +2064,13 @@ async function runScenarios(
     const withGen1Overlay = await compare();
     await setCompareMode('Parallel');
 
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      page.locator(`${W} .compare-window__tool[title="この画像を書き出す（ダウンロード）"]`).click(),
-    ]);
-    const downloadToast = await waitForToast(page, /を書き出しました/);
+    // No 書き出し in the window (the Workspace toolbar's 書き出し exports the selection).
+    const downloadButtons = await page.locator(`${W} .compare-window__tool[title*="書き出"]`).count();
     await page.keyboard.press('Escape');
     await page.locator(W).waitFor({ state: 'detached' });
     const selectedAfter = await selectedCells();
 
-    // 生成 1 is compared with the same panel; an image not generated from a 原画 (背景除去) opens the viewer.
+    // AI画像生成 1 is compared with the same panel; so is a 背景除去 result (every tool's one image is shown alike).
     await revealCell(page, 'gen.png');
     await (await flowCell(page, 'gen.png')).locator('.flow-cell__thumb').click();
     await page.locator(W).waitFor();
@@ -2036,13 +2080,12 @@ async function runScenarios(
     await page.locator(W).waitFor({ state: 'detached' });
     await revealCell(page, 'nobg.png');
     await (await flowCell(page, 'nobg.png')).locator('.flow-cell__thumb').click();
-    await page.locator('.cs-image-viewer').waitFor();
-    const nobgOpens = {
-      viewer: await page.locator('.cs-image-viewer .cs-window__title').textContent(),
-      compare: await page.locator(W).count(),
-    };
+    await page.locator(W).waitFor();
+    await bothDrawn();
+    const nobgOpens = await compare();
+    await screenshot('compare-nobg');
     await page.keyboard.press('Escape');
-    await page.locator('.cs-image-viewer').waitFor({ state: 'detached' });
+    await page.locator(W).waitFor({ state: 'detached' });
 
     return masked({
       parallel,
@@ -2067,8 +2110,7 @@ async function runScenarios(
         target: withGen1Overlay.target,
         panes: withGen1Overlay.panes,
       },
-      download: download.suggestedFilename(),
-      downloadToast,
+      downloadButtons,
       selectionKept: JSON.stringify(selectedBefore) === JSON.stringify(selectedAfter),
       fromGen: { title: fromGen.title, target: fromGen.target, panes: fromGen.panes },
       nobgOpens,
@@ -2196,10 +2238,237 @@ async function runScenarios(
     };
   });
 
+  await step('12c-add-panel', async () => {
+    // ＋ on the line between two panel rows (and above the first / below the last) opens the panel cropper in add
+    // mode (docs/specs/flow-canvas.md 「コマの追加」): the frame starts at the average of the panels around it.
+    // 「このコマを追加」 saves a コマ追加 result: a new panel row in between, selected; later rows are renumbered.
+    // コマ結合 pastes it at its box. Deleting it removes only it (and the merge that used it).
+    const adder = () =>
+      page.evaluate(() => {
+        const frame = document.querySelector<HTMLElement>('.panel-cropper__frame');
+        const primary = document.querySelector<HTMLButtonElement>('.panel-cropper__side .cs-btn--primary');
+        return {
+          title: document.querySelector('.panel-cropper .cs-window__title')?.textContent ?? null,
+          frame:
+            frame && !frame.hidden ? [frame.style.left, frame.style.top, frame.style.width, frame.style.height] : null,
+          button: primary?.textContent ?? null,
+          enabled: !primary?.disabled,
+          reset: document.querySelector('.panel-cropper__buttons button')?.textContent ?? null,
+          history: !!document.querySelector('.panel-cropper__versions'),
+        };
+      });
+    const openAdder = async (after: number, before: number) => {
+      const plus = page.locator(`.flow-insert[data-after="${after}"][data-before="${before}"]`);
+      await revealInFlow(page, plus);
+      await plus.click();
+      await page.waitForSelector('.panel-cropper');
+      await page.waitForFunction(
+        () => !!document.querySelector<HTMLImageElement>('.panel-cropper__image')?.naturalWidth,
+      );
+      await page.waitForFunction(() => !document.querySelector<HTMLElement>('.panel-cropper__frame')?.hidden);
+    };
+    const gaps = await page.$$eval('.flow-insert', els =>
+      els.map(
+        e => `${(e as HTMLElement).dataset.after}-${(e as HTMLElement).dataset.before}: ${e.getAttribute('title')}`,
+      ),
+    );
+    await screenshot('flow-panel-gaps');
+
+    // At the top: the same size as panel 1, right above it (kept on the page). Closed without adding.
+    await openAdder(0, 1);
+    const top = await adder();
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.panel-cropper', { state: 'detached' });
+
+    // Between panel 1 and 2: their average.
+    await openAdder(1, 2);
+    const between = await adder();
+    await screenshot('panel-adder');
+    await page.locator('.panel-cropper__side .cs-btn--primary').click();
+    const addedToast = await waitForToast(page, /コマ 2 を追加しました/);
+    await page.waitForSelector('.panel-cropper', { state: 'detached' });
+    await waitForCell(page, 'panel.png', true);
+    await page.waitForTimeout(300);
+    const added = await flowState(page);
+    await screenshot('flow-panel-added');
+    const addInfo = await newestInfo(page, apiBase, 'e2e-panels', 'コマ追加');
+
+    // コマ結合 with the added panel: pasted at its box (the page there), listed in the card.
+    await selectCell(page, '01.png');
+    await clickTool(page, 'コマ結合');
+    const card = page.locator('.tool-window .cs-card');
+    await card.filter({ hasText: 'コマ数' }).waitFor();
+    const mergeCard = maskTimestamps(await card.innerText());
+    await page.locator('.tool-window .tool-window__run').click();
+    await waitForToast(page, /結合画像を保存しました/);
+    await page.locator('.tool-window').waitFor({ state: 'detached' });
+    await page.waitForTimeout(300);
+    const mergeInfo = await newestInfo(page, apiBase, 'e2e-panels', 'コマ結合');
+
+    // Delete the added panel with the delete button of its row (no ⋯ on panel rows): only it (and the merge that
+    // pasted it) goes.
+    const rowButtons = await page.$$eval('.flow-row__label .flow-row__delete', els =>
+      els.map(e => `${e.textContent}: ${e.getAttribute('title')}`),
+    );
+    await page.locator('.flow-row[data-step$="#2"] .flow-row__delete').click();
+    await page.waitForSelector('.cs-modal-overlay--open');
+    const deleteMessage = await page.locator('.cs-modal__message').textContent();
+    await page.locator('.cs-modal button', { hasText: /^削除$/ }).click();
+    await page.waitForFunction(() => !document.querySelector('.flow-cell[data-name="panel.png"]'));
+    await page.waitForTimeout(300);
+    const afterDelete = await flowState(page);
+    return {
+      gaps,
+      top,
+      between,
+      addedToast,
+      added,
+      addInfo,
+      mergeCard,
+      mergeInfo,
+      rowButtons,
+      deleteMessage,
+      afterDelete,
+    };
+  });
+
+  await step('12d-row-tools', async () => {
+    // The right end of each panel row has the AI画像生成 and 背景除去 buttons of the TOOLS list
+    // (docs/specs/flow-canvas.md 「コマの行のツール」): they select the row's rightmost image, then the button opens the
+    // tool window and ▶ runs with the saved settings. The result joins the row.
+    const rowTools = () =>
+      page.$$eval('.flow-row-tools', els =>
+        els.map(e => ({
+          title: e.getAttribute('title'),
+          tools: Array.from(e.querySelectorAll('.ai-tool-name')).map(n => n.textContent),
+          plays: Array.from(e.querySelectorAll('.ai-tool-play')).map(b => b.getAttribute('title')),
+        })),
+      );
+    const tools = await rowTools();
+    const row = (n: number) => page.locator(`.flow-row-tools[data-step$="#${n}"]`);
+
+    // AI画像生成 of row 2: its window opens for the rightmost image (regen.png, selected).
+    await revealInFlow(page, row(2));
+    await row(2).locator('.ai-tool-row', { hasText: 'AI画像生成' }).locator('.ai-tool-btn').click();
+    await page.waitForSelector('.tool-window');
+    await page.waitForTimeout(300);
+    const windowTitle = await page.locator('.tool-window .tool-window__title').textContent();
+    const selectedForWindow = (await flowState(page)).selection;
+    const selectedCells = await page.$$eval('.flow-cell--selected', els =>
+      els.map(e => (e as HTMLElement).dataset.name),
+    );
+    await screenshot('row-tools-window');
+    await closeToolWindow(page);
+
+    // ▶ of 背景除去 in row 1 (stubbed): runs on the rightmost image (nobg.png), the result follows it in the row.
+    const resultPng = await makePng(page, 150, 200);
+    await page.route('**/api/image/remove-bg', route =>
+      route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        headers: { 'Cache-Control': 'no-store' },
+        body: resultPng,
+      }),
+    );
+    await revealInFlow(page, row(1));
+    await row(1).locator('.ai-tool-row', { hasText: '背景除去' }).locator('.ai-tool-play').click();
+    const playToast = maskTimestamps(await waitForToast(page, /背景除去: 「.*」に保存しました/));
+    await page.waitForFunction(() => !document.querySelector('.ai-panel__list--busy'));
+    await page.waitForTimeout(300);
+    const afterPlay = await flowState(page);
+    await screenshot('flow-row-tools');
+    await page.unroute('**/api/image/remove-bg');
+
+    // Deleted again, so the next scenarios start from the same flow.
+    await page.keyboard.press('Delete');
+    await page.waitForSelector('.cs-modal-overlay--open');
+    await page.locator('.cs-modal button', { hasText: /^削除$/ }).click();
+    await page.waitForSelector('.cs-modal-overlay--open', { state: 'detached' });
+    await waitForToast(page, /削除しました/);
+    await page.waitForTimeout(300);
+    return { tools, windowTitle, selectedForWindow, selectedCells, playToast, afterPlay: afterPlay.steps };
+  });
+
+  await step('12e-pane-tools', async () => {
+    // The buttons for every panel (docs/specs/flow-canvas.md 「全コマのツール」), the TOOLS list's buttons: the 全コマ
+    // header row above the panel rows has AI画像生成 / 背景除去 for every row's rightmost image (top to bottom), in the
+    // column of the rows' tools; the コマ結合後 pane has コマ結合 (the panels). They select those images, then the button
+    // opens the window and ▶ runs.
+    const pane = page.locator('.flow-pane--right .flow-pane__tools');
+    const header = page.locator('.flow-panels-header');
+    const headerButtons = await header.locator('.ai-tool-name').allTextContents();
+    const columns = await page.$$eval('.flow-row-tools', els => [
+      ...new Set(els.map(e => (e as HTMLElement).style.left)),
+    ]);
+    const buttons = await pane
+      .locator('.ai-tool-row')
+      .evaluateAll(rows =>
+        rows.map(r => `${r.querySelector('.ai-tool-name')?.textContent}: ${r.getAttribute('title')}`),
+      );
+    const selected = () => page.$$eval('.flow-cell--selected', els => els.map(e => (e as HTMLElement).dataset.name));
+
+    // コマ結合: the window lists the コマ分割 of the panels.
+    await pane.locator('.ai-tool-row', { hasText: 'コマ結合' }).locator('.ai-tool-btn').click();
+    await page.locator('.tool-window .cs-card').filter({ hasText: 'コマ数' }).waitFor();
+    const mergeCard = maskTimestamps(await page.locator('.tool-window .cs-card').innerText());
+    const mergeSelection = await selected();
+    await screenshot('pane-tools-merge');
+    await closeToolWindow(page);
+
+    // 全コマに AI画像生成: every row's rightmost image becomes a 原画 (one image each).
+    await revealInFlow(page, header);
+    await header.locator('.ai-tool-row', { hasText: 'AI画像生成' }).locator('.ai-tool-btn').click();
+    await page.waitForSelector('.tool-window');
+    await page.waitForTimeout(300);
+    const generateSelection = await selected();
+    const generateTitle = await page.locator('.tool-window .tool-window__title').textContent();
+    await closeToolWindow(page);
+
+    // ▶ of 全コマに背景除去 (stubbed): one result right of every row's rightmost image.
+    const resultPng = await makePng(page, 150, 200);
+    await page.route('**/api/image/remove-bg', route =>
+      route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        headers: { 'Cache-Control': 'no-store' },
+        body: resultPng,
+      }),
+    );
+    await revealInFlow(page, header);
+    await header.locator('.ai-tool-row', { hasText: '背景除去' }).locator('.ai-tool-play').click();
+    const playToast = await waitForToast(page, /背景除去: 2 件を処理しました/);
+    await page.waitForFunction(() => !document.querySelector('.ai-panel__list--busy'));
+    await page.waitForTimeout(300);
+    const afterPlay = await flowState(page);
+    await screenshot('flow-pane-tools');
+    await page.unroute('**/api/image/remove-bg');
+
+    // Deleted again (both results are selected), so the next scenarios start from the same flow.
+    await page.keyboard.press('Delete');
+    await page.waitForSelector('.cs-modal-overlay--open');
+    await page.locator('.cs-modal button', { hasText: /^削除$/ }).click();
+    await page.waitForSelector('.cs-modal-overlay--open', { state: 'detached' });
+    await waitForToast(page, /削除しました/);
+    await page.waitForTimeout(300);
+    await screenshot('flow-panels-header');
+    return {
+      buttons,
+      headerButtons,
+      columns,
+      mergeCard,
+      mergeSelection,
+      generateTitle,
+      generateSelection,
+      playToast,
+      afterPlay: afterPlay.steps,
+    };
+  });
+
   await step('13-batch-run', async () => {
     // Two panels selected: 背景除去 runs on each in turn (docs/specs/ai-panel.md 「まとめて実行」). The second
     // fails (stubbed): it is skipped, counted in one toast and its cell is marked; the first one's result is
-    // selected. Panel 01 already had a 背景除去 result: the new one is put next to it in the same box and adopted (★).
+    // selected. Panel 01 already had a 背景除去 result: the new one joins panel 01's row next to it (「背景除去 2 ← 原画」)
+    // and is adopted (★), like the images generated from a 原画 (docs/specs/flow-canvas.md 「処理の結果の表示」).
     const resultPng = await makePng(page, 150, 200);
     let calls = 0;
     await page.route('**/api/image/remove-bg', route => {
@@ -2241,7 +2510,7 @@ async function runScenarios(
       }
     });
 
-    // ▶ again on the new result (selected): a step after the shown candidate.
+    // ▶ again on the new result (selected): its result joins the same row (「背景除去 3 ← 背景除去 2」).
     calls = 0;
     await playButton(page, '背景除去').click();
     await waitForToast(page, /背景除去: 「.*」に保存しました/);
@@ -2249,9 +2518,10 @@ async function runScenarios(
     await page.waitForTimeout(300);
     const chained = await flowState(page);
 
-    // ★ on the older candidate: the step made from the newer one is hidden. The choice is kept in the archive
-    // (.flow.json).
-    const candidates = page.locator('.flow-step--across', { hasText: '背景除去（' }).first();
+    // ★ on the older candidate (in panel 01's row): what was made from the newer one is hidden. The choice is kept in
+    // the archive (.flow.json).
+    const candidates = page.locator('.flow-step[data-step$="#1"]').first();
+    await revealInFlow(page, candidates);
     await candidates.locator('.flow-cell__adopt').nth(0).click();
     await page.waitForTimeout(300);
     const older = await flowState(page);
@@ -2268,7 +2538,8 @@ async function runScenarios(
     await page.waitForTimeout(300);
     const rerun = await flowState(page);
 
-    // ★ on the second candidate shows the step made from it again.
+    // ★ on the second candidate shows what was made from it again.
+    await revealInFlow(page, candidates);
     await candidates.locator('.flow-cell__adopt').nth(1).click();
     await page.waitForTimeout(300);
     const second = await flowState(page);
@@ -2278,24 +2549,50 @@ async function runScenarios(
   });
 
   await step('14-delete-and-undo', async () => {
-    // Deleting a panel removes its whole コマ分割 result and everything made from it, after a confirmation; the page
-    // is shown again. Deleting the page then deletes the archive. Undo brings back one deletion at a time
+    // The delete button of a panel row deletes that panel alone (marked in .flow.json) with what was made from it;
+    // Ctrl+Z brings it back. Deleting every panel removes the whole コマ分割 result: the page is shown again.
+    // Deleting the page then deletes the archive. Undo brings back one deletion at a time
     // (docs/specs/flow-canvas.md 「削除」).
     const shownArchive = () =>
       page.evaluate(() => (document.querySelector('.flow-toolbar__archive') as HTMLSelectElement | null)?.value);
 
-    // ⋯ of a panel row: the hidden page can be viewed or deleted with everything (cancelled here).
-    await page.locator('.flow-zoom-bar button[title="全体を表示"]').click();
-    await page.locator('.flow-row[data-step$="#1"] .flow-step__menu').click();
-    const panelMenu = await page.locator('.flow-menu__item').allTextContents();
-    await page.locator('.flow-menu__item', { hasText: '元のページごと削除' }).click();
-    await page.waitForSelector('.cs-modal-overlay--open');
-    const pageMenuMessage = await page.locator('.cs-modal__message').textContent();
-    await page.locator('.cs-modal button', { hasText: 'キャンセル' }).click();
-    await page.waitForSelector('.cs-modal-overlay--open', { state: 'detached' });
-
+    // The delete button of panel row 1: that panel alone.
+    await revealInFlow(page, page.locator('.flow-row[data-step$="#1"] .flow-row__label'));
     const before = await flowState(page);
-    const message = await deleteCells(page, ['02.png']);
+    await page.locator('.flow-row[data-step$="#1"] .flow-row__delete').click();
+    await page.waitForSelector('.cs-modal-overlay--open');
+    const panelMessage = maskTimestamps((await page.locator('.cs-modal__message').textContent()) ?? '');
+    await page.locator('.cs-modal button', { hasText: /^削除$/ }).click();
+    const panelToast = await waitForToast(page, /コマ 1 .*を削除しました/);
+    await page.waitForFunction(() => !document.querySelector('.flow-cell[data-name="01.png"]'));
+    await page.waitForTimeout(300);
+    const afterPanelDelete = await flowState(page);
+    const removed = await page.evaluate(
+      async apiBase => Object.keys((await (await fetch(`${apiBase}/archives/e2e-panels/flow`)).json()).removed ?? {}),
+      apiBase,
+    );
+    await screenshot('flow-panel-deleted');
+    await page.locator('body').click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press('Control+z');
+    await waitForToast(page, /コマ 1 .*を元に戻しました/);
+    await waitForCell(page, '01.png');
+    await page.waitForTimeout(300);
+    const afterPanelUndo = await flowState(page);
+    // やり直し (Ctrl+Y) deletes コマ 1 again; Ctrl+Z brings it back again. A new deletion forgets the redo.
+    const redoEnabled = await page.evaluate(
+      () => !document.querySelector<HTMLButtonElement>('.flow-toolbar__button[title^="やり直し"]')?.disabled,
+    );
+    await page.keyboard.press('Control+y');
+    const redoToast = await waitForToast(page, /コマ 1 .*を削除しました/);
+    await page.waitForFunction(() => !document.querySelector('.flow-cell[data-name="01.png"]'));
+    await page.waitForTimeout(300);
+    const afterRedo = (await flowState(page)).rows;
+    await page.keyboard.press('Control+z');
+    await waitForCell(page, '01.png');
+    await page.waitForTimeout(300);
+
+    // Every panel selected: the whole コマ分割 goes.
+    const message = await deleteCells(page, ['01.png', '02.png']);
     const deleteToast = maskTimestamps(await waitForToast(page, /削除しました/));
     await waitForCell(page, 'page.png');
     await page.waitForTimeout(300);
@@ -2330,7 +2627,7 @@ async function runScenarios(
     const afterArchiveDelete = await flowState(page);
 
     // Undo (button): the archive comes back with its page; Ctrl+Z: the コマ分割 and the rest come back.
-    await flowButton(page, '削除を元に戻す');
+    await flowButton(page, '元に戻す');
     await page.waitForFunction(
       () => (document.querySelector('.flow-toolbar__archive') as HTMLSelectElement | null)?.value === 'e2e-panels',
     );
@@ -2341,9 +2638,15 @@ async function runScenarios(
     await waitForCell(page, '02.png');
     await page.waitForTimeout(300);
     return {
-      panelMenu,
-      pageMenuMessage,
       before,
+      panelMessage,
+      panelToast,
+      afterPanelDelete,
+      removed,
+      afterPanelUndo,
+      redoEnabled,
+      redoToast,
+      afterRedo,
       message,
       deleteToast,
       afterDelete,
@@ -2433,14 +2736,71 @@ async function runScenarios(
     await page.waitForTimeout(300);
     const openedCopy = await flowState(page);
 
-    // Image export from the Workspace: one image as it is, several in one zip.
+    // Image export from the Workspace: a window names it first (one image: its file name; several: the zip and each
+    // image in it; the extension stays), then one image is downloaded as it is, several in one zip.
+    const X = '.export-names';
+    const exportWindow = () =>
+      page.evaluate(
+        sel =>
+          Array.from(document.querySelectorAll(`${sel} .export-names__row`)).map(r => ({
+            label: r.querySelector('.cs-field__label')?.textContent ?? null,
+            stem: (r.querySelector('input') as HTMLInputElement | null)?.value ?? null,
+            ext: r.querySelector('.export-names__ext')?.textContent ?? null,
+            error: r.querySelector('.cs-modal__error')?.textContent || null,
+          })),
+        X,
+      );
+    const exportRun = () => page.locator(`${X} .cs-btn--primary`, { hasText: '書き出し' }).click();
     await selectCell(page, '02.png');
-    const [single] = await Promise.all([page.waitForEvent('download'), flowButton(page, '選択した画像を書き出す')]);
+    await flowButton(page, '書き出し');
+    await page.waitForSelector(X);
+    const singleWindow = await exportWindow();
+    await page.locator(`${X} .export-names__input`).fill('E2E コマ2');
+    const [single] = await Promise.all([page.waitForEvent('download'), exportRun()]);
     const singleToast = maskTimestamps(await waitForToast(page, /を書き出しました/));
+    await page.locator(X).waitFor({ state: 'detached' });
+
+    // Several: the same name twice is refused under the field; then a zip name and the names chosen.
     await selectCell(page, '01.png', ['Control']);
-    const [several] = await Promise.all([page.waitForEvent('download'), flowButton(page, '選択した画像を書き出す')]);
+    await flowButton(page, '書き出し');
+    await page.waitForSelector(X);
+    const severalWindow = await exportWindow();
+    // まとめて変更: typing a name numbers every image from 01 at once ("#"s: the number there); emptied, the names
+    // come back. Typed key by key, as a person does.
+    await page.locator(`${X} .export-names__base`).pressSequentially('第1話_コマ##');
+    const numbered = await exportWindow();
+    await page.locator(`${X} .export-names__base`).fill('コマ');
+    const plain = await exportWindow();
+    await page.locator(`${X} .export-names__base`).fill('');
+    const namesBack = await exportWindow();
+    const inputs = page.locator(`${X} .export-names__input`);
+    await inputs.nth(1).fill('コマ');
+    await inputs.nth(2).fill('コマ');
+    await exportRun();
+    const duplicate = await exportWindow();
+    await screenshot('export-names', X);
+    await inputs.nth(0).fill('第1話');
+    await inputs.nth(2).fill('コマ1');
+    const [severalRequest, several] = await Promise.all([
+      page.waitForRequest(r => r.url().endsWith('/archives/export-images')),
+      page.waitForEvent('download'),
+      exportRun(),
+    ]);
+    const severalNames = severalRequest.postDataJSON() as { names: string[]; zip_name: string };
     const severalToast = maskTimestamps(await waitForToast(page, /画像 2 枚を .* に書き出しました/));
+    await page.locator(X).waitFor({ state: 'detached' });
     await screenshot('flow-image-export');
+    // Nothing selected: every panel's 「最終」 image (the marked 生成 for panel 02, panel 01 itself), in one zip.
+    await page.keyboard.press('Escape');
+    await flowButton(page, '書き出し');
+    await page.waitForSelector(X);
+    const [allRequest] = await Promise.all([
+      page.waitForRequest(r => r.url().endsWith('/archives/export-images')),
+      page.waitForEvent('download'),
+      exportRun(),
+    ]);
+    const allKeys = (allRequest.postDataJSON() as { keys: string[] }).keys.map(k => maskTimestamps(k));
+    const allToast = maskTimestamps(await waitForToast(page, /画像 2 枚を .* に書き出しました/));
 
     // Delete the copy from the Archive Manager, undo, delete again.
     await page.locator('.left-toolbar__btn[title="Archive Manager"]').click();
@@ -2470,7 +2830,7 @@ async function runScenarios(
     await page.locator(`${M} button[title="最新の状態に更新"]`).click();
     await page.waitForFunction(() => !document.querySelector('.archive-row[data-key="e2e-panels_2"]'));
     await setMode(page, 'Normal');
-    await flowButton(page, '最新の状態に更新');
+    await flowButton(page, '更新');
     await page.waitForFunction(() =>
       Array.from(document.querySelectorAll('.flow-toolbar__archive option')).some(o => o.textContent === 'e2e-panels'),
     );
@@ -2492,10 +2852,19 @@ async function runScenarios(
       afterImport,
       sameFlow: original === copy || { original, copy },
       openedCopy: { archive: openedCopy.archive, archives: openedCopy.archives, rows: openedCopy.rows },
+      singleWindow: masked(singleWindow),
       singleName: single.suggestedFilename(),
+      severalWindow: masked(severalWindow),
+      numbered: masked(numbered),
+      plainNumbered: masked(plain),
+      namesRestored: masked(namesBack),
+      duplicate: masked(duplicate),
+      severalNames,
       singleToast,
       severalName: maskTimestamps(several.suggestedFilename()),
       severalToast,
+      allKeys,
+      allToast,
       keptCheck,
       deleteMessage,
       deleteToast,
@@ -2678,7 +3047,7 @@ async function runScenarios(
     };
     const pngWidth = (name: string) => fs.readFileSync(path.join(archive, name)).readUInt32BE(16);
 
-    await flowButton(page, '最新の状態に更新');
+    await flowButton(page, '更新');
     await waitForToast(page, /最新の状態に更新しました/);
     await showArchive(page, /^e2e-undo$/);
     const shown = await flowState(page);
@@ -2691,7 +3060,7 @@ async function runScenarios(
     const deleteToasts = [await deleteOne('file1.png'), await deleteOne('x.png', 'a'), await deleteOne('file2.png')];
     const afterDeletes = present();
     const undoAfterDelete = (await flowState(page)).undoEnabled;
-    await flowButton(page, '削除を元に戻す');
+    await flowButton(page, '元に戻す');
     const undoToast = await waitForToast(page, /「file2\.png」を元に戻しました/);
     const afterUndo1 = await waitFor(['file2.png']);
     await undo();
@@ -2713,7 +3082,7 @@ async function runScenarios(
     const undoWhenEmpty = (await flowState(page)).undoEnabled;
 
     // Pressed twice in a row: both deletions come back.
-    await flowButton(page, '最新の状態に更新');
+    await flowButton(page, '更新');
     await page.waitForTimeout(300);
     await deleteOne('file1.png');
     await deleteOne('file2.png');
@@ -2734,7 +3103,7 @@ async function runScenarios(
     await page.waitForSelector('.settings-window', { state: 'detached' });
     await undo();
     const afterClose = await waitFor(['file1.png', 'file2.png', 'a']);
-    await flowButton(page, '最新の状態に更新');
+    await flowButton(page, '更新');
     await page.waitForTimeout(300);
 
     return {
@@ -2834,10 +3203,10 @@ async function runScenarios(
     await stepSelect(0).selectOption('gemini-3-pro-image');
     await stepSelect(1).selectOption('generateContent');
     await page.locator(`${sidebar} .tool-window__run`).click();
-    await waitForToast(page, /Nano Banana画像生成の実行に失敗しました/);
+    await waitForToast(page, /AI画像生成の実行に失敗しました/);
     result.generateContentRun = (await toastStack(page)).filter(t => t.type === 'toast--error');
     // The run closed the window; reopen it to switch back.
-    await clickTool(page, 'Nano Banana画像生成');
+    await clickTool(page, 'AI画像生成');
     await page.waitForSelector(sidebar);
     await stepSelect(1).selectOption('interactions');
     await closeToolWindow(page);
@@ -3031,7 +3400,7 @@ async function runScenarios(
       await route.fulfill({ status: 200, contentType: 'image/png', headers: { 'Cache-Control': 'no-store' }, body });
     });
     await page.locator(`${win} .tool-window__run`).click();
-    const toast = await waitForToast(page, /Nano Banana画像生成: .*画像を保存しました/);
+    const toast = await waitForToast(page, /AI画像生成: .*画像を保存しました/);
     await page.unroute('**/api/nano-banana-pro');
     // The folder name from the toast as shown (lastToast masks the timestamps).
     const folder = await page.$$eval(
@@ -3049,7 +3418,7 @@ async function runScenarios(
           fetch(
             `${apiBase}/archives/${encodeURIComponent(archive)}/extract?path=${encodeURIComponent(key.slice(archive.length + 1))}`,
           );
-        const mainKey = files.find(k => /_Nano Banana画像生成\.png$/.test(k));
+        const mainKey = files.find(k => /_AI画像生成\.png$/.test(k));
         if (!mainKey) return { files };
         const info = await (await extract(`${folder}/info.json`)).json();
         const saved = await createImageBitmap(await (await extract(mainKey)).blob());
@@ -3089,7 +3458,7 @@ async function runScenarios(
 
     // The image selected on the canvas (the result, selected after saving) is the 原画 when the window opens;
     // × removes it and 「選択中の画像を原画にする」 sets it again.
-    await clickTool(page, 'Nano Banana画像生成');
+    await clickTool(page, 'AI画像生成');
     await page.waitForSelector(win);
     const autoSet = JSON.parse(maskTimestamps(JSON.stringify(await originalState())));
     await page.locator(`${win} .nbp-original__card .ref-card__remove`).click();
@@ -3140,7 +3509,7 @@ async function runScenarios(
         body: JSON.stringify({ detail }),
       }),
     );
-    await clickTool(page, 'Nano Banana画像生成');
+    await clickTool(page, 'AI画像生成');
     await page.waitForSelector('.tool-window');
     await page.locator('.tool-window .nbp-step select').nth(1).selectOption('interactions');
     await page.locator('.tool-window .tool-window__run').click();
@@ -3175,7 +3544,7 @@ async function runScenarios(
     const seedInput = () =>
       page.locator(`${win} .cs-field`, { has: page.locator('label', { hasText: /^seed$/ }) }).locator('input');
     const openTool = async () => {
-      await clickTool(page, 'Nano Banana画像生成');
+      await clickTool(page, 'AI画像生成');
       await page.waitForSelector(win);
     };
 
@@ -3191,7 +3560,7 @@ async function runScenarios(
     // Run (E2E has no API key, so it fails): the settings are saved when the run starts.
     await seedInput().fill('777');
     await page.locator(`${win} .tool-window__run`).click();
-    await waitForToast(page, /Nano Banana画像生成の実行に失敗しました/);
+    await waitForToast(page, /AI画像生成の実行に失敗しました/);
     const afterRun = { file: savedSeed() };
     await closeToolWindow(page);
     await openTool();
@@ -3222,7 +3591,7 @@ async function runScenarios(
       return maskTimestamps(await card.locator('.ref-card__main').innerText());
     };
     const openAndRead = async () => {
-      await clickTool(page, 'Nano Banana画像生成');
+      await clickTool(page, 'AI画像生成');
       await page.waitForSelector(win);
       const value = await original();
       await closeToolWindow(page);
@@ -3232,7 +3601,7 @@ async function runScenarios(
     // Selecting another image replaces the 原画 when the window opens.
     await showArchive(page, /e2e-image$/);
     await selectCell(page, 'e2e-image.png');
-    await clickTool(page, 'Nano Banana画像生成');
+    await clickTool(page, 'AI画像生成');
     await page.waitForSelector(win);
     const selected = await original();
     await screenshot('nbp-original-on-open', `${win} .tool-window__column:nth-child(2)`);
@@ -3269,7 +3638,7 @@ async function runScenarios(
     });
     await page.locator(`${win} .ref-card`).nth(13).waitFor();
     await closeToolWindow(page);
-    await clickTool(page, 'Nano Banana画像生成');
+    await clickTool(page, 'AI画像生成');
     await page.waitForSelector(win);
     const referencesFull = {
       original: await original(),
@@ -3395,9 +3764,9 @@ async function runScenarios(
     );
     const after = await mergeFolders();
 
-    // ▶ Nano Banana画像生成 runs without its window too (E2E has no API key, so it fails).
-    await playButton(page, 'Nano Banana画像生成').click();
-    await waitForToast(page, /Nano Banana画像生成の実行に失敗しました/);
+    // ▶ AI画像生成 runs without its window too (E2E has no API key, so it fails).
+    await playButton(page, 'AI画像生成').click();
+    await waitForToast(page, /AI画像生成の実行に失敗しました/);
     const nanoWindowOpened = (await page.locator('.tool-window').count()) > 0;
     await withVisibleToasts(page, async () => {
       while ((await page.locator('.toast--error').count()) > 0) {
@@ -3586,6 +3955,69 @@ async function runScenarios(
     };
   });
 
+  await step('19j-new-archive', async () => {
+    // ＋ (新規作成) at the left of the Workspace toolbar (no folder icon): a name in a dialog makes an empty archive,
+    // shown at once (docs/specs/flow-canvas.md 「表示するアーカイブ」). A name in use is refused under the field.
+    // An image read (toolbar 画像読み込み) while the empty archive is shown goes into it (no new archive).
+    await page.locator('.left-toolbar__btn[title="Workspace"]').click();
+    await page.waitForTimeout(300);
+    const toolbar = await page.$$eval('.flow-toolbar > *', els =>
+      els.map(e => e.getAttribute('title') ?? e.textContent?.trim() ?? e.tagName),
+    );
+    const newButton = page.locator('.flow-toolbar__button[title^="新規作成"]');
+
+    // A name in use (the archive shown): the error under the field, the dialog stays.
+    const taken = await page.$eval(
+      '.flow-toolbar__archive',
+      el => (el as HTMLSelectElement).selectedOptions[0]?.textContent ?? '',
+    );
+    await newButton.click();
+    await page.waitForSelector('.cs-modal-overlay--open .cs-modal__field');
+    const dialog = {
+      title: await page.locator('.cs-modal-overlay--open .cs-modal__title').textContent(),
+      label: await page.locator('.cs-modal-overlay--open .cs-field__label').textContent(),
+    };
+    await page.locator('.cs-modal-overlay--open .cs-input').fill(taken);
+    await page.locator('.cs-modal-overlay--open button', { hasText: /^作成$/ }).click();
+    await page.waitForFunction(() => !!document.querySelector('.cs-modal-overlay--open .cs-modal__error')?.textContent);
+    const conflict = await page.locator('.cs-modal-overlay--open .cs-modal__error').textContent();
+    await screenshot('new-archive-dialog');
+
+    // A new name (Enter): the empty archive is shown.
+    await page.locator('.cs-modal-overlay--open .cs-input').fill('E2E 新規');
+    await page.keyboard.press('Enter');
+    const createdToast = await waitForToast(page, /「E2E 新規」を作成しました/);
+    await page.waitForFunction(() =>
+      (
+        document.querySelector('.flow-toolbar__archive') as HTMLSelectElement | null
+      )?.selectedOptions[0]?.textContent?.includes('E2E 新規'),
+    );
+    await page.waitForTimeout(300);
+    const empty = await flowState(page);
+    await screenshot('new-archive-empty');
+
+    // 画像読み込み of the toolbar (the dialog stubbed): the image goes into the empty archive shown.
+    const archivesBefore = empty.archives.length;
+    await stubFileDialog(page, { name: 'new-page.png', body: await makePng(page, 300, 200) }, []);
+    await page.locator('.flow-toolbar__button[title="画像読み込み"]').click();
+    await waitForCell(page, 'new-page.png', true);
+    await page.waitForTimeout(300);
+    const filled = await flowState(page);
+    return {
+      toolbar,
+      dialog,
+      conflict,
+      createdToast,
+      empty: { archive: empty.archive, emptyMessage: empty.emptyMessage },
+      filled: {
+        archive: filled.archive,
+        rows: filled.rows,
+        sameArchiveCount: filled.archives.length === archivesBefore,
+      },
+      importToast: await lastToast(page),
+    };
+  });
+
   await step('20-browser-storage', async () => {
     // Nothing is kept in the browser (docs/specs/app-shell.md 「ブラウザに残すもの」).
     return page.evaluate(async () => ({
@@ -3716,7 +4148,7 @@ async function main(): Promise<void> {
       });
       if (result.status !== 0) throw new Error(`seedUsage failed: ${result.stderr}`);
     };
-    await runScenarios(page, apiBase, settingsDir, opts.out, obs, seedUsage);
+    await runScenarios(page, apiBase, settingsDir, opts.out, obs, seedUsage, opts);
   } finally {
     obs.storableResponses = [...storableResponses].sort();
     obs.console = consoleMessages;
@@ -3727,13 +4159,19 @@ async function main(): Promise<void> {
     if (!opts.keep) fs.rmSync(dataDir, { recursive: true, force: true });
   }
 
-  const failed = Object.entries(obs).filter(([, v]) => v && typeof v === 'object' && 'error' in (v as object));
+  const having = (key: string) =>
+    Object.entries(obs).filter(([, v]) => v && typeof v === 'object' && key in (v as object));
+  const failed = having('error');
+  const skipped = having('skipped');
   console.log(`[e2e] observations: ${path.join(opts.out, 'observations.json')}`);
   if (failed.length) {
     console.error(`[e2e] ${failed.length} scenario(s) failed: ${failed.map(([k]) => k).join(', ')}`);
+    if (skipped.length) console.error(`[e2e] ${skipped.length} skipped after it (--keep-going runs them)`);
     process.exitCode = 1;
   } else {
-    console.log('[e2e] all scenarios passed');
+    console.log(
+      opts.only ? `[e2e] the scenarios chosen passed (--only ${opts.only.join(',')})` : '[e2e] all scenarios passed',
+    );
   }
 }
 

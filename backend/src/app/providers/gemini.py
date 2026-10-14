@@ -1,9 +1,9 @@
 """Google Gemini API access.
 
 Two endpoints are used:
-  * Interactions API (``/v1beta/interactions``) — image generation of the Nano Banana画像生成 tool
+  * Interactions API (``/v1beta/interactions``) — image generation of the AI画像生成 tool
     via ``GeminiProvider.generate_multimodal``.
-  * ``models/{model}:generateContent`` — image generation when the Nano Banana画像生成 tool selects
+  * ``models/{model}:generateContent`` — image generation when the AI画像生成 tool selects
     that API (``generate_multimodal(api="generate_content")``), and structured JSON
     output (manga panel detection) via ``generate_content``.
 

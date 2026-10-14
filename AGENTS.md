@@ -22,7 +22,7 @@
 | 開発起動 | `cd backend && uv run python -m uvicorn src.app.main:app --reload --port 48000` と `cd frontend && npm run dev` |
 | フロント検証 | `cd frontend && npm run check`（型検査 + 整形チェック + vitest + ビルド） |
 | バックエンド検証 | `cd backend && uv run pytest && uv run ruff check . && uv run ruff format --check .` |
-| 画面の検証 | `cd frontend && npm run e2e`（実ブラウザ。結果は `frontend/e2e/.output/latest/`） |
+| 画面の検証 | `cd frontend && npm run e2e`（実ブラウザ。結果は `frontend/e2e/.output/latest/`。一部だけは `npm run e2e -- --only 12`、最初の失敗で止まる。docs/architecture/testing.md） |
 | 整形 | `cd frontend && npm run format` / `cd backend && uv run ruff format .` |
 
 ## ルール
@@ -33,6 +33,9 @@
    構造を変えたら `docs/architecture/` の表（イベント一覧・API 一覧など）も更新する。
 3. **変更したら検証する。** 上の表の検証を実行し、UI に関わる変更は E2E を回してスクリーンショットを確認する。
    新しい UI 操作を作ったら `frontend/e2e/smoke.mts` にシナリオを足す。
+   - E2E の回し方: 細かい調整が続いている間は、変更に関係するシナリオだけを `npm run e2e -- --only <番号>` で回す
+     （例: コマ割りの画面は `12`、削除は `14`）。全シナリオは区切りで 1 回回す: ひとまとまりの依頼が終わった時・報告の前・
+     構造（API・保存形式・共通部品）を変えた時。報告では、どちらで確認したか（一部のシナリオ / 全シナリオ）を書く。
 4. **ユーザーのデータを守る。** `archives/`（と「保存先」で指定されたフォルダ）・`.env`・`models/`・`settings/user_settings.json`・`assets/prompts/`・`assets/characters/`・`data/` を削除・上書きしない。テストと E2E は一時ディレクトリを使う。
    E2E は顔検出（`/api/characters/detect-faces`）を必ずスタブにする（スタブしないと `models/` にモデルをダウンロードする）。
    テストや確認で実際の Gemini API を呼ばない（課金と外部送信が発生する）。
@@ -45,6 +48,9 @@
    - ブラウザにデータを残さない: localStorage・IndexedDB を使わず、次回も残したい画面の状態は `toolSettings()` 経由で settings/ に保存する（docs/specs/app-shell.md）。
      ツールの設定はウィンドウを開く時に読み、実行開始時に保存する（設定を持つツールは `settingsPrefix` を宣言する）。
    - DOM は `shared/ui/dom.ts` の `h()` と `shared/ui/form.ts` の部品で組み、見た目は CSS クラスで書く（インラインスタイルを増やさない）。
+   - **線の色**: 画面の領域を分ける境界線・区切り線（バーやパネルの縁、見出しの下、行の区切り、ペインの開閉ボタンの縦線、メニューの区切りなど）は
+     すべて `var(--color-line)`（`shared/styles/variables.css`）で描き、ほかの色を直接書かない。
+     ボタン・入力欄・バッジなどの枠、処理の矢印、選択・採用・エラーの枠、比較キャンバスの境界線（`--split-line`）は対象外。
    - `shared/` から `features/` を import しない。純粋なロジックは関数に切り出して `*.test.ts` を書く。
 6. **バックエンドの決まり**
    - ルーターは薄く保ち、ロジックは `services/` に置く。失敗は `errors.py` の `AppError` 系を投げる（ルーターで try/except しない）。
@@ -65,7 +71,7 @@
 | 登録キャラクター・Character Manager | `features/character-manager/`（純粋な処理は `shared/utils/characters.ts`、アイコンの切り取りは `icon-cropper.ts` と `shared/utils/icon-crop.ts`、顔検出は `backend/src/app/services/face_service.py`）、ツール側は `features/tools/gemini-image/character-picker.ts`、`backend/src/app/services/character_service.py`、仕様は docs/specs/character-manager.md |
 | マネージャー共通（カテゴリー一覧・見た目） | `shared/ui/category-sidebar.ts`・`shared/styles/manager.css`・`shared/utils/categories.ts`、`backend/src/app/services/categorized_store.py` |
 | Cost Monitor（Gemini の利用料） | `features/cost-monitor/`（系列・金額の表示は `shared/utils/usage.ts`）、記録は `backend/src/app/services/usage_service.py`（Gemini を呼ぶサービスから `record_response`）、保存と集計（SQLite）は `usage_store.py`、単価は `pricing.py`、仕様は docs/specs/cost-monitor.md |
-| Workspace（処理フローの表示・選択・削除） | `features/flow-canvas/`（図の組み立て `flow-graph.ts`、配置 `flow-layout.ts`、コマの切り直し `panel-cropper.ts`）、`backend/src/app/services/flow_service.py`（切り直しの保存は `panel_service.recrop_panel`）、仕様は docs/specs/flow-canvas.md |
+| Workspace（処理フローの表示・選択・削除） | `features/flow-canvas/`（図の組み立て `flow-graph.ts`、配置 `flow-layout.ts`、コマの切り直し・追加 `panel-cropper.ts`）、`backend/src/app/services/flow_service.py`（切り直し・追加の保存は `panel_service.recrop_panel` / `add_panel`）、仕様は docs/specs/flow-canvas.md |
 | Archive Manager・アーカイブの出し入れ（表示名・zip のエクスポート / インポート・画像の書き出し） | `features/archive-manager/`（純粋な処理は `shared/utils/archives.ts`）、Workspace の画像の書き出しは `features/flow-canvas/export-images.ts`、`backend/src/app/services/archive_transfer.py`（表示名は `archive_service.py` の `.archive.json`、一覧は `flow_service.archive_summaries`）、仕様は docs/specs/archive-manager.md・archives.md |
 | まとめて実行（選択した画像へ順に実行） | `features/ai-panel/tool-runner.ts`・`run-targets.ts`、ツールの `targets()`、仕様は docs/specs/ai-panel.md「まとめて実行」 |
 | 比較キャンバス（Parallel / Slider / Overlay）・原画との比較 | `features/canvas/`（表示 `comparison-view.ts`、描画 `render.ts`、状態 `canvas-state.ts`、ズーム `zoom.ts`、生成画像のクリックで開くウィンドウ `compare-window.ts`。比べる相手は `flow-graph.ts` の `compareTargets`・`flowOrigin`） |

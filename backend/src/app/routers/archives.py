@@ -30,9 +30,11 @@ class ExportRequest(BaseModel):
 
 
 class ImagesRequest(BaseModel):
-    """Image keys ("<archive>/<path>") to write into one zip."""
+    """Image keys ("<archive>/<path>") to write into one zip; optionally the name of each image in it and of the zip."""
 
     keys: list[str]
+    names: list[str] | None = None
+    zip_name: str | None = None
 
 
 class MetaRequest(BaseModel):
@@ -46,6 +48,13 @@ class FlowSelectionRequest(BaseModel):
 
     stack: str
     folder: str | None = None
+
+
+class FlowRemovedRequest(BaseModel):
+    """A panel of a コマ分割 deleted one by one (``removed`` false: brought back)."""
+
+    panel: str
+    removed: bool
 
 
 class FlowMergeRequest(BaseModel):
@@ -66,6 +75,12 @@ async def save_archive(
         raise svc.ArchiveValidationError("ファイルとパスの数が一致しません。")
     files_data = [(path, await file.read()) for file, path in zip(files, paths, strict=True)]
     return {"status": "success", "archive": svc.save_archive(name, files_data)}
+
+
+@router.post("/empty")
+async def create_archive(req: MetaRequest) -> dict:
+    """Creates an empty archive shown as ``name`` (Workspace 「新規作成」); returns its key and display name."""
+    return {"status": "success", **svc.create_archive(req.name)}
 
 
 @router.post("/results")
@@ -127,7 +142,7 @@ async def export_archives(req: ExportRequest) -> FileResponse:
 @router.post("/export-images")
 async def export_images(req: ImagesRequest) -> FileResponse:
     """The images side by side in one zip download (the work to use outside the app)."""
-    write = partial(archive_transfer.export_images, req.keys)
+    write = partial(archive_transfer.export_images, req.keys, names=req.names, zip_name=req.zip_name)
     return _zip_download(*await run_in_threadpool(archive_transfer.to_temp, write))
 
 
@@ -158,6 +173,12 @@ async def get_flow(archive_name: str) -> flow_service.Flow:
 @router.put("/{archive_name}/flow/selection")
 async def set_flow_selection(archive_name: str, req: FlowSelectionRequest) -> dict:
     flow_service.set_selection(archive_name, req.stack, req.folder)
+    return {"status": "success"}
+
+
+@router.put("/{archive_name}/flow/removed")
+async def set_flow_removed(archive_name: str, req: FlowRemovedRequest) -> dict:
+    flow_service.set_panel_removed(archive_name, req.panel, req.removed)
     return {"status": "success"}
 
 

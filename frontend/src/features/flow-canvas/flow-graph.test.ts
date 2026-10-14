@@ -5,14 +5,20 @@ import {
   buildGraph,
   cascadeRuns,
   compareTargets,
+  finalImages,
   flowOrigin,
   hiddenPage,
   mergeBoxes,
   mergeChoice,
   pageMerges,
   splitPageOf,
+  mergeExtras,
   mergeOverrides,
+  mergeRemoved,
+  newPanelBox,
+  type PageBox,
   panelOf,
+  panelOrder,
   panelVersions,
   planDeletion,
   rowLabels,
@@ -23,7 +29,7 @@ import {
   versionOf,
   visibleFlow,
 } from './flow-graph';
-import { edgePath, layoutFlow, LAYOUT, stepHeight, stepWidth } from './flow-layout';
+import { edgePath, layoutFlow, LAYOUT, panelGaps, stepHeight, stepWidth } from './flow-layout';
 
 const img = (key: string): FlowImage => ({ key, name: key.split('/').pop()!, width: 10, height: 10 });
 
@@ -128,8 +134,10 @@ describe('visibleFlow', () => {
     expect(flow.steps.has('a/s1|コマ結合')).toBe(false);
     const [first, second] = flow.trees[0].steps;
     expect([first.panelIndex, second.panelIndex]).toEqual([1, 2]);
-    expect(first.cells.map(c => c.name)).toEqual(['01.png']);
-    expect(ids(first.cellChildren[0])).toEqual(['a/s1/01.png|着彩']);
+    // Any tool's one image joins the row of the image it was made from (here 着彩 of panel 1).
+    expect(first.layout).toBe('row');
+    expect(first.cells.map(c => c.name)).toEqual(['01.png', 'p.png']);
+    expect(first.cellChildren.map(ids)).toEqual([[], []]);
     expect(hiddenPage(first)).toBe('a/page.png');
   });
 
@@ -156,12 +164,12 @@ describe('visibleFlow', () => {
   it('draws edges from the input image, or from every image a merge used, never from a hidden page', () => {
     const { edges } = visibleFlow(buildGraph(sample()));
     expect(edges.some(e => e.from === 'a/page.png')).toBe(false);
-    expect(edges).toContainEqual({ from: 'a/s1/01.png', to: 'a/s1/01.png|着彩' });
+    expect(edges.some(e => e.from === 'a/s1/01.png')).toBe(false); // 着彩 is in the panel's row: no edge
     expect(edges).toContainEqual({ from: 'a/r2/nobg.png', to: 'a/r2/nobg.png|着彩' });
     expect(edges.some(e => e.to === '|Nano Banana|a/x1' || e.to === 'a/gone.png|背景除去')).toBe(false);
   });
 
-  it('puts images generated from an image as 原画 in its box, to its right', () => {
+  it("puts every tool's one image in the box of the image it was made from, to its right", () => {
     const data = sample();
     const gen = (folder: string, source: string, at: string): FlowRun => ({
       ...run(folder, 'Nano Banana画像生成', source, ['g.png'], at),
@@ -176,23 +184,35 @@ describe('visibleFlow', () => {
     const flow = visibleFlow(buildGraph(data));
     const panel = flow.steps.get('a/page.png|コマ分割#2')!;
     expect(panel.layout).toBe('row');
-    // The generations (oldest first) and the one generated from the adopted (newest) generation.
-    expect(panel.cells.map(c => c.key)).toEqual(['a/s1/02.png', 'a/g1/g.png', 'a/g2/g.png', 'a/g3/g.png']);
-    expect(panel.cellChildren.map(ids)).toEqual([[], [], ['a/g2/g.png|背景除去'], []]);
-    expect(flow.steps.has('a/s1/02.png|Nano Banana画像生成')).toBe(false);
-    expect(flow.edges.some(e => e.to.includes('Nano Banana'))).toBe(false);
-    expect(flow.edges).toContainEqual({ from: 'a/g2/g.png', to: 'a/g2/g.png|背景除去' });
-    expect(layoutFlow(flow).steps.get(panel.id)!.w).toBe(stepWidth(4));
-    // Each generated image is named, with the image it was generated from.
+    // The generations (oldest first), then what was made from the adopted (newest) one: a generation and a 背景除去.
+    expect(panel.cells.map(c => c.key)).toEqual([
+      'a/s1/02.png',
+      'a/g1/g.png',
+      'a/g2/g.png',
+      'a/g3/g.png',
+      'a/b1/b.png',
+    ]);
+    expect(panel.cellChildren.map(ids)).toEqual([[], [], [], [], []]);
+    expect(flow.steps.has('a/s1/02.png|AI画像生成')).toBe(false);
+    expect(flow.edges.some(e => e.to.includes('画像生成') || e.to.includes('背景除去'))).toBe(false);
+    // A wider gap after the 原画 (the ▶ between it and the generated images), the usual gap between the others.
+    const layout = layoutFlow(flow);
+    expect(layout.steps.get(panel.id)!.w).toBe(stepWidth(5, true));
+    const [p, g1, g2] = ['a/s1/02.png', 'a/g1/g.png', 'a/g2/g.png'].map(k => layout.cells.get(k)!);
+    expect(g1.x).toBe(p.x + LAYOUT.cellWidth + LAYOUT.originGap);
+    expect(g2.x).toBe(g1.x + LAYOUT.cellWidth + LAYOUT.cellGap);
+    // Each result is named by its tool (numbered per tool), with the image it was made from; the runs saved as
+    // 「Nano Banana画像生成」 are shown as 「AI画像生成」.
     expect(rowLabels(panel)).toEqual([
       null,
-      { name: '生成 1', from: '原画' },
-      { name: '生成 2', from: '原画' },
-      { name: '生成 3', from: '生成 2' },
+      { name: 'AI画像生成 1', from: '原画' },
+      { name: 'AI画像生成 2', from: '原画' },
+      { name: 'AI画像生成 3', from: 'AI画像生成 2' },
+      { name: '背景除去 1', from: 'AI画像生成 2' },
     ]);
     expect(rowLabels(flow.steps.get('a/page.png|背景除去')!)).toEqual([null, null]);
 
-    // Adopting the older generation hides what was made from the newer one.
+    // Adopting the older generation hides what was made from the newer one (a choice saved under the old name).
     const older = visibleFlow(buildGraph({ ...data, selection: { 'a/s1/02.png|Nano Banana画像生成': 'a/g1' } }));
     expect(older.steps.get('a/page.png|コマ分割#2')!.cells.map(c => c.key)).toEqual([
       'a/s1/02.png',
@@ -237,7 +257,7 @@ describe('merge marks', () => {
     expect(panelOf(graph, 'a/m1/m.png')).toBeNull();
   });
 
-  it('pastes the image marked 「結合」 for a panel, else the panel (原画) itself', () => {
+  it('pastes the image marked 「最終」 for a panel, else the panel (原画) itself', () => {
     const data = sample();
     data.runs.push(run('p2', '着彩', 'a/s1/01.png', ['p2.png'], '2026-01-01 11:00:00'));
     // Nothing marked: every panel as split, even with images made from it.
@@ -269,15 +289,28 @@ describe('layoutFlow', () => {
   it('makes a row per panel: label column on the left, next steps level with their image', () => {
     const layout = layoutFlow(visibleFlow(buildGraph(sample())));
     const at = (id: string) => layout.steps.get(id)!;
-    const { margin, gutter, columnGap, rowGap } = LAYOUT;
+    const { margin, gutter, rowGap } = LAYOUT;
     const [p1, p2] = [at('a/page.png|コマ分割#1'), at('a/page.png|コマ分割#2')];
     expect([p1.x, p2.x]).toEqual([margin + gutter, margin + gutter]);
-    // The next step follows right after the panel (each row is packed on its own).
-    const colored = at('a/s1/01.png|着彩');
-    expect([colored.x, colored.y]).toEqual([p1.x + stepWidth(1) + columnGap, p1.y]);
-    expect(layout.cells.get('a/p1/p.png')!.y).toBe(layout.cells.get('a/s1/01.png')!.y);
+    // The panel's 着彩 is in its row, right of it.
+    const [panel1, colored] = [layout.cells.get('a/s1/01.png')!, layout.cells.get('a/p1/p.png')!];
+    expect([colored.x, colored.y]).toEqual([panel1.x + LAYOUT.cellWidth + LAYOUT.originGap, panel1.y]);
+    expect(p1.w).toBe(stepWidth(2, true));
+    // The 全コマ header above the panel rows (close to the toolbar); the tools at the left of the free room of each row
+    // (right after its images) and of the header (where the rows' images start).
+    expect(p1.y).toBe(LAYOUT.topMargin + LAYOUT.panelHeader);
+    expect(layout.panelTools).toEqual({
+      header: { x: margin + gutter + LAYOUT.padding, y: LAYOUT.topMargin, h: LAYOUT.panelHeader - rowGap },
+      rows: [
+        { id: 'a/page.png|コマ分割#1', x: p1.x + p1.w + LAYOUT.toolsGap, y: p1.y + LAYOUT.padding },
+        { id: 'a/page.png|コマ分割#2', x: p2.x + p2.w + LAYOUT.toolsGap, y: p2.y + LAYOUT.padding },
+      ],
+    });
+    expect(layoutFlow(visibleFlow(buildGraph({ ...sample(), runs: [] }))).panelTools).toBeNull();
+    // A row's first step has no heading (the row label): its images start right below the row's line.
+    expect(panel1.y).toBe(p1.y + LAYOUT.padding);
     // The next panel row starts below everything of the first one.
-    expect(p2.y).toBe(p1.y + stepHeight(1) + rowGap);
+    expect(p2.y).toBe(p1.y + stepHeight(1, false) + rowGap);
     // One row per panel, then the other trees.
     expect(layout.rows.map(r => r.id)).toEqual([
       'a/page.png|コマ分割#1',
@@ -286,20 +319,21 @@ describe('layoutFlow', () => {
       '|Nano Banana|a/x1',
       'a/gone.png|背景除去',
     ]);
-    expect(layout.rows[0]).toEqual({ id: 'a/page.png|コマ分割#1', y: p1.y, h: stepHeight(1) });
+    expect(layout.rows[0]).toEqual({ id: 'a/page.png|コマ分割#1', y: p1.y, h: stepHeight(1, false) });
   });
 
   it('places candidates side by side in one step', () => {
     const layout = layoutFlow(visibleFlow(buildGraph(sample())));
     const box = layout.steps.get('a/page.png|背景除去')!;
-    expect([box.w, box.h]).toEqual([stepWidth(2), stepHeight(1)]);
+    expect([box.w, box.h]).toEqual([stepWidth(2), stepHeight(1, false)]);
     const [a, b] = [layout.cells.get('a/r1/nobg.png')!, layout.cells.get('a/r2/nobg.png')!];
     expect(a.y).toBe(b.y);
     expect(b.x).toBe(a.x + LAYOUT.cellWidth + LAYOUT.cellGap);
-    // The adopted candidate's next step is in the next column, level with it.
-    expect(layout.cells.get('a/c1/c.png')!.y).toBe(a.y);
+    // The adopted candidate's next step is in the next column, from the top of the row (its heading is below the
+    // row's line, so its images are a heading lower than those of the row's first step).
+    expect(layout.cells.get('a/c1/c.png')!.y).toBe(a.y + LAYOUT.headerHeight);
     // Rows do not overlap.
-    expect(box.y).toBeGreaterThan(layout.steps.get('a/page.png|コマ分割#2')!.y + stepHeight(1));
+    expect(box.y).toBeGreaterThan(layout.steps.get('a/page.png|コマ分割#2')!.y + stepHeight(1, false));
   });
 
   it('is empty without trees', () => {
@@ -323,12 +357,61 @@ describe('edgePath', () => {
 describe('planDeletion', () => {
   it('removes the runs of the selected outputs and their downstream results', () => {
     const graph = buildGraph(sample());
-    expect(planDeletion(graph, ['a/s1/02.png'])).toEqual({
+    expect(planDeletion(graph, ['a/r2/nobg.png'])).toEqual({
       whole: false,
       roots: [],
-      runs: ['a/s1', 'a/p1', 'a/m1'],
-      downstream: 2,
+      runs: ['a/r2', 'a/c1'],
+      downstream: 1,
+      panels: [],
     });
+  });
+
+  it('deletes a panel as split alone (marked), with what was made from it', () => {
+    const graph = buildGraph(sample());
+    expect(planDeletion(graph, ['a/s1/01.png'])).toEqual({
+      whole: false,
+      roots: [],
+      runs: ['a/p1', 'a/m1'],
+      downstream: 2,
+      panels: ['a/s1/01.png'],
+    });
+  });
+
+  it('deletes the whole コマ分割 when no other panel row would be left', () => {
+    const graph = buildGraph(sample());
+    const both = planDeletion(graph, ['a/s1/01.png', 'a/s1/02.png']);
+    expect(both.panels).toEqual([]);
+    expect(both.runs).toEqual(['a/s1', 'a/p1', 'a/m1']);
+    graph.removed.add('a/s1/01.png');
+    expect(planDeletion(graph, ['a/s1/02.png']).runs).toEqual(['a/s1', 'a/p1', 'a/m1']);
+    // A panel added by hand keeps the コマ分割: the panel as split goes alone.
+    const data = sample();
+    data.runs.push({
+      ...run('a1', 'コマ追加', 'a/s1', ['panel.png'], '2026-01-02 10:00:00'),
+      settings: { pixel_box: [0, 0, 5, 5], after: 'a/s1/02.png', before: null },
+    });
+    data.removed = { 'a/s1/01.png': '2026-01-03 10:00:00' };
+    expect(planDeletion(buildGraph(data), ['a/s1/02.png']).panels).toEqual(['a/s1/02.png']);
+  });
+
+  it('leaves the panels deleted one by one out of the rows and コマ結合', () => {
+    const data = sample();
+    data.runs.push({
+      ...run('a1', 'コマ追加', 'a/s1', ['panel.png'], '2026-01-02 10:00:00'),
+      settings: { pixel_box: [0, 0, 5, 5], after: 'a/s1/01.png', before: 'a/s1/02.png' },
+    });
+    data.removed = { 'a/s1/01.png': '2026-01-03 10:00:00' };
+    const graph = buildGraph(data);
+    const rows = visibleFlow(graph).trees[0].steps;
+    // The added panel still goes where it was added (after the deleted panel), the numbers follow the rows.
+    expect(rows.map(s => [s.panelIndex, s.cells[0].key])).toEqual([
+      [1, 'a/a1/panel.png'],
+      [2, 'a/s1/02.png'],
+    ]);
+    const split = graph.runs.get('a/s1')!;
+    expect(mergeRemoved(graph, split)).toEqual(['01.png']);
+    graph.merge['a/s1/01.png'] = 'a/p1/p.png';
+    expect(mergeOverrides(graph, split)).toEqual({});
   });
 
   it('deletes the whole archive when the page and every run go', () => {
@@ -389,16 +472,20 @@ describe('flowOrigin', () => {
         step.cells.findIndex(c => c.key === key),
       ).map(t => [t.label, t.image.key]);
     };
-    // c.png, then 生成 1 (g1) and 生成 2 (g2) in one box; the 原画 is the page the flow started from.
+    // c.png, then AI画像生成 1 (g1) and 2 (g2) in one box; the 原画 is the page the flow started from.
     expect(targets('a/g2/g.png')).toEqual([
       ['原画（page.png）', 'a/page.png'],
-      ['生成 1（g.png）', 'a/g1/g.png'],
+      ['AI画像生成 1（g.png）', 'a/g1/g.png'],
     ]);
     expect(targets('a/g1/g.png')).toEqual([
       ['原画（page.png）', 'a/page.png'],
-      ['生成 2（g.png）', 'a/g2/g.png'],
+      ['AI画像生成 2（g.png）', 'a/g2/g.png'],
     ]);
-    expect(targets('a/g3/g.png')).toEqual([['原画（01.png）', 'a/s1/01.png']]);
+    // Panel 01's box: its 着彩 (any tool) and the generation.
+    expect(targets('a/g3/g.png')).toEqual([
+      ['原画（01.png）', 'a/s1/01.png'],
+      ['着彩 1（p.png）', 'a/p1/p.png'],
+    ]);
     expect(targets('a/s1/01.png')).toEqual([]); // the first image itself
   });
 
@@ -448,17 +535,14 @@ describe('panel versions (コマ切り直し)', () => {
   it("puts the shown version in the panel's row, with only what was made from it", () => {
     const flow = visibleFlow(buildGraph(recut()));
     const row = flow.steps.get('a/page.png|コマ分割#1')!;
-    expect(row.cells.map(c => c.key)).toEqual(['a/k2/01.png']);
+    expect(row.cells.map(c => c.key)).toEqual(['a/k2/01.png', 'a/q1/q.png']);
     expect(row.panel?.key).toBe('a/s1/01.png');
-    expect(row.versionLabel).toBe('切り直し 2');
-    expect(row.cellChildren[0].map(s => s.id)).toEqual(['a/k2/01.png|着彩']);
     expect(flow.stepOfCell.has('a/p1/p.png')).toBe(false); // made from the panel as split: hidden
     expect(flow.steps.has(stackId)).toBe(false); // the re-cuts are not a step of their own
 
     const asSplit = visibleFlow(buildGraph(recut({ [stackId]: 'a/s1' })));
     const back = asSplit.steps.get('a/page.png|コマ分割#1')!;
-    expect(back.cells.map(c => c.key)).toEqual(['a/s1/01.png']);
-    expect(back.versionLabel).toBeUndefined();
+    expect(back.cells.map(c => c.key)).toEqual(['a/s1/01.png', 'a/p1/p.png']);
     expect(asSplit.stepOfCell.has('a/p1/p.png')).toBe(true); // shown again
     expect(asSplit.stepOfCell.has('a/q1/q.png')).toBe(false);
   });
@@ -491,5 +575,145 @@ describe('panel versions (コマ切り直し)', () => {
     expect(mergeChoice(asSplit, panel)).toEqual({ key: 'a/s1/01.png', marked: false });
     expect(mergeOverrides(asSplit, split(asSplit))).toEqual({});
     expect(mergeBoxes(asSplit, split(asSplit))).toEqual({});
+  });
+});
+
+describe('panels added by hand (コマ追加)', () => {
+  /** The sample with panels added to the コマ分割 s1 (`after` / `before`: the panels it was added between). */
+  const withAdded = (...adds: [string, string | null, string | null, PageBox][]): FlowData => {
+    const data = sample();
+    adds.forEach(([folder, after, before, box], i) =>
+      data.runs.push({
+        ...run(folder, 'コマ追加', 'a/s1', ['panel.png'], `2026-01-02 10:0${i}:00`),
+        settings: { split: 'a/s1', pixel_box: box, after, before },
+      }),
+    );
+    return data;
+  };
+  const rowKeys = (data: FlowData) => {
+    const flow = visibleFlow(buildGraph(data));
+    return flow.trees[0].steps.map(s => s.cells[0].key);
+  };
+
+  it('puts each added panel right after the panel it was added after (null: at the top)', () => {
+    const data = withAdded(
+      ['a1', 'a/s1/01.png', 'a/s1/02.png', [0, 0, 5, 5]],
+      ['a2', null, 'a/s1/01.png', [0, 0, 5, 5]],
+      ['a3', 'a/s1/01.png', 'a/a1/panel.png', [0, 0, 5, 5]],
+      ['a4', 'a/a1/panel.png', 'a/s1/02.png', [0, 0, 5, 5]],
+      ['a5', 'a/s1/02.png', null, [0, 0, 5, 5]],
+    );
+    expect(rowKeys(data)).toEqual([
+      'a/a2/panel.png',
+      'a/s1/01.png',
+      'a/a3/panel.png',
+      'a/a1/panel.png',
+      'a/a4/panel.png',
+      'a/s1/02.png',
+      'a/a5/panel.png',
+    ]);
+    expect(panelOrder(buildGraph(data), buildGraph(data).runs.get('a/s1')!).length).toBe(7);
+  });
+
+  it('falls back to the panel it was added before, then the bottom, when that panel is gone', () => {
+    const data = withAdded(
+      ['a1', 'a/gone.png', 'a/s1/02.png', [0, 0, 5, 5]],
+      ['a2', 'a/gone.png', 'a/gone2.png', [0, 0, 5, 5]],
+    );
+    expect(rowKeys(data)).toEqual(['a/s1/01.png', 'a/a1/panel.png', 'a/s1/02.png', 'a/a2/panel.png']);
+  });
+
+  it('makes an added panel a row of its own: its run, the page, 「追加時」 with its box', () => {
+    const data = withAdded(['a1', 'a/s1/01.png', 'a/s1/02.png', [1, 2, 3, 4]]);
+    data.runs.push(run('ap', '着彩', 'a/a1/panel.png', ['c.png'], '2026-01-02 11:00:00'));
+    const graph = buildGraph(data);
+    const flow = visibleFlow(graph);
+    const [first, added, second] = flow.trees[0].steps;
+    expect([first.panelIndex, added.panelIndex, second.panelIndex]).toEqual([1, 2, 3]);
+    expect([first.splitHead, added.splitHead, second.splitHead]).toEqual([true, false, false]);
+    expect(added.added).toBe(true);
+    expect(added.run?.folder).toBe('a/a1');
+    expect(hiddenPage(added)).toBe('a/page.png');
+    expect(added.cells.map(c => c.key)).toEqual(['a/a1/panel.png', 'a/ap/c.png']);
+    // Not a candidate (★), not a step of its own, no edge from the コマ分割.
+    expect(adoptableStack(graph, added.run)).toBeNull();
+    expect(flow.steps.has('a/s1|コマ追加')).toBe(false);
+    expect(flow.edges.some(e => e.to === added.id)).toBe(false);
+    const { versions } = panelVersions(graph, img('a/a1/panel.png'));
+    expect(versions.map(v => [v.label, v.box])).toEqual([['追加時', [1, 2, 3, 4]]]);
+    expect(versionOf(graph, 'a/ap/c.png')).toBe('a/a1/panel.png');
+    expect(panelOf(graph, 'a/ap/c.png')).toBe('a/a1/panel.png');
+    expect(upstreamRun(graph, 'a/ap/c.png', 'コマ分割')?.folder).toBe('a/s1');
+  });
+
+  it('merges an added panel at its box (its marked image, or its re-cut at the re-cut box)', () => {
+    const data = withAdded(['a1', 'a/s1/01.png', 'a/s1/02.png', [1, 2, 3, 4]]);
+    data.runs.push(run('ap', '着彩', 'a/a1/panel.png', ['c.png'], '2026-01-02 11:00:00'));
+    const graph = buildGraph(data);
+    const split = graph.runs.get('a/s1')!;
+    expect(mergeExtras(graph, split)).toEqual([{ key: 'a/a1/panel.png', box: [1, 2, 3, 4] }]);
+    graph.merge['a/a1/panel.png'] = 'a/ap/c.png';
+    expect(mergeExtras(graph, split)).toEqual([{ key: 'a/ap/c.png', box: [1, 2, 3, 4] }]);
+    // Not part of the panels of panels.json.
+    expect(mergeOverrides(graph, split)).toEqual({});
+    data.runs.push({
+      ...run('rc', 'コマ切り直し', 'a/a1/panel.png', ['panel.png'], '2026-01-02 12:00:00'),
+      settings: { pixel_box: [5, 6, 7, 8] },
+    });
+    expect(mergeExtras(buildGraph(data), split)).toEqual([{ key: 'a/rc/panel.png', box: [5, 6, 7, 8] }]);
+  });
+
+  it('is deleted with its コマ分割, and alone with its own row', () => {
+    const graph = buildGraph(withAdded(['a1', 'a/s1/01.png', 'a/s1/02.png', [1, 2, 3, 4]]));
+    expect(cascadeRuns(graph, ['a/s1'])).toContain('a/a1');
+    expect(planDeletion(graph, ['a/a1/panel.png']).runs).toEqual(['a/a1']);
+  });
+
+  it('puts a ＋ on the line above each panel row and below the last', () => {
+    const flow = visibleFlow(buildGraph(withAdded(['a1', 'a/s1/01.png', 'a/s1/02.png', [1, 2, 3, 4]])));
+    const layout = layoutFlow(flow);
+    const gaps = panelGaps(flow, layout);
+    expect(gaps.map(g => [g.after?.panelIndex ?? null, g.before?.panelIndex ?? null])).toEqual([
+      [null, 1],
+      [1, 2],
+      [2, 3],
+      [3, null],
+    ]);
+    const [r1, r2] = layout.rows;
+    expect(gaps[0].y).toBe(r1.y - LAYOUT.rowGap / 2);
+    expect(gaps[1].y).toBe(r2.y - LAYOUT.rowGap / 2);
+    expect(gaps[1].y).toBe(r1.y + r1.h + LAYOUT.rowGap / 2);
+    expect(gaps[0].x).toBe(LAYOUT.margin + LAYOUT.gutter + LAYOUT.padding + LAYOUT.cellWidth / 2);
+    expect(
+      panelGaps(
+        visibleFlow(buildGraph({ ...sample(), runs: [] })),
+        layoutFlow(visibleFlow(buildGraph({ ...sample(), runs: [] }))),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe('newPanelBox', () => {
+  it('averages the panels above and below (position and size)', () => {
+    expect(newPanelBox([0, 0, 100, 100], [100, 200, 300, 300], 1000)).toEqual([50, 100, 200, 200]);
+  });
+
+  it('puts it right below the last panel / above the first one at the same size, kept on the page', () => {
+    expect(newPanelBox([10, 20, 110, 70], null, 1000)).toEqual([10, 70, 110, 120]);
+    expect(newPanelBox(null, [10, 120, 110, 170], 1000)).toEqual([10, 70, 110, 120]);
+    expect(newPanelBox([10, 900, 110, 980], null, 1000)).toEqual([10, 920, 110, 1000]);
+    expect(newPanelBox(null, [10, 20, 110, 70], 1000)).toEqual([10, 0, 110, 50]);
+    expect(newPanelBox(null, null, 1000)).toBeNull();
+  });
+});
+
+describe('finalImages', () => {
+  it("is each panel row's 「最終」 image (the marked one, else the panel), top to bottom", () => {
+    const graph = buildGraph(sample());
+    const rows = visibleFlow(graph).trees[0].steps;
+    expect(finalImages(graph, rows)).toEqual(['a/s1/01.png', 'a/s1/02.png']);
+    graph.merge['a/s1/01.png'] = 'a/p1/p.png';
+    expect(finalImages(graph, rows)).toEqual(['a/p1/p.png', 'a/s1/02.png']);
+    expect(finalImages(graph, [])).toEqual([]);
   });
 });

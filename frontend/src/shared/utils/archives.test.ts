@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { displayNameError, filterArchives, formatSize, imageFileName } from './archives';
+import {
+  displayNameError,
+  exportFileName,
+  exportNameErrors,
+  filterArchives,
+  formatSize,
+  imageFileName,
+  serialNames,
+  splitFileName,
+} from './archives';
 
 describe('imageFileName', () => {
   it('keeps the name of a page and puts the result folder in front of a result', () => {
@@ -42,5 +51,38 @@ describe('filterArchives', () => {
     expect(filterArchives(archives, 'color')).toEqual([{ name: '第2話 Color' }]);
     expect(filterArchives(archives, '第1話 線画')).toEqual([{ name: '第1話 線画' }]);
     expect(filterArchives(archives, '第1話 color')).toEqual([]);
+  });
+});
+
+describe('export names', () => {
+  it('splits the extension off and puts it back, usable as a file name', () => {
+    expect(splitFileName('20261002_背景除去_nobg.png')).toEqual({ stem: '20261002_背景除去_nobg', ext: '.png' });
+    expect(splitFileName('a.b.jpg')).toEqual({ stem: 'a.b', ext: '.jpg' });
+    expect(splitFileName('noext')).toEqual({ stem: 'noext', ext: '' });
+    expect(exportFileName(' 第1話: コマ1 ', '.png')).toBe('第1話_ コマ1.png');
+  });
+
+  it('refuses empty names and the same name twice (ignoring case)', () => {
+    expect(
+      exportNameErrors([
+        { stem: 'コマ1', ext: '.png' },
+        { stem: ' ', ext: '.png' },
+        { stem: 'A', ext: '.png' },
+        { stem: 'a', ext: '.PNG' },
+        { stem: 'a', ext: '.jpg' },
+      ]),
+    ).toEqual([null, 'ファイル名を入力してください', '同じ名前があります', '同じ名前があります', null]);
+  });
+});
+
+describe('serialNames', () => {
+  it('puts "_<number>" after the name, two digits (three from 100)', () => {
+    expect(serialNames('コマ', 1, 4)).toEqual(['コマ_01', 'コマ_02', 'コマ_03', 'コマ_04']);
+    expect(serialNames('p', 99, 2)).toEqual(['p_099', 'p_100']);
+  });
+
+  it('puts the number where the "#"s are, as many digits as "#"s', () => {
+    expect(serialNames('第1話_##', 1, 3)).toEqual(['第1話_01', '第1話_02', '第1話_03']);
+    expect(serialNames('p#_final', 9, 2)).toEqual(['p9_final', 'p10_final']);
   });
 });

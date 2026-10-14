@@ -169,3 +169,62 @@ def test_parse_boxes_rejects_bad_input(text: str) -> None:
 def test_parse_boxes() -> None:
     assert merge_service.parse_boxes(None) == {}
     assert merge_service.parse_boxes('{"01.png": [0, 0, 5, 5]}') == {"01.png": [0, 0, 5, 5]}
+
+
+def test_merge_pastes_panels_added_by_hand_at_their_box(archives_dir: Path) -> None:
+    _make_split_folder("split/")
+    save_archive("page", [("added/panel.png", make_png(2, 2, (0, 255, 0, 255)))])
+    extras = [{"key": "page/added/panel.png", "box": [4, 4, 8, 8]}]
+
+    result = merge_service.merge_panels("page/split", {}, {}, extras)
+
+    merged = Image.open(archives_dir / result["auto_select_key"])
+    assert merged.getpixel((5, 5)) == (0, 255, 0, 255)  # resized to its box, on top of the larger panel 01
+    assert merged.getpixel((2, 2)) == (255, 0, 0, 255)
+    info = json.loads((archives_dir / result["folder"] / "info.json").read_text(encoding="utf-8"))
+    assert info["sources"] == ["page/split/01.png", "page/split/02.png", "page/added/panel.png"]
+    assert info["settings"] == {"extras": extras}
+
+
+def test_merge_rejects_an_added_panel_outside_the_page() -> None:
+    _make_split_folder("split/")
+    with pytest.raises(merge_service.MergeServiceError, match="追加したコマ"):
+        merge_service.merge_panels("page/split", {}, {}, [{"key": "page/split/01.png", "box": [30, 0, 40, 10]}])
+
+
+@pytest.mark.parametrize("text", ["{", "{}", '[{"key": "a"}]', '[{"key": 1, "box": [0, 0, 1, 1]}]'])
+def test_parse_extras_rejects_bad_input(text: str) -> None:
+    with pytest.raises(merge_service.MergeServiceError):
+        merge_service.parse_extras(text)
+
+
+def test_parse_extras() -> None:
+    assert merge_service.parse_extras(None) == []
+    assert merge_service.parse_extras('[{"key": "a/b.png", "box": [0, 0, 5, 5]}]') == [
+        {"key": "a/b.png", "box": [0, 0, 5, 5]}
+    ]
+
+
+def test_merge_leaves_out_the_panels_deleted_one_by_one(archives_dir: Path) -> None:
+    _make_split_folder("split/")
+
+    result = merge_service.merge_panels("page/split", {}, {}, [], ["02.png"])
+
+    merged = Image.open(archives_dir / result["auto_select_key"])
+    assert merged.getpixel((2, 2)) == (255, 0, 0, 255)
+    assert merged.getpixel((15, 5)) == (0, 0, 0, 0)
+    info = json.loads((archives_dir / result["folder"] / "info.json").read_text(encoding="utf-8"))
+    assert info["sources"] == ["page/split/01.png"]
+    assert info["settings"] == {"removed": ["02.png"]}
+
+
+def test_merge_without_any_panel_left_is_an_error() -> None:
+    _make_split_folder("split/")
+    with pytest.raises(merge_service.MergeServiceError, match="貼るコマがありません"):
+        merge_service.merge_panels("page/split", {}, {}, [], ["01.png", "02.png"])
+
+
+@pytest.mark.parametrize("text", ["{", "{}", "[1]"])
+def test_parse_removed_rejects_bad_input(text: str) -> None:
+    with pytest.raises(merge_service.MergeServiceError):
+        merge_service.parse_removed(text)

@@ -6,7 +6,7 @@
   flex-direction: column;
   overflow: hidden;
   background: var(--color-surface);
-  border-left: 1px solid var(--color-outline-variant);
+  border-left: 1px solid var(--color-line);
 }
 
 .ai-panel__resizer {
@@ -30,7 +30,7 @@
   align-items: center;
   flex-shrink: 0;
   padding: 16px 12px;
-  border-bottom: 1px solid var(--color-outline-variant);
+  border-bottom: 1px solid var(--color-line);
   background: var(--color-surface-container-low);
 }
 
@@ -113,7 +113,7 @@
   align-items: center;
   justify-content: center;
   width: 34px;
-  border-left: 1px solid var(--color-outline-variant);
+  border-left: 1px solid var(--color-line);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   background: var(--color-surface-container-high);
   color: var(--color-on-surface-variant);
@@ -135,6 +135,12 @@
 .ai-panel__list--busy .ai-tool-row:not(.ai-tool-row--running) .ai-tool-play {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Keeps the name aligned for a tool without an icon */
+.ai-tool-icon-space {
+  display: inline-block;
+  width: 16px;
 }
 
 .ai-tool-btn .ai-tool-name {
@@ -196,7 +202,7 @@
   gap: 8px;
   flex-shrink: 0;
   padding: 14px 12px 14px 16px;
-  border-bottom: 1px solid var(--color-outline-variant);
+  border-bottom: 1px solid var(--color-line);
 }
 
 .tool-window__heading {
@@ -262,7 +268,7 @@
 }
 
 .tool-window__column + .tool-window__column {
-  border-left: 1px solid var(--color-outline-variant);
+  border-left: 1px solid var(--color-line);
 }
 
 @media (max-width: 960px) {
@@ -277,7 +283,7 @@
   }
 
   .tool-window__column + .tool-window__column {
-    border-top: 1px solid var(--color-outline-variant);
+    border-top: 1px solid var(--color-line);
     border-left: none;
   }
 }
@@ -285,7 +291,7 @@
 .tool-window__footer {
   flex-shrink: 0;
   padding: 16px;
-  border-top: 1px solid var(--color-outline-variant);
+  border-top: 1px solid var(--color-line);
 }
 
 .tool-window__run {

@@ -1,5 +1,5 @@
 /**
- * Nano Banana画像生成 — free-form image generation from a prompt and reference images.
+ * AI画像生成 — free-form image generation from a prompt and reference images.
  * (Ids, the settings prefix "nanoBananaPro" and the backend routes keep the former name "Nano Banana Pro".)
  *
  * The user first picks the model and the API (Interactions / generateContent); the settings
@@ -8,7 +8,7 @@
  * With a 原画 (original image) the aspect ratio follows the original, and the output is cut back to
  * the original's size (original.ts, original-image.ts).
  * Each run saves the image, Inputs/ (reference images, payload.json) and info.json as a tool
- * result ("<selected archive>/<stamp>_Nano Banana画像生成/", see ../result.ts).
+ * result ("<selected archive>/<stamp>_AI画像生成/", see ../result.ts).
  * Spec: docs/specs/tools/nano-banana-pro.md
  */
 import {
@@ -101,7 +101,7 @@ const apiLabel = (api: GeminiApi) => APIS.find(a => a.value === api)?.label ?? a
 
 export class NanoBananaProTool implements Tool {
   id = 'nano-banana-pro';
-  name = 'Nano Banana画像生成';
+  name = 'AI画像生成';
   icon = 'auto_awesome';
   windowColumns = 3;
 

@@ -33,12 +33,13 @@ frontend/src/
     │                         # bar-list.ts = ツール別の横棒、day-detail.ts = 選んだ日の内訳、parts.ts = 金額（円優先）・表の部品）
     ├── character-manager/    # Character Manager（Prompt Manager と同じ構成。image-list.ts = 編集欄の画像、icon-cropper.ts = アイコンの切り取り、transfer.ts = zip のエクスポート / インポート）
     ├── flow-canvas/          # Workspace（Normal モード）の処理フロー。FlowCanvas.ts = 画面と操作、flow-graph.ts = info.json から図・スタック・
-    │                         # 削除範囲・コマ結合の差し替えを作る純粋関数、flow-layout.ts = 自動配置と線、pan-zoom.ts、thumbnails.ts、
+    │                         # 削除範囲・コマ結合の差し替えを作る純粋関数、flow-layout.ts = 自動配置と線・コマの行の間の ＋ の位置、thumbnails.ts、
     │                         # deletion.ts = 削除と Undo（Archive Manager も使う）、export-images.ts = 画像の書き出し、side-pane.ts = 3 枚構成の左右のペイン（元ページ / コマ結合後）、
-    │                         # panel-cropper.ts = コマの切り直し（ページ上の範囲の表示・切り直し・版の切り替え）
+    │                         # panel-cropper.ts = コマの切り直し（ページ上の範囲の表示・切り直し・版の切り替え）とコマの追加
     ├── canvas/               # 比較キャンバス（Parallel / Slider / Overlay）。compare-window.ts = 生成画像の「原画との比較」ウィンドウ、
     │                         # comparison-view.ts = その中の比較の表示（canvas-state / render / zoom / toolbars）
-    ├── ai-panel/             # ツール一覧・並び替え・実行（tool-runner、run-targets = まとめて実行の対象と通知文）・ツールウィンドウ（components/ToolWindow.ts）
+    ├── ai-panel/             # ツール一覧・並び替え・実行（tool-runner、run-targets = まとめて実行の対象と通知文）・ツールウィンドウ（components/ToolWindow.ts）、
+    │                         # ツールのボタン（components/ToolButton.ts）とウィンドウを開く・▶ で実行（tool-launch.ts。TOOLS と Workspace のコマの行で共通）
     ├── document/             # DocumentManager（表示中のアーカイブ・その処理フロー・選択中の画像）
     ├── status-bar/
     └── tools/                # AI ツール（1 ツール 1 ファイル、大きいものは <id>/ フォルダ）。index.ts が一覧
@@ -110,7 +111,7 @@ frontend/src/
 1. `features/tools/<id>.ts`（大きいツールは `features/tools/<id>/<id>.ts` + 部品）に `Tool`（`shared/types/tool.ts`）を実装する。
    - 設定が必要なら `renderSettings(container)` を実装し `shared/ui/form.ts` の部品で組む。設定値は `toolSettings('<prefix>')` で、
      同じ接頭辞を `settingsPrefix` に宣言する（実行開始時に変更分が保存される。宣言しないと保存されない）。
-   - ウィンドウを開く前に状態を整える必要があれば `beforeOpen()` を実装する（設定を読み直した後に呼ばれる。例: Nano Banana画像生成が選択中の画像を原画に入れる）。
+   - ウィンドウを開く前に状態を整える必要があれば `beforeOpen()` を実装する（設定を読み直した後に呼ばれる。例: AI画像生成が選択中の画像を原画に入れる）。
    - `execute()` は対象 1 つにつき 1 回呼ばれる（`context.target`。選択中の画像それぞれ、選んだ順。[specs/ai-panel.md](../specs/ai-panel.md)「まとめて実行」）。
      画像は `context.getSelectedImage()`、結果の `source` は `context.target.key`。選択を使わない・まとめ方が違うツールは
      `targets(selection)` を実装する（入力なしで 1 回なら `[null]`。例: 画像読み込み、コマ結合はコマ分割ごと）。
@@ -123,6 +124,9 @@ frontend/src/
    - バックエンド呼び出しは `shared/api/` に関数を追加して使う。
    - 結果は `saveToolResult(ツール名, files, { source, settings })` で保存する（表示中のアーカイブの中の `<日時>_<ツール名>/` と info.json。
      [specs/archives.md](../specs/archives.md)「ツールの結果の保存」）。保存後は `emit('archives:changed', { select: [<結果画像のキー>] })` で Workspace に出して選択する。
+   - Workspace での表示はツールごとに作らない: 1 枚の画像（`source`）から 1 枚を出力した結果は、どのツールでも自動で原画の行に入る
+     （帯「<ツール名> <n> ← 原画」・★・「最終」・クリックで原画との比較。`flow-graph.ts` の `joinsRow`、[specs/flow-canvas.md](../specs/flow-canvas.md)「処理の結果の表示」）。
+     ツール名を変える時は、旧名の結果も新しい名前で表示されるよう `shared/config.ts` の `RENAMED_TOOLS` に旧名を足す。
 2. `features/tools/index.ts` の `TOOLS` に追加する（並び順 = ツール一覧の初期順）。
 3. `docs/specs/tools/<id>.md` に仕様を書く。
 

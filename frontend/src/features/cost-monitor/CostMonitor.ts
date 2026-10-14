@@ -160,7 +160,7 @@ export function createCostMonitor(): HTMLElement {
     h('div', { text: 'まだ Gemini を使った記録はありません' }),
     h('div', {
       class: 'cost-monitor__muted',
-      text: 'Nano Banana画像生成・コマ分割を実行すると、ここに利用料が表示されます。',
+      text: 'AI画像生成・コマ分割を実行すると、ここに利用料が表示されます。',
     }),
   );
   const chart = createDailyChart(day => void selectDay(day));

@@ -21,6 +21,8 @@
   --color-inverse-on-surface: #313032;
   --color-outline: #8e9192;
   --color-outline-variant: #2b2b2d;
+  /* The one color of every boundary / separator line on the screen (AGENTS.md「線の色」) */
+  --color-line: var(--color-outline-variant);
   --color-surface-tint: #c6c6c7;
   --color-surface-variant: #353437;
 

@@ -110,20 +110,35 @@ export interface MergePanelsResult {
 /** `[xmin, ymin, xmax, ymax]` in pixels of the page (Pillow / PASCAL VOC, like panels.json `pixel_box`). */
 export type PixelBox = [number, number, number, number];
 
+/** A panel added by hand (コマ追加) to paste when merging: the image and its box on the page. */
+export interface MergeExtra {
+  key: string;
+  box: PixelBox;
+}
+
 /**
  * Pastes the panels of `<targetFolder>/panels.json` back into one image. `overrides` replaces panels
  * (panel file name -> archive key of the image to paste instead, resized to the panel); `boxes` places the
- * panels cut again (コマ切り直し) at their own box (panel file name -> box), resized to it.
+ * panels cut again (コマ切り直し) at their own box (panel file name -> box), resized to it; `extras` adds the
+ * panels added by hand (コマ追加), each at its box; `removed` leaves out the panels deleted one by one (file names).
  */
 export function mergePanels(
   targetFolder: string,
   overrides: Record<string, string> = {},
   boxes: Record<string, PixelBox> = {},
+  extras: MergeExtra[] = [],
+  removed: string[] = [],
 ): Promise<MergePanelsResult> {
   const json = (value: object) => (Object.keys(value).length ? JSON.stringify(value) : undefined);
   return postForm(
     '/image/merge-panels',
-    formData({ target_folder: targetFolder, overrides: json(overrides), boxes: json(boxes) }),
+    formData({
+      target_folder: targetFolder,
+      overrides: json(overrides),
+      boxes: json(boxes),
+      extras: json(extras),
+      removed: json(removed),
+    }),
   );
 }
 
@@ -138,7 +153,23 @@ export interface RecropPanelResult {
   height: number;
 }
 
-/** Cuts panel `panelKey` (an output of a コマ分割) again from the split page with `box` (page pixels). */
+/** Cuts panel `panelKey` (an output of a コマ分割, or an added panel) again from the split page with `box` (page pixels). */
 export function recropPanel(panelKey: string, box: PixelBox): Promise<RecropPanelResult> {
   return postForm('/image/recrop-panel', formData({ panel_key: panelKey, box: JSON.stringify(box) }));
+}
+
+/** Result of POST /image/add-panel: like a re-cut, in "<archive>/<stamp>_コマ追加/panel.png". */
+export type AddPanelResult = RecropPanelResult;
+
+/**
+ * Adds a panel to the コマ分割 `splitFolder`: cuts `box` (page pixels) from its page, between the panels `after`
+ * and `before` (keys; null at the top / the bottom).
+ */
+export function addPanel(
+  splitFolder: string,
+  box: PixelBox,
+  after: string | null,
+  before: string | null,
+): Promise<AddPanelResult> {
+  return postForm('/image/add-panel', formData({ split_folder: splitFolder, box: JSON.stringify(box), after, before }));
 }

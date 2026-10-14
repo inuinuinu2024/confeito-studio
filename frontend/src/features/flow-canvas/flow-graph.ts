@@ -10,7 +10,11 @@
  * - Runs whose input is not in the archive (none, or deleted) start their own tree at the left edge.
  * - A panel cut again from the page (コマ切り直し, `source` = the panel) is a *version* of the panel: the panel's
  *   row shows one version (the one picked, else the newest) and only what was made from it.
+ * - A panel added by hand (コマ追加, `source` = the コマ分割 folder) is one more panel of that split, in its own row
+ *   between the panels it was added between (`panelOrder`).
+ * - A panel of a コマ分割 deleted one by one is only marked (`removed`, in the archive's .flow.json): no row, not merged.
  */
+import { RENAMED_TOOLS } from '../../shared/config';
 import type { FlowData, FlowImage, FlowRun } from '../../shared/types/flow';
 
 export interface FlowStack {
@@ -39,6 +43,8 @@ export interface FlowGraph {
   selection: Record<string, string>;
   /** Image marked for コマ結合 per panel (panel image key -> image key). */
   merge: Record<string, string>;
+  /** Panels of a コマ分割 deleted one by one (their image keys). */
+  removed: Set<string>;
 }
 
 /** Runs with the same input and tool are stacked; a run without input is a stack of its own. */
@@ -46,7 +52,25 @@ export function stackIdOf(run: Pick<FlowRun, 'source' | 'tool' | 'folder'>): str
   return run.source ? `${run.source}|${run.tool}` : `|${run.tool}|${run.folder}`;
 }
 
-export function buildGraph(data: FlowData): FlowGraph {
+/** `data` with the runs of renamed tools under their new name, and the stack ids of .flow.json to match. */
+function renamedTools(data: FlowData): FlowData {
+  const rename = (tool: string) => RENAMED_TOOLS[tool] ?? tool;
+  // Stack ids are "<input>|<tool>" or "|<tool>|<folder>": the tool is a segment of its own.
+  const renameStack = (id: string) => id.split('|').map(rename).join('|');
+  const selection: Record<string, string> = {};
+  // A choice saved under the new stack id wins over one saved under the old id.
+  for (const [id, folder] of Object.entries(data.selection))
+    if (renameStack(id) !== id) selection[renameStack(id)] = folder;
+  for (const [id, folder] of Object.entries(data.selection)) if (renameStack(id) === id) selection[id] = folder;
+  return {
+    ...data,
+    runs: data.runs.map(r => (rename(r.tool) === r.tool ? r : { ...r, tool: rename(r.tool) })),
+    selection,
+  };
+}
+
+export function buildGraph(raw: FlowData): FlowGraph {
+  const data = renamedTools(raw);
   const images = new Map<string, FlowImage>();
   const runs = new Map<string, FlowRun>();
   const runOfImage = new Map<string, FlowRun>();
@@ -94,6 +118,7 @@ export function buildGraph(data: FlowData): FlowGraph {
     orphans,
     selection: data.selection,
     merge: data.merge ?? {},
+    removed: new Set(Object.keys(data.removed ?? {})),
   };
 }
 
@@ -113,6 +138,10 @@ export const SPLIT_TOOL = 'コマ分割';
 export const MERGE_TOOL = 'コマ結合';
 /** Tool name of コマ切り直し: a panel cut again from its page, shown in the panel's row instead of it. */
 export const RECROP_TOOL = 'コマ切り直し';
+/** Tool name of コマ追加: a panel added by hand to a コマ分割, shown as one more panel row. */
+export const ADD_TOOL = 'コマ追加';
+/** Runs whose output is a panel version: the panel as split, a panel added by hand, a re-cut of either. */
+const PANEL_TOOLS = new Set([SPLIT_TOOL, ADD_TOOL, RECROP_TOOL]);
 
 /**
  * One box on the canvas: an imported page (no stack), the shown run of a stack, or one panel of a split page.
@@ -132,8 +161,12 @@ export interface FlowStep {
   panelIndex?: number;
   /** The panel (output of the コマ分割) when this box is one panel of a split page; `cells[0]` is its shown version. */
   panel?: FlowImage;
-  /** Label of the shown version when it is not the panel as split ("切り直し 2"). */
-  versionLabel?: string;
+  /** A panel row of a panel added by hand (コマ追加): `run` is that コマ追加 run. */
+  added?: boolean;
+  /** The first panel of the コマ分割 (not an added one): its heading switches between the runs of the split (‹ ›). */
+  splitHead?: boolean;
+  /** A panel row: the page that was split (shown in the left pane, not in the flow). */
+  page?: string;
   /** `action`: key of the page the button splits. */
   splitPage?: string;
   /** Starts a row of the canvas (a panel, a page, a result without input): its title is the row label. */
@@ -173,31 +206,34 @@ export interface VisibleFlow {
 /** Several runs that each made one image: shown side by side, one of them adopted (★). */
 const isCandidateStack = (stack: FlowStack) => stack.runs.length > 1 && stack.runs.every(r => r.outputs.length === 1);
 
-/** A run that rewrote its input image as 原画 (Nano Banana画像生成 with a 原画; info.json settings.original). */
-export const isOriginalRun = (run: FlowRun) =>
-  run.source !== null &&
-  run.outputs.length === 1 &&
-  typeof run.settings.original === 'object' &&
-  !!run.settings.original;
+/**
+ * A run whose one image joins the row of its input image, next to it (docs/specs/flow-canvas.md 「処理の結果の表示」):
+ * any tool, present or future (AI画像生成, 背景除去, …), that made one image from a known image. Not the panel tools
+ * (コマ分割 / コマ切り直し / コマ追加): those are panels and their versions.
+ */
+export const joinsRow = (run: FlowRun) => run.source !== null && run.outputs.length === 1 && !PANEL_TOOLS.has(run.tool);
 
 /** The stack of `run` when the canvas lets the user adopt one of its runs (★), else null. */
 export function adoptableStack(graph: FlowGraph, run: FlowRun | null): FlowStack | null {
   const stack = run && graph.stacks.get(graph.stackOfRun.get(run.folder) ?? '');
-  // The versions of a panel are picked in the panel cropper, not with ★.
-  return stack && stack.tool !== RECROP_TOOL && isCandidateStack(stack) ? stack : null;
+  // The versions of a panel are picked in the panel cropper, not with ★; added panels are panels of their own.
+  return stack && stack.tool !== RECROP_TOOL && stack.tool !== ADD_TOOL && isCandidateStack(stack) ? stack : null;
 }
 
 /** `[xmin, ymin, xmax, ymax]` in pixels of the page. */
 export type PageBox = [number, number, number, number];
 
-/** One version of a panel: the panel as split, or a コマ切り直し of it. */
+/** One version of a panel: the panel as split (or as added by hand), or a コマ切り直し of it. */
 export interface PanelVersion {
   image: FlowImage;
-  /** The コマ分割 run (the panel as split) or the コマ切り直し run. */
+  /** The コマ分割 run (the panel as split), the コマ追加 run (as added) or the コマ切り直し run. */
   run: FlowRun;
-  /** "分割時" or "切り直し <n>" (n counts the re-cuts, oldest first). */
+  /** "分割時" / "追加時" or "切り直し <n>" (n counts the re-cuts, oldest first). */
   label: string;
-  /** The box on the page of a re-cut (info.json settings.pixel_box); null for the panel as split (see panels.json). */
+  /**
+   * The box on the page (info.json settings.pixel_box of a re-cut or an added panel); null for the panel as split
+   * (see panels.json).
+   */
   box: PageBox | null;
 }
 
@@ -205,7 +241,8 @@ const isBox = (value: unknown): value is PageBox =>
   Array.isArray(value) && value.length === 4 && value.every(v => typeof v === 'number' && Number.isFinite(v));
 
 /**
- * The versions of `panel` (an output of a コマ分割), oldest first: the panel as split, then its コマ切り直し runs.
+ * The versions of `panel` (an output of a コマ分割 or a コマ追加), oldest first: the panel as split / added, then its
+ * コマ切り直し runs.
  * `stackId` is the stack of the re-cuts (null when there is none); its selection picks the shown version
  * (the コマ分割 folder for the panel as split).
  */
@@ -217,9 +254,15 @@ export function panelVersions(
   if (!split) return { versions: [], stackId: null };
   const stackId = (graph.children.get(panel.key) ?? []).find(id => graph.stacks.get(id)?.tool === RECROP_TOOL) ?? null;
   const recuts = (stackId && graph.stacks.get(stackId)?.runs.filter(r => r.outputs.length)) || [];
+  const added = split.tool === ADD_TOOL;
   return {
     versions: [
-      { image: panel, run: split, label: '分割時', box: null },
+      {
+        image: panel,
+        run: split,
+        label: added ? '追加時' : '分割時',
+        box: added && isBox(split.settings.pixel_box) ? split.settings.pixel_box : null,
+      },
       ...recuts.map((run, i) => ({
         image: run.outputs[0],
         run,
@@ -238,7 +281,7 @@ export function shownVersion(graph: FlowGraph, panel: FlowImage): PanelVersion |
   return versions.find(v => v.run.folder === picked) ?? versions[versions.length - 1] ?? null;
 }
 
-/** The panel version (a panel as split, or a コマ切り直し) that the image `key` is, or was made from; else null. */
+/** The panel version (a panel as split / added, or a コマ切り直し) that the image `key` is, or was made from; else null. */
 export function versionOf(graph: FlowGraph, key: string): string | null {
   const seen = new Set<string>();
   let current = key;
@@ -246,7 +289,7 @@ export function versionOf(graph: FlowGraph, key: string): string | null {
     seen.add(current);
     const run = graph.runOfImage.get(current);
     if (!run) return null;
-    if (run.tool === SPLIT_TOOL || run.tool === RECROP_TOOL) return current;
+    if (PANEL_TOOLS.has(run.tool)) return current;
     if (!run.source || !graph.images.has(run.source)) return null;
     current = run.source;
   }
@@ -255,7 +298,7 @@ export function versionOf(graph: FlowGraph, key: string): string | null {
 
 /**
  * The first image of the flow `key` was made from (docs/specs/flow-canvas.md 「原画との比較」): its inputs followed
- * back to a panel version (a panel as split or a コマ切り直し), a start image, or a result whose input is unknown.
+ * back to a panel version (a panel as split / added or a コマ切り直し), a start image, or a result whose input is unknown.
  * Null when `key` itself is such an image.
  */
 export function flowOrigin(graph: FlowGraph, key: string): FlowImage | null {
@@ -264,7 +307,7 @@ export function flowOrigin(graph: FlowGraph, key: string): FlowImage | null {
   while (!seen.has(current)) {
     seen.add(current);
     const run = graph.runOfImage.get(current);
-    if (!run || run.tool === SPLIT_TOOL || run.tool === RECROP_TOOL) break;
+    if (!run || PANEL_TOOLS.has(run.tool)) break;
     if (!run.source || !graph.images.has(run.source)) break;
     current = run.source;
   }
@@ -304,7 +347,7 @@ export function visibleFlow(graph: FlowGraph): VisibleFlow {
       const ids = graph.children.get(step.cells[i].key) ?? [];
       for (const id of ids) {
         const stack = graph.stacks.get(id);
-        if (!stack || steps.has(id) || absorbed.has(id) || !stack.runs.every(isOriginalRun)) continue;
+        if (!stack || steps.has(id) || absorbed.has(id) || !stack.runs.every(joinsRow)) continue;
         absorbed.add(id);
         for (const r of stack.runs) {
           step.cells.push(r.outputs[0]);
@@ -363,20 +406,26 @@ export function visibleFlow(graph: FlowGraph): VisibleFlow {
     const stack = splitId ? graph.stacks.get(splitId) : undefined;
     if (!splitId || !stack) return null;
     const run = shownRun(graph, stack);
-    const panels = run.outputs.map((cell, i) => {
+    const panels = panelOrder(graph, run).map((cell, i) => {
       // The row shows one version of the panel; the re-cuts are not steps of their own.
       const { stackId: recutId } = panelVersions(graph, cell);
       if (recutId) absorbed.add(recutId);
       const version = shownVersion(graph, cell);
+      // An added panel's row is its コマ追加 run (information, deletion); the others are the コマ分割's.
+      const own = graph.runOfImage.get(cell.key);
+      const added = own?.tool === ADD_TOOL;
+      const ownStack = added ? graph.stacks.get(graph.stackOfRun.get(own.folder) ?? '') : undefined;
       return fillRow(
         register({
           id: `${splitId}#${i + 1}`,
-          stack,
-          run,
+          stack: ownStack ?? stack,
+          run: added ? own : run,
           layout: 'column',
           panelIndex: i + 1,
           panel: cell,
-          versionLabel: version && version.image !== cell ? version.label : undefined,
+          added,
+          splitHead: cell === run.outputs[0],
+          page: root.key,
           cells: [version?.image ?? cell],
           cellRuns: [version?.run ?? run],
           cellChildren: [],
@@ -463,23 +512,30 @@ export function pageMerges(graph: FlowGraph, split: FlowRun): FlowImage[] {
     .map(r => r.outputs[0]);
 }
 
-/** Name of an image generated in a `row` box, and the image it was generated from (its 原画). */
+/** Name of a result in a `row` box, and the image it was made from (its 原画). */
 export interface RowLabel {
-  /** "生成 <n>": the n-th generated image of the box, left to right. */
+  /** "<tool> <n>" ("背景除去 1", "AI画像生成 2"): the n-th result of that tool in the box, left to right. */
   name: string;
-  /** "原画" (the box's first image) or the name of the generated image it was made from. */
+  /** "原画" (the box's first image) or the name of the result it was made from. */
   from: string;
 }
 
 /** Labels of the cells of a `row` box: null for the 原画 (first cell) and for other layouts. */
 export function rowLabels(step: FlowStep): (RowLabel | null)[] {
   if (step.layout !== 'row') return step.cells.map(() => null);
-  const nameOf = (i: number) => (i === 0 ? '原画' : `生成 ${i}`);
+  const counts = new Map<string, number>();
+  const names = step.cells.map((_cell, i) => {
+    if (i === 0) return '原画';
+    const tool = step.cellRuns[i]?.tool ?? '';
+    const n = (counts.get(tool) ?? 0) + 1;
+    counts.set(tool, n);
+    return `${tool} ${n}`;
+  });
   return step.cells.map((_cell, i) => {
     if (i === 0) return null;
     const source = step.cellRuns[i]?.source;
     const from = step.cells.findIndex(c => c.key === source);
-    return { name: nameOf(i), from: from >= 0 ? nameOf(from) : '原画' };
+    return { name: names[i], from: from >= 0 ? names[from] : '原画' };
   });
 }
 
@@ -502,7 +558,46 @@ export function compareTargets(graph: FlowGraph, step: FlowStep, index: number):
 
 /** The imported page a split page's panels came from (null for other steps). */
 export function hiddenPage(step: FlowStep): string | null {
-  return step.panelIndex && step.stack?.input ? step.stack.input : null;
+  return step.panelIndex ? (step.page ?? null) : null;
+}
+
+/** The panels added by hand to the コマ分割 run `split` (its コマ追加 runs with an image), oldest first. */
+export function addedPanels(graph: FlowGraph, split: FlowRun): FlowRun[] {
+  const id = (graph.children.get(split.folder) ?? []).find(i => graph.stacks.get(i)?.tool === ADD_TOOL);
+  return (id && graph.stacks.get(id)?.runs.filter(r => r.outputs.length)) || [];
+}
+
+/**
+ * The panels of the コマ分割 run `split` in the order of their rows (docs/specs/flow-canvas.md 「コマの追加」): the
+ * panels as split, with each added panel (oldest first) right after the panel it was added after (`settings.after`;
+ * null: at the top). When that panel is gone, before `settings.before`, else at the bottom. Panels deleted one by
+ * one (`removed`) are left out (they still place the panels added next to them).
+ */
+export function panelOrder(graph: FlowGraph, split: FlowRun): FlowImage[] {
+  const order = [...split.outputs];
+  for (const run of addedPanels(graph, split)) {
+    const { after, before } = run.settings;
+    const afterAt = typeof after === 'string' ? order.findIndex(p => p.key === after) : -1;
+    const beforeAt = typeof before === 'string' ? order.findIndex(p => p.key === before) : -1;
+    const at = typeof after !== 'string' ? 0 : afterAt >= 0 ? afterAt + 1 : beforeAt >= 0 ? beforeAt : order.length;
+    order.splice(at, 0, run.outputs[0]);
+  }
+  return order.filter(p => !graph.removed.has(p.key));
+}
+
+/**
+ * Where a panel added between the panels with the boxes `above` and `below` starts (docs/specs/flow-canvas.md
+ * 「コマの追加」): their average (position and size). With one of them only (the top / the bottom), the same size
+ * right above `below` / right below `above`, moved back onto the page (`pageHeight`). Null without either.
+ */
+export function newPanelBox(above: PageBox | null, below: PageBox | null, pageHeight: number): PageBox | null {
+  if (above && below) return above.map((v, i) => Math.round((v + below[i]) / 2)) as PageBox;
+  const next = above ?? below;
+  if (!next) return null;
+  const [xmin, ymin, xmax, ymax] = next;
+  const height = ymax - ymin;
+  const top = Math.max(0, Math.min(above ? ymax : ymin - height, pageHeight - height));
+  return [xmin, top, xmax, top + height];
 }
 
 /**
@@ -538,7 +633,7 @@ export function cascadeRuns(graph: FlowGraph, folders: readonly string[], imageK
 const usesAny = (run: FlowRun, keys: ReadonlySet<string>) =>
   (run.source !== null && keys.has(run.source)) || run.sources.some(s => keys.has(s));
 
-/** The panel (an output of a コマ分割) that the image `key` is, or was made from; null for other images. */
+/** The panel (an output of a コマ分割 or a コマ追加) that the image `key` is, or was made from; null for other images. */
 export function panelOf(graph: FlowGraph, key: string): string | null {
   const seen = new Set<string>();
   let current = key;
@@ -546,7 +641,7 @@ export function panelOf(graph: FlowGraph, key: string): string | null {
     seen.add(current);
     const run = graph.runOfImage.get(current);
     if (!run) return null;
-    if (run.tool === SPLIT_TOOL) return current;
+    if (run.tool === SPLIT_TOOL || run.tool === ADD_TOOL) return current;
     if (!run.source || !graph.images.has(run.source)) return null;
     current = run.source;
   }
@@ -554,7 +649,7 @@ export function panelOf(graph: FlowGraph, key: string): string | null {
 }
 
 /**
- * What コマ結合 pastes for `panel` (docs/specs/tools/panel-split-merge.md): the image marked for it with 「結合」
+ * What コマ結合 pastes for `panel` (docs/specs/tools/panel-split-merge.md): the image marked for it with 「最終」
  * (`marked`; it must still exist and be made from the shown version of the panel), else the shown version itself
  * (the 原画: the panel as split, or its re-cut).
  */
@@ -565,10 +660,18 @@ export function mergeChoice(graph: FlowGraph, panel: FlowImage): { key: string; 
   return valid ? { key: marked, marked: true } : { key: shown, marked: false };
 }
 
+/**
+ * The 「最終」 image of each panel row (top to bottom): what コマ結合 pastes for it (`mergeChoice`). The Workspace's
+ * 書き出し exports them when nothing is selected (docs/specs/flow-canvas.md 「画像の書き出し」).
+ */
+export function finalImages(graph: FlowGraph, panelRows: readonly FlowStep[]): string[] {
+  return panelRows.flatMap(step => (step.panel ? [mergeChoice(graph, step.panel).key] : []));
+}
+
 /** Panels of a コマ分割 run to replace when merging (`mergeChoice` is not the panel). Panel file name -> image key. */
 export function mergeOverrides(graph: FlowGraph, splitRun: FlowRun): Record<string, string> {
   const overrides: Record<string, string> = {};
-  for (const panel of splitRun.outputs) {
+  for (const panel of keptPanels(graph, splitRun)) {
     const choice = mergeChoice(graph, panel);
     if (choice.key !== panel.key) overrides[panel.name] = choice.key;
   }
@@ -578,11 +681,32 @@ export function mergeOverrides(graph: FlowGraph, splitRun: FlowRun): Record<stri
 /** Boxes of the panels of a コマ分割 run whose shown version is a re-cut (panel file name -> box on the page). */
 export function mergeBoxes(graph: FlowGraph, splitRun: FlowRun): Record<string, PageBox> {
   const boxes: Record<string, PageBox> = {};
-  for (const panel of splitRun.outputs) {
+  for (const panel of keptPanels(graph, splitRun)) {
     const box = shownVersion(graph, panel)?.box;
     if (box) boxes[panel.name] = box;
   }
   return boxes;
+}
+
+/** The panels of a コマ分割 run (as split) not deleted one by one. */
+export const keptPanels = (graph: FlowGraph, splitRun: FlowRun): FlowImage[] =>
+  splitRun.outputs.filter(p => !graph.removed.has(p.key));
+
+/** File names of the panels of a コマ分割 run deleted one by one: コマ結合 leaves them out. */
+export function mergeRemoved(graph: FlowGraph, splitRun: FlowRun): string[] {
+  return splitRun.outputs.filter(p => graph.removed.has(p.key)).map(p => p.name);
+}
+
+/**
+ * The panels added by hand to the コマ分割 run `splitRun` to paste when merging: what is pasted for each (`mergeChoice`)
+ * and the box of its shown version on the page.
+ */
+export function mergeExtras(graph: FlowGraph, splitRun: FlowRun): { key: string; box: PageBox }[] {
+  return addedPanels(graph, splitRun).flatMap(run => {
+    const panel = run.outputs[0];
+    const box = shownVersion(graph, panel)?.box;
+    return box ? [{ key: mergeChoice(graph, panel).key, box }] : [];
+  });
 }
 
 /** The nearest run of `tool` upstream of `key` (the image itself counts when that run made it). */
@@ -608,17 +732,32 @@ export interface DeletionPlan {
   runs: string[];
   /** How many of `runs` were not selected themselves (downstream results). */
   downstream: number;
+  /**
+   * Panels of a コマ分割 deleted one by one (marked, the コマ分割 stays): a panel as split selected, unless no other
+   * panel row of its コマ分割 (added panels too) would be left (then the whole コマ分割 goes and the page comes back).
+   */
+  panels: string[];
 }
 
-/** Deleting a selected output removes its whole run (all its outputs) and what was made from them. */
+/**
+ * Deleting a selected output removes its whole run (all its outputs) and what was made from them; a panel as split
+ * is deleted alone (`panels`), with what was made from it.
+ */
 export function planDeletion(graph: FlowGraph, keys: readonly string[]): DeletionPlan {
   const roots = graph.roots.filter(r => keys.includes(r.key));
-  const selectedRuns = [...new Set(keys.map(k => graph.runOfImage.get(k)?.folder).filter((f): f is string => !!f))];
-  const runs = cascadeRuns(
-    graph,
-    selectedRuns,
-    roots.map(r => r.key),
-  );
+  const panels: string[] = [];
+  const runKeys: string[] = [];
+  for (const key of keys) {
+    const run = graph.runOfImage.get(key);
+    const alone =
+      run?.tool === SPLIT_TOOL &&
+      !graph.removed.has(key) &&
+      panelOrder(graph, run).some(p => p.key !== key && !keys.includes(p.key));
+    if (alone) panels.push(key);
+    else runKeys.push(key);
+  }
+  const selectedRuns = [...new Set(runKeys.map(k => graph.runOfImage.get(k)?.folder).filter((f): f is string => !!f))];
+  const runs = cascadeRuns(graph, selectedRuns, [...roots.map(r => r.key), ...panels]);
   const whole = roots.length === graph.roots.length && runs.length === graph.runs.size;
-  return { whole, roots, runs, downstream: runs.length - selectedRuns.length };
+  return { whole, roots, runs, downstream: runs.length - selectedRuns.length, panels };
 }

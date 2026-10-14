@@ -6,6 +6,8 @@ A panel can be replaced by another image (e.g. its colored version, docs/specs/t
 ``overrides`` maps the panel's file name to an archive key, and that image is resized to the panel's size.
 A panel cut again from the page (コマ切り直し) has its own box: ``boxes`` maps the panel's file name to that
 ``[xmin, ymin, xmax, ymax]``, and the image is pasted there at that size instead.
+Panels added by hand (コマ追加) are not in panels.json: ``extras`` lists the image pasted for each and its box.
+Panels deleted one by one in the Workspace are left out: ``removed`` lists their file names.
 """
 
 import io
@@ -71,6 +73,39 @@ def parse_boxes(text: str | None) -> dict[str, list[float]]:
     return data
 
 
+def parse_extras(text: str | None) -> list[dict[str, Any]]:
+    """The ``extras`` form field of /merge-panels (JSON list: ``{"key": archive key, "box": [xmin, ymin, xmax, ymax]}``)."""
+    if not text:
+        return []
+    try:
+        data = json.loads(text)
+    except ValueError as e:
+        raise MergeServiceError("追加したコマの指定を JSON として読めません。", raw_response=exception_text(e)) from e
+    valid = isinstance(data, list) and all(
+        isinstance(item, dict)
+        and isinstance(item.get("key"), str)
+        and isinstance(item.get("box"), list)
+        and len(item["box"]) == 4
+        for item in data
+    )
+    if not valid:
+        raise MergeServiceError("追加したコマの指定が正しくありません。", raw_response=text)
+    return [{"key": item["key"], "box": item["box"]} for item in data]
+
+
+def parse_removed(text: str | None) -> list[str]:
+    """The ``removed`` form field of /merge-panels (JSON list of panel file names)."""
+    if not text:
+        return []
+    try:
+        data = json.loads(text)
+    except ValueError as e:
+        raise MergeServiceError("削除したコマの指定を JSON として読めません。", raw_response=exception_text(e)) from e
+    if not isinstance(data, list) or not all(isinstance(name, str) for name in data):
+        raise MergeServiceError("削除したコマの指定が正しくありません。", raw_response=text)
+    return data
+
+
 def _open_image(archive: str, path: str, label: str) -> Image.Image:
     try:
         img_bytes, _ = extract_file(archive, path)
@@ -89,6 +124,8 @@ def _compose(
     panels_data: dict[str, Any],
     overrides: dict[str, str],
     boxes: dict[str, list[float]],
+    extras: list[dict[str, Any]],
+    removed: list[str],
 ) -> tuple[bytes, list[str]]:
     """The merged PNG and the key of every image pasted (in panel order)."""
     width = panels_data.get("image_size", {}).get("width")
@@ -104,7 +141,7 @@ def _compose(
     pieces: list[tuple[Image.Image, int, int]] = []
     for panel in panels:
         filename = panel.get("filename")
-        if not filename:
+        if not filename or filename in removed:
             continue
         panel_path = f"{folder_path}/{filename}" if folder_path else filename
         panel_img = _open_image(root, panel_path, filename)
@@ -130,6 +167,21 @@ def _compose(
         used.append(used_key)
         pieces.append((panel_img, int(x), int(y)))
 
+    # Panels added by hand: pasted at their box, at its size.
+    for extra in extras:
+        key = normalize_rel_path(extra["key"])
+        box = clamp_pixel_box(extra["box"], width, height)
+        if box is None:
+            raise MergeServiceError(f"追加したコマ ({key}) の範囲が結合後の画像の外か、大きさが 0 です。")
+        panel_img = _open_image(*split_archive_path(key), key)
+        size = (box[2] - box[0], box[3] - box[1])
+        if panel_img.size != size:
+            panel_img = panel_img.resize(size, Image.Resampling.LANCZOS)
+        used.append(key)
+        pieces.append((panel_img, box[0], box[1]))
+
+    if not pieces:
+        raise MergeServiceError("貼るコマがありません（すべてのコマが削除されています）。")
     # Larger panels first, so inset / overlapping smaller panels end up on top (stable for equal sizes).
     for panel_img, x, y in sorted(pieces, key=lambda p: p[0].width * p[0].height, reverse=True):
         canvas.paste(panel_img, (x, y), panel_img)
@@ -139,18 +191,29 @@ def _compose(
     return buf.getvalue(), used
 
 
-def _settings(overrides: dict[str, str], boxes: dict[str, list[float]]) -> dict[str, Any]:
-    """info.json settings: the replaced panels and the boxes of the panels cut again (each only when any)."""
+def _settings(
+    overrides: dict[str, str], boxes: dict[str, list[float]], extras: list[dict[str, Any]], removed: list[str]
+) -> dict[str, Any]:
+    """info.json settings: the replaced panels, the boxes of the panels cut again, the panels added by hand and the
+    panels left out (each only when any)."""
     settings: dict[str, Any] = {}
     if overrides:
         settings["panels"] = overrides
     if boxes:
         settings["boxes"] = boxes
+    if extras:
+        settings["extras"] = extras
+    if removed:
+        settings["removed"] = removed
     return settings
 
 
 def merge_panels(
-    target_folder: str, overrides: dict[str, str] | None = None, boxes: dict[str, list[float]] | None = None
+    target_folder: str,
+    overrides: dict[str, str] | None = None,
+    boxes: dict[str, list[float]] | None = None,
+    extras: list[dict[str, Any]] | None = None,
+    removed: list[str] | None = None,
 ) -> dict[str, Any]:
     target = normalize_rel_path(target_folder)
     if not target:
@@ -163,7 +226,9 @@ def merge_panels(
     panels_data = _load_panels_json(root, folder_path, target)
     overrides = overrides or {}
     boxes = boxes or {}
-    merged, used = _compose(root, folder_path, panels_data, overrides, boxes)
+    extras = extras or []
+    removed = removed or []
+    merged, used = _compose(root, folder_path, panels_data, overrides, boxes, extras, removed)
 
     now = datetime.now()
     name = f"{now:%Y%m%d_%H%M%S}_{TOOL_NAME}"
@@ -172,7 +237,12 @@ def merge_panels(
         root,
         name,
         [(out_filename, merged)],
-        {"tool": TOOL_NAME, "source": target, "sources": used, "settings": _settings(overrides, boxes)},
+        {
+            "tool": TOOL_NAME,
+            "source": target,
+            "sources": used,
+            "settings": _settings(overrides, boxes, extras, removed),
+        },
         now,
     )
 

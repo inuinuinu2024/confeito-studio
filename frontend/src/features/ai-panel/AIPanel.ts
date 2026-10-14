@@ -10,79 +10,24 @@
 import './ai-panel.css';
 import type { Tool } from '../../shared/types/tool';
 import { on } from '../../shared/events';
-import { h, icon } from '../../shared/ui/dom';
-import { loadSettings } from '../../shared/state/tool-settings';
+import { h } from '../../shared/ui/dom';
 import { createResizer } from '../../shared/ui/resizer';
 import { TOOLS } from '../tools';
 import { enableDragSort } from '../../shared/ui/drag-sort';
-import { createToolWindow } from './components/ToolWindow';
-import { runTool, stopTool, warnIfToolRunning } from './tool-runner';
+import { createToolButton } from './components/ToolButton';
+import { openTool, playTool } from './tool-launch';
 import { loadToolOrder, saveToolOrder, sortByOrder } from './tool-order';
 
 export function createAIPanel(): HTMLElement {
-  const toolWindow = createToolWindow();
-
-  const openTool = async (tool: Tool, button: HTMLElement) => {
-    const renderSettings = tool.renderSettings?.bind(tool);
-    if (!renderSettings) {
-      await runTool(tool);
-      return;
-    }
-    if (warnIfToolRunning(tool.name)) return;
-    await loadSettings();
-    await tool.beforeOpen?.();
-    toolWindow.open({
-      title: tool.name,
-      icon: tool.icon,
-      render: renderSettings,
-      columns: tool.windowColumns,
-      // Closes once the tool has checked its inputs; stays open when one is missing.
-      onExecute: close => runTool(tool, close),
-      executeIcon: tool.executeIcon,
-      returnFocus: button,
-    });
-  };
-
-  /** ▶: runs with the saved settings, preparing the tool as if its window opened. */
-  const play = async (tool: Tool) => {
-    if (warnIfToolRunning(tool.name)) return;
-    await loadSettings();
-    await tool.beforeOpen?.();
-    await runTool(tool);
-  };
-
   const toolRow = (tool: Tool) => {
-    const runButton = h(
-      'button',
-      { class: 'ai-tool-btn' },
-      tool.icon ? icon(tool.icon, 16) : h('span', { style: { width: '16px', display: 'inline-block' } }),
-      h('span', { class: 'ai-tool-name', text: tool.name }),
-    );
-    runButton.addEventListener('click', () => {
-      runButton.style.transform = 'scale(0.97)';
-      setTimeout(() => (runButton.style.transform = ''), 120);
-      void openTool(tool, runButton);
+    const button = createToolButton(tool, {
+      open: el => void openTool(tool, el),
+      play: () => void playTool(tool),
     });
-    const playButton = h('button', { class: 'ai-tool-play' });
-    const showPlay = (running: boolean) => {
-      playButton.replaceChildren(icon(running ? 'pause' : 'play_arrow', 18));
-      playButton.title = running ? '実行を停止' : '設定済みの内容で実行';
-      row.classList.toggle('ai-tool-row--running', running);
-    };
-    playButton.addEventListener('click', () => {
-      if (row.classList.contains('ai-tool-row--running')) stopTool();
-      else void play(tool);
-    });
-    const row = h(
-      'div',
-      { class: 'ai-tool-row', draggable: true, dataset: { toolName: tool.name } },
-      runButton,
-      playButton,
-    );
-    on('tool:start', ({ toolName }) => showPlay(toolName === tool.name));
-    on('tool:end', () => showPlay(false));
-    showPlay(false);
-    return row;
+    button.el.draggable = true;
+    on('tool:start', ({ toolName }) => button.setRunning(toolName === tool.name));
+    on('tool:end', () => button.setRunning(false));
+    return button.el;
   };
 
   const list = h('div', { class: 'ai-panel__list' });

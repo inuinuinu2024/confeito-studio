@@ -7,6 +7,11 @@ Output (see docs/specs/tools/panel-split-merge.md): ``01.png, 02.png, ..., panel
 A panel can be cut again from the page with a box chosen by hand (コマ切り直し, ``recrop_panel``): a result
 ``<archive>/<YYYYMMDD_HHMMSS>_コマ切り直し/<panel file name>`` whose source is the panel, so every re-cut of a
 panel is one more version of it (docs/specs/flow-canvas.md 「コマの切り直し」).
+
+A panel the detection missed can be added by hand (コマ追加, ``add_panel``): a result
+``<archive>/<YYYYMMDD_HHMMSS>_コマ追加/panel.png`` whose source is the コマ分割 folder; ``settings.after`` /
+``settings.before`` are the panels it was put between (docs/specs/flow-canvas.md 「コマの追加」). panels.json is
+never rewritten.
 """
 
 import base64
@@ -33,6 +38,8 @@ from .archive_service import (
 
 TOOL_NAME = "コマ分割"
 RECROP_TOOL_NAME = "コマ切り直し"
+ADD_TOOL_NAME = "コマ追加"
+ADDED_PANEL_FILE = "panel.png"
 
 
 class PanelServiceError(BadRequestError):
@@ -194,28 +201,11 @@ def _read_json(archive: str, path: str) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-def recrop_panel(panel_key: str, box: list[float]) -> dict[str, Any]:
-    """Cuts panel ``panel_key`` (an output of a コマ分割) again from the split page with ``box``
-    (``[xmin, ymin, xmax, ymax]`` in page pixels) and saves it as a コマ切り直し result of the panel."""
-    key = normalize_rel_path(panel_key or "")
-    archive, path = split_archive_path(key)
-    folder_path, _, filename = path.rpartition("/")
-    if not archive or not filename:
-        raise PanelServiceError("切り出し直すコマが指定されていません。")
-    prefix = f"{folder_path}/" if folder_path else ""
-    split_folder = f"{archive}/{folder_path}" if folder_path else archive
-
-    info = _read_json(archive, f"{prefix}{RESULT_INFO_FILE}")
-    if not info or info.get("tool") != TOOL_NAME:
-        raise PanelServiceError(f"「{filename}」はコマ分割の結果のコマではありません。")
-    panels_meta = _read_json(archive, f"{prefix}panels.json") or {}
-    panels = panels_meta.get("panels") if isinstance(panels_meta.get("panels"), list) else []
-    if not any(isinstance(p, dict) and p.get("filename") == filename for p in panels):
-        raise PanelServiceError(f"コマ分割の panels.json に「{filename}」がありません。")
-    page_key = info.get("source")
+def _split_page(split_info: dict[str, Any], action: str) -> Image.Image:
+    """The page a コマ分割 split (its info.json ``source``), loaded. ``action``: what needs it (for the message)."""
+    page_key = split_info.get("source")
     if not isinstance(page_key, str) or not page_key:
-        raise PanelServiceError("分割前のページが記録されていないため、切り出し直せません。")
-
+        raise PanelServiceError(f"分割前のページが記録されていないため、{action}。")
     try:
         content, _ = extract_file(*split_archive_path(page_key))
         page = Image.open(io.BytesIO(content))
@@ -224,10 +214,61 @@ def recrop_panel(panel_key: str, box: list[float]) -> dict[str, Any]:
         raise PanelServiceError(f"分割前のページ（{page_key}）が見つかりません。", raw_response=e.message) from e
     except Exception as e:
         raise PanelServiceError("分割前のページを読み込めませんでした。", raw_response=exception_text(e)) from e
+    return page
 
+
+def _crop_box(page: Image.Image, box: list[float]) -> tuple[int, int, int, int]:
     pixel_box = geo.clamp_pixel_box(box, *page.size)
     if pixel_box is None:
         raise PanelServiceError("切り出す範囲がページの外か、大きさが 0 です。", raw_response=json.dumps(box))
+    return pixel_box
+
+
+def _cut_result(folder: str, filename: str, pixel_box: tuple[int, int, int, int]) -> dict[str, Any]:
+    xmin, ymin, xmax, ymax = pixel_box
+    return {
+        "status": "success",
+        "folder": folder,
+        "key": f"{folder}/{filename}",
+        "pixel_box": list(pixel_box),
+        "width": xmax - xmin,
+        "height": ymax - ymin,
+    }
+
+
+def _info_of_folder(folder: str) -> dict[str, Any] | None:
+    archive, path = split_archive_path(folder)
+    return _read_json(archive, f"{path}/{RESULT_INFO_FILE}" if path else RESULT_INFO_FILE)
+
+
+def recrop_panel(panel_key: str, box: list[float]) -> dict[str, Any]:
+    """Cuts panel ``panel_key`` (an output of a コマ分割, or a panel added by hand) again from the split page with
+    ``box`` (``[xmin, ymin, xmax, ymax]`` in page pixels) and saves it as a コマ切り直し result of the panel."""
+    key = normalize_rel_path(panel_key or "")
+    archive, path = split_archive_path(key)
+    folder_path, _, filename = path.rpartition("/")
+    if not archive or not filename:
+        raise PanelServiceError("切り出し直すコマが指定されていません。")
+    prefix = f"{folder_path}/" if folder_path else ""
+
+    info = _read_json(archive, f"{prefix}{RESULT_INFO_FILE}") or {}
+    if info.get("tool") == TOOL_NAME:
+        split_folder = f"{archive}/{folder_path}" if folder_path else archive
+        split_info = info
+        panels_meta = _read_json(archive, f"{prefix}panels.json") or {}
+        panels = panels_meta.get("panels") if isinstance(panels_meta.get("panels"), list) else []
+        if not any(isinstance(p, dict) and p.get("filename") == filename for p in panels):
+            raise PanelServiceError(f"コマ分割の panels.json に「{filename}」がありません。")
+    elif info.get("tool") == ADD_TOOL_NAME and isinstance(info.get("source"), str):
+        # A panel added by hand: cut from the page of the コマ分割 it was added to.
+        split_folder = normalize_rel_path(info["source"])
+        split_info = _info_of_folder(split_folder) or {}
+        if split_info.get("tool") != TOOL_NAME:
+            raise PanelServiceError(f"追加したコマのコマ分割（{split_folder}）が見つかりません。")
+    else:
+        raise PanelServiceError(f"「{filename}」はコマ分割の結果のコマではありません。")
+    page = _split_page(split_info, "切り出し直せません")
+    pixel_box = _crop_box(page, box)
 
     now = datetime.now()
     folder = save_result(
@@ -241,12 +282,39 @@ def recrop_panel(panel_key: str, box: list[float]) -> dict[str, Any]:
         },
         now,
     )
-    xmin, ymin, xmax, ymax = pixel_box
-    return {
-        "status": "success",
-        "folder": folder,
-        "key": f"{folder}/{filename}",
-        "pixel_box": list(pixel_box),
-        "width": xmax - xmin,
-        "height": ymax - ymin,
-    }
+    return _cut_result(folder, filename, pixel_box)
+
+
+def add_panel(
+    split_folder: str, box: list[float], after: str | None = None, before: str | None = None
+) -> dict[str, Any]:
+    """Cuts a new panel of the コマ分割 ``split_folder`` from its page with ``box`` and saves it as a コマ追加 result.
+    ``after`` / ``before``: keys of the panels it goes between (None at the top / the bottom)."""
+    split = normalize_rel_path(split_folder or "")
+    archive, _ = split_archive_path(split)
+    if not archive:
+        raise PanelServiceError("コマを追加するコマ分割が指定されていません。")
+    info = _info_of_folder(split)
+    if not info or info.get("tool") != TOOL_NAME:
+        raise PanelServiceError(f"「{split}」はコマ分割の結果ではありません。")
+    page = _split_page(info, "コマを追加できません")
+    pixel_box = _crop_box(page, box)
+
+    now = datetime.now()
+    folder = save_result(
+        archive,
+        f"{now:%Y%m%d_%H%M%S}_{ADD_TOOL_NAME}",
+        [(ADDED_PANEL_FILE, geo.to_png_bytes(page.crop(pixel_box)))],
+        {
+            "tool": ADD_TOOL_NAME,
+            "source": split,
+            "settings": {
+                "split": split,
+                "pixel_box": list(pixel_box),
+                "after": normalize_rel_path(after) if after else None,
+                "before": normalize_rel_path(before) if before else None,
+            },
+        },
+        now,
+    )
+    return _cut_result(folder, ADDED_PANEL_FILE, pixel_box)

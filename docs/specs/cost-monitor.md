@@ -26,7 +26,8 @@ Gemini API の利用料を知るためのダッシュボード。左端の列の
    - **日ごとの利用料**: 期間の毎日（使わなかった日も 0 で並ぶ）をツール別の積み上げ棒で、縦軸は円。2 ツール以上なら凡例（1 ツールなら見出しにツール名）。
      日付の目盛りは期間によらず 8 個程度（最後は「今日」）。列にマウスを乗せる（キーボードでフォーカスする）と、その日の合計（円・回数・USD）とツール別の額を出す。
      **列をクリック（Enter / Space）するとその日を選び**、下の「選んだ日の内訳」に出す。選んだ日の列は枠と背景で示す。
-     色は固定の順（Nano Banana画像生成 → コマ分割 → ほかのツール）。色付きは 3 系列までで、それを超えるツールは「その他」にまとめる。
+     色は固定の順（AI画像生成 → コマ分割 → ほかのツール）。色付きは 3 系列までで、それを超えるツールは「その他」にまとめる。
+     旧名「Nano Banana画像生成」の記録は「AI画像生成」として集計・表示する（記録（`data/usage.db`）は書き換えない。`usage_store.LEGACY_TOOL_NAMES`）。
    - **ツール別の合計**（期間）: ツールごとの横棒（長さ = 最も多いツールに対する額）に、額・回数・期間の合計に占める割合・1 回あたりの平均を添える。
      下に「全体」の額・回数・1 回あたりの平均。
    - **モデル別**（期間）: 回数・入力 / 出力 / 思考トークン・画像枚数・利用料・1 回あたりの平均（額の多い順）。モデルは画像モデルなら通称（Nano Banana Pro など）。
@@ -52,7 +53,7 @@ Gemini API の利用料を知るためのダッシュボード。左端の列の
 
 ## 記録（`backend/src/app/services/usage_service.py`）
 - **記録するもの**: このアプリからの Gemini 呼び出しのうち、Gemini が HTTP 200 を返したもの（= 課金されるもの）。
-  - Nano Banana画像生成（Interactions / generateContent）とコマ分割。画像がない応答（安全フィルタ等）も入力分は課金されるので「結果なし」（`no_output`）で記録する。
+  - AI画像生成（Interactions / generateContent）とコマ分割。画像がない応答（安全フィルタ等）も入力分は課金されるので「結果なし」（`no_output`）で記録する。
   - HTTP エラー（4xx / 5xx）・通信エラーは記録しない。
 - **トークン数**: 応答の generateContent `usageMetadata`（prompt / toolUsePrompt / candidates（画像はモダリティ別）/ thoughts / cachedContent、
   `groundingMetadata` の検索クエリ数）、Interactions `usage`（total_input / tool_use / output（画像は `output_tokens_by_modality`）/ thought / cached、
@@ -64,7 +65,7 @@ Gemini API の利用料を知るためのダッシュボード。左端の列の
   読み書きは `services/usage_store.py` だけが行う（Web 版ではここをサーバーの DB に差し替える）。
   1 件の項目（API の `records` と同じ形。DB では `usage` の中身を列に展開し、検索用に `at_ms`（UTC のミリ秒）を持つ）:
   ```json
-  {"id": "<自動>", "at": "2026-10-04T14:32:00+09:00", "user": "local", "tool": "Nano Banana画像生成", "model": "gemini-3-pro-image",
+  {"id": "<自動>", "at": "2026-10-04T14:32:00+09:00", "user": "local", "tool": "AI画像生成", "model": "gemini-3-pro-image",
    "api": "interactions", "service_tier": "standard", "status": "success",
    "usage": {"input_tokens": 500, "cached_tokens": 0, "output_text_tokens": 0, "output_image_tokens": 1120, "thought_tokens": 200, "search_queries": 0, "images": 1},
    "cost_usd": 0.1378, "estimated": false, "prices_checked_on": "2026-10-04"}

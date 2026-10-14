@@ -2,9 +2,11 @@
  * コマ結合 — pastes the panels of a コマ分割 result back into one image, saved by the backend as a tool
  * result "<archive>/<stamp>_コマ結合/" (services/merge_service.py).
  * It runs once per コマ分割 run that a selected image comes from (a panel, or an image made from one).
- * Each panel is replaced by the image marked for it on the canvas (「結合」 on a generated image), else pasted as
+ * Each panel is replaced by the image marked for it on the canvas (「最終」 on a generated image), else pasted as
  * shown in its row (flow-graph.ts `mergeChoice`); a panel shown as cut again (コマ切り直し) is pasted at its own box
- * (`mergeBoxes`). The tool window lists what will be merged and where the result goes.
+ * (`mergeBoxes`); a panel added by hand (コマ追加) is pasted at its box too (`mergeExtras`), a panel deleted one by one
+ * is left out (`mergeRemoved`). The tool window lists
+ * what will be merged and where the result goes.
  * Spec: docs/specs/tools/panel-split-merge.md
  */
 import { fetchArchiveKey } from '../../shared/api/archives';
@@ -15,11 +17,15 @@ import { type RunTarget, type Tool, type ToolContext, ToolNotReady } from '../..
 import { h } from '../../shared/ui/dom';
 import { DocumentManager } from '../document/DocumentManager';
 import {
+  addedPanels,
   buildGraph,
   type FlowGraph,
+  keptPanels,
   mergeBoxes,
   mergeChoice,
+  mergeExtras,
   mergeOverrides,
+  mergeRemoved,
   shownVersion,
   SPLIT_TOOL,
   upstreamRun,
@@ -81,8 +87,8 @@ export class PanelMergeTool implements Tool {
     const runs = splitRunsOf(graph, DocumentManager.getInstance().getSelection());
     if (!graph || !runs.length) return missingTargetCard('結合するコマ分割の結果', SELECT_PANEL);
     const lines = runs.flatMap(run => {
-      // Each panel with an image marked 「結合」 or shown as cut again, and what is pasted for it.
-      const replaced = run.outputs.flatMap(panel => {
+      // Each panel with an image marked 「最終」 or shown as cut again, and what is pasted for it.
+      const replaced = keptPanels(graph, run).flatMap(panel => {
         const choice = mergeChoice(graph, panel);
         if (choice.key === panel.key) return [];
         const version = shownVersion(graph, panel);
@@ -96,13 +102,19 @@ export class PanelMergeTool implements Tool {
         panels.textContent = text;
         if (!ok) panels.className = 'cs-card__warning';
       });
+      const added = addedPanels(graph, run).length;
+      const removed = mergeRemoved(graph, run);
       return [
         h('div', { class: 'cs-card__line', text: `対象: ${run.folder.split('/').pop()}` }),
         panels,
+        added ? h('div', { class: 'cs-card__line', text: `追加したコマ: ${added} 件（追加した範囲に貼る）` }) : null,
+        removed.length
+          ? h('div', { class: 'cs-card__line', text: `削除したコマ: ${removed.join(', ')}（貼らない）` })
+          : null,
         h('div', {
           class: 'cs-card__line',
           text: replaced.length
-            ? `差し替えるコマ（「結合」の画像・切り直したコマ）: ${replaced.join(', ')}`
+            ? `差し替えるコマ（「最終」の画像・切り直したコマ）: ${replaced.join(', ')}`
             : '差し替えるコマ: なし（分割したままのコマを貼る）',
         }),
       ];
@@ -123,7 +135,13 @@ export class PanelMergeTool implements Tool {
     if (!folder || !graph || !run) throw new ToolNotReady(SELECT_PANEL);
     context.ready();
 
-    const result = await mergePanels(folder, mergeOverrides(graph, run), mergeBoxes(graph, run));
+    const result = await mergePanels(
+      folder,
+      mergeOverrides(graph, run),
+      mergeBoxes(graph, run),
+      mergeExtras(graph, run),
+      mergeRemoved(graph, run),
+    );
     // The backend saves the image itself, so a stopped run removes it afterwards.
     await discardIfStopped(context.signal, result.folder);
     emit('archives:changed', { select: [result.auto_select_key] });

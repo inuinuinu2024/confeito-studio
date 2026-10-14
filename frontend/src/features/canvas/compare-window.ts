@@ -9,7 +9,7 @@
 import { on } from '../../shared/events';
 import { loadBgColor } from '../../shared/state/canvas-background';
 import type { FlowImage } from '../../shared/types/flow';
-import { h, icon } from '../../shared/ui/dom';
+import { h } from '../../shared/ui/dom';
 import { select } from '../../shared/ui/form';
 import { openWindow } from '../../shared/ui/window';
 import { type CompareMode, createComparisonView } from './comparison-view';
@@ -27,8 +27,6 @@ export interface CompareWindowOptions {
   targets: readonly CompareTarget[];
   /** The generated image (R / T). */
   processed: FlowImage;
-  /** The download button in the header calls it (saving the image is the caller's job). */
-  onDownload: () => void;
 }
 
 const MODES: { mode: CompareMode; label: string }[] = [
@@ -90,11 +88,6 @@ export function openCompareWindow(opts: CompareWindowOptions): void {
         'div',
         { class: 'compare-window__modes', attrs: { role: 'group', 'aria-label': '比較の表示' } },
         ...modeButtons,
-      ),
-      h(
-        'button',
-        { class: 'compare-window__tool', title: 'この画像を書き出す（ダウンロード）', onclick: opts.onDownload },
-        icon('download', 18),
       ),
     ],
     onClose: () => {

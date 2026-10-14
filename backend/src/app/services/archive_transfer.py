@@ -138,9 +138,22 @@ def _numbered(name: str, taken: set[str]) -> str:
     return candidate
 
 
-def export_images(keys: list[str], dest: Path, now: datetime | None = None) -> str:
-    """Writes the images ``keys`` side by side (no folders) as a zip to ``dest``; returns the download name."""
-    keys = list(dict.fromkeys(keys))
+def export_images(
+    keys: list[str],
+    dest: Path,
+    now: datetime | None = None,
+    names: list[str] | None = None,
+    zip_name: str | None = None,
+) -> str:
+    """Writes the images ``keys`` side by side (no folders) as a zip to ``dest``; returns the download name.
+
+    ``names``: the file name of each image in the zip (same order as ``keys``; an empty one keeps the usual name);
+    ``zip_name``: the zip's name. Both made usable as file names; a name used twice gets "_2" ....
+    """
+    if names is not None and len(names) != len(keys):
+        raise svc.ArchiveValidationError("画像と名前の数が一致しません。")
+    chosen = dict(zip(keys, names or [""] * len(keys), strict=True))
+    keys = list(chosen)
     if not keys:
         raise svc.ArchiveValidationError("書き出す画像が選ばれていません。")
     sources: list[tuple[Path, str]] = []
@@ -150,7 +163,8 @@ def export_images(keys: list[str], dest: Path, now: datetime | None = None) -> s
         path = svc.resolve_path(archive, rel) if rel else None
         if path is None or not path.is_file():
             raise svc.ArchiveNotFoundError(f"画像「{key}」が見つかりません。")
-        name = _numbered(image_file_name(key), taken)
+        given = chosen[key].strip()
+        name = _numbered(safe_file_name(given) if given else image_file_name(key), taken)
         taken.add(name)
         sources.append((path, name))
     try:
@@ -159,6 +173,9 @@ def export_images(keys: list[str], dest: Path, now: datetime | None = None) -> s
                 zf.write(path, name, compress_type=zipfile.ZIP_STORED)
     except OSError as e:
         raise svc.ArchiveServiceError("画像を書き出せませんでした。", raw_response=exception_text(e)) from e
+    if zip_name and zip_name.strip():
+        name = safe_file_name(zip_name.strip())
+        return name if name.lower().endswith(".zip") else f"{name}.zip"
     return f"confeito-images-{_stamp(now)}.zip"
 
 
@@ -308,7 +325,7 @@ def _rewrite_keys(archive_dir: Path, old: str, new: str) -> None:
         _rewrite_json(info, ("source", "sources", "settings"), old, new)
     flow = archive_dir / svc.FLOW_FILE
     if flow.is_file():
-        _rewrite_json(flow, ("selection", "merge"), old, new)
+        _rewrite_json(flow, ("selection", "merge", "removed"), old, new)
 
 
 def _free_id(source_id: str) -> str:

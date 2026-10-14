@@ -1,7 +1,7 @@
 # Character Manager と登録キャラクター
 
 ユーザーが登録したキャラクターを、全ツールで共有する 1 つの一覧として管理する。
-管理は Character Manager（左端の表示モード）で行い、ツール（今は Nano Banana画像生成）からは呼び出し（使う）だけを行う
+管理は Character Manager（左端の表示モード）で行い、ツール（今は AI画像生成）からは呼び出し（使う）だけを行う
 （ツール側の操作は [tools/gemini-image.md](./tools/gemini-image.md)「登録したキャラクター」）。
 画面と操作の多くは [prompt-manager.md](./prompt-manager.md) と同じ。この文書では違う点を中心に書く。
 

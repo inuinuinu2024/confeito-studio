@@ -97,6 +97,60 @@ export function choiceDialog<T extends string>(opts: {
   });
 }
 
+/**
+ * A text entered in a modal (its label above the field; Enter submits). `submit` checks and uses the text: it resolves
+ * an error message shown under the field (the dialog stays open), or null when done. Resolves the accepted text, or
+ * null for キャンセル and Esc.
+ */
+export function inputDialog(opts: {
+  title: string;
+  label: string;
+  placeholder?: string;
+  confirmLabel: string;
+  submit: (value: string) => Promise<string | null>;
+}): Promise<string | null> {
+  return new Promise(resolve => {
+    const modal = createModal({ title: opts.title, closeOnBackdrop: false });
+    const remove = escapeClosable(modal.overlay, () => answer(null));
+    const answer = (value: string | null) => {
+      remove();
+      resolve(value);
+    };
+    const input = h('input', { class: 'cs-input', type: 'text', placeholder: opts.placeholder ?? '' });
+    const error = h('div', { class: 'cs-modal__error', attrs: { role: 'alert' } });
+    let busy = false;
+    const submit = async () => {
+      if (busy) return;
+      busy = true;
+      ok.disabled = true;
+      try {
+        const message = await opts.submit(input.value);
+        error.textContent = message ?? '';
+        if (message === null) answer(input.value);
+      } finally {
+        busy = false;
+        ok.disabled = false;
+      }
+    };
+    const ok = button(opts.confirmLabel, () => void submit(), { variant: 'primary', size: 'dialog' });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.isComposing) void submit();
+    });
+    modal.panel.append(
+      h('label', { class: 'cs-modal__field' }, h('span', { class: 'cs-field__label', text: opts.label }), input),
+      error,
+      h(
+        'div',
+        { class: 'cs-modal__actions' },
+        button('キャンセル', () => answer(null), { variant: 'outline', size: 'dialog' }),
+        ok,
+      ),
+    );
+    modal.open();
+    input.focus();
+  });
+}
+
 /** Yes / no question in a modal; resolves true for `confirmLabel`, false for キャンセル and Esc. */
 export async function confirmDialog(opts: { title: string; message: string; confirmLabel: string }): Promise<boolean> {
   const choice = await choiceDialog({

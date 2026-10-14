@@ -1,4 +1,4 @@
-"""Multimodal image generation (the Nano Banana画像生成 tool)."""
+"""Multimodal image generation (the AI画像生成 tool)."""
 
 from typing import Any
 
@@ -8,7 +8,7 @@ from ..providers.base import GenerationApi, GenerationResult
 from ..providers.gemini import GeminiNoImageError
 from . import usage_service
 
-TOOL_NAME = "Nano Banana画像生成"
+TOOL_NAME = "AI画像生成"
 
 
 class GenerationServiceError(AppError):

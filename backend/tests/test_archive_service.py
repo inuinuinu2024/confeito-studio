@@ -256,3 +256,21 @@ def test_rename_archive(archives_dir: Path) -> None:
 def test_long_name_is_cut(archives_dir: Path) -> None:
     key = svc.save_result(None, "20260101_100000_" + "長" * 105, [("a.png", b"1")])
     assert svc.read_meta(key)["name"] == "長" * 100
+
+
+def test_create_archive_makes_an_empty_archive_with_its_name(archives_dir: Path) -> None:
+    created = svc.create_archive(" 第2話: 下書き ", datetime(2026, 10, 13, 9, 30, 0))
+
+    assert created == {"key": "20261013_093000_第2話_ 下書き", "name": "第2話: 下書き"}
+    folder = archives_dir / created["key"]
+    assert [p.name for p in folder.iterdir()] == [".archive.json"]
+    assert svc.read_meta(created["key"]) == {"name": "第2話: 下書き", "created_at": "2026-10-13 09:30:00"}
+    assert [e["name"] for e in svc.list_archives()] == ["第2話: 下書き"]
+
+
+def test_create_archive_refuses_a_name_in_use_or_empty() -> None:
+    svc.create_archive("第2話")
+    with pytest.raises(svc.ArchiveConflictError, match="同じ名前のアーカイブ「第2話」"):
+        svc.create_archive("第2話")
+    with pytest.raises(svc.ArchiveValidationError, match="名前を入力してください"):
+        svc.create_archive("  ")

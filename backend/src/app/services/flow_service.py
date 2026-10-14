@@ -8,6 +8,8 @@
   ``<archive>/.flow.json`` (``{"selection": {stackId: run folder key}}``).
 * merge: the image the user marked for each panel of a コマ分割, pasted by コマ結合 instead of the newest one
   (``{"merge": {panel image key: image key}}`` in the same file).
+* removed: the panels of a コマ分割 the user deleted one by one (``{"removed": {panel image key: when}}``): not shown,
+  not pasted by コマ結合; panels.json is never rewritten.
 
 Thumbnails of the cells are made here too, so large pages are not sent in full for every cell.
 """
@@ -77,6 +79,7 @@ class Flow(TypedDict):
     runs: list[FlowRun]
     selection: dict[str, str]
     merge: dict[str, str]
+    removed: dict[str, str]
 
 
 def is_image(path: Path) -> bool:
@@ -165,6 +168,7 @@ def get_flow(archive_name: str) -> Flow:
         "runs": runs,
         "selection": _read_map(archive_dir, "selection"),
         "merge": _read_map(archive_dir, "merge"),
+        "removed": _read_map(archive_dir, "removed"),
     }
 
 
@@ -225,6 +229,14 @@ def set_merge_choice(archive_name: str, panel: str, image: str | None) -> None:
     if not panel:
         raise ArchiveValidationError("コマ（panel）が指定されていません。")
     _set_entry(archive_name, "merge", panel, image, "コマ結合に使う画像の指定を保存できませんでした。")
+
+
+def set_panel_removed(archive_name: str, panel: str, removed: bool) -> None:
+    """Marks the panel ``panel`` of a コマ分割 as deleted (``removed`` False brings it back)."""
+    if not panel:
+        raise ArchiveValidationError("コマ（panel）が指定されていません。")
+    when = f"{datetime.now():%Y-%m-%d %H:%M:%S}" if removed else None
+    _set_entry(archive_name, "removed", panel, when, "コマの削除を保存できませんでした。")
 
 
 def thumbnail(archive_name: str, path: str, size: int) -> tuple[bytes, str]:

@@ -50,7 +50,7 @@ export interface AppEventMap {
   'canvas:bg-color': { color: string };
   /** The Gemini API key was saved. */
   'settings:updated': undefined;
-  /** The undo stack or its running state changed (historyManager.canUndo()). */
+  /** The undo / redo stacks or their running state changed (historyManager.canUndo() / canRedo()). */
   'history:changed': undefined;
 }
 

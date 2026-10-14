@@ -65,8 +65,13 @@ export function exportArchives(names: string[]): Promise<DownloadFile> {
 }
 
 /** The images `keys` side by side in one zip (confeito-images-<stamp>.zip). */
-export function exportImages(keys: string[]): Promise<DownloadFile> {
-  return postForDownload('/archives/export-images', { keys }, 'confeito-images.zip');
+/** `names`: the file name of each image in the zip (same order as `keys`); `zipName`: the zip's name. */
+export function exportImages(keys: string[], names?: string[], zipName?: string): Promise<DownloadFile> {
+  return postForDownload(
+    '/archives/export-images',
+    { keys, names: names ?? null, zip_name: zipName ?? null },
+    zipName ?? 'confeito-images.zip',
+  );
 }
 
 export interface ArchiveImportResult {
@@ -140,6 +145,15 @@ export async function setFlowMerge(archiveName: string, panel: string, image: st
   });
 }
 
+/** Marks the panel `panel` of a コマ分割 as deleted one by one (`removed` false brings it back). */
+export async function setFlowRemoved(archiveName: string, panel: string, removed: boolean): Promise<void> {
+  await request(`/archives/${enc(archiveName)}/flow/removed`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ panel, removed }),
+  });
+}
+
 /** A copy of the image behind `key` at most `size` px on its long side. */
 export async function fetchThumbnail(key: string, size: number, signal?: AbortSignal): Promise<Blob> {
   const [archive, path] = splitArchiveKey(key);
@@ -178,6 +192,21 @@ export async function saveResultIn(opts: SaveResultOptions): Promise<SavedResult
 /** `saveResultIn` resolving with the folder key only. */
 export async function saveResult(opts: SaveResultOptions): Promise<string> {
   return (await saveResultIn(opts)).folder;
+}
+
+/** Creates an empty archive shown as `name` (Workspace 「新規作成」); a name another archive uses is refused (409). */
+export async function createArchive(name: string): Promise<{ key: string; name: string }> {
+  return postJson<{ key: string; name: string }>('/archives/empty', { name });
+}
+
+/** Writes `files` into the archive `archive` (at its top level: its start images). */
+export async function saveArchiveFiles(archive: string, files: { blob: Blob; path: string }[]): Promise<void> {
+  const form = formData({ name: archive });
+  for (const f of files) {
+    form.append('files', f.blob, f.path);
+    form.append('paths', f.path);
+  }
+  await postForm('/archives', form);
 }
 
 /** Changes the display name of an archive (its key stays); a name another archive uses is refused (409). */

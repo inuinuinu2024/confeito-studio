@@ -363,7 +363,7 @@
   gap: 4px 14px;
   margin-top: 14px;
   padding-top: 10px;
-  border-top: 1px solid var(--color-outline-variant);
+  border-top: 1px solid var(--color-line);
   font-size: 12px;
 }
 
@@ -420,7 +420,7 @@
 
 .cost-monitor__table th {
   padding: 4px 8px;
-  border-bottom: 1px solid var(--color-outline-variant);
+  border-bottom: 1px solid var(--color-line);
   font-weight: 500;
   font-size: 11px;
   text-align: right;
@@ -434,7 +434,7 @@
 
 .cost-monitor__table td {
   padding: 6px 8px;
-  border-bottom: 1px solid var(--color-outline-variant);
+  border-bottom: 1px solid var(--color-line);
   vertical-align: top;
 }
 

@@ -1,5 +1,5 @@
 /**
- * 原画 section of the Nano Banana画像生成 tool (docs/specs/tools/nano-banana-pro.md 「原画」) and the
+ * 原画 section of the AI画像生成 tool (docs/specs/tools/nano-banana-pro.md 「原画」) and the
  * canvas work around the generation: padding the original to the output's aspect ratio before
  * sending, and cutting it back out of the generated image at the original's size.
  * The geometry is in original.ts.

@@ -1,5 +1,5 @@
 /**
- * 原画 (original image) of the Nano Banana画像生成 tool: the output is the original redrawn, at
+ * 原画 (original image) of the AI画像生成 tool: the output is the original redrawn, at
  * the original's size (pure, unit tested).
  *
  * The aspect ratio closest to the original is picked automatically, the original is centred on a

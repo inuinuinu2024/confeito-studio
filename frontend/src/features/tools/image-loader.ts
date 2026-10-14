@@ -1,12 +1,13 @@
 /**
  * 画像読み込み — imports an image file as a new archive "<YYYYMMDD_HHMMSS>_<name>" (a "_2" ...
  * suffix when taken; shown as "<name>") containing only the file; the canvas then shows that archive with the image selected.
+ * While the Workspace shows an empty archive (made with 新規作成), the image goes into that archive instead.
  * It needs no selection (runs once).
  * The file is chosen in the OS file dialog, which the backend opens in the folder set in the tool
  * window (the browser's picker cannot start in a given folder). Canvas drag & drop runs the same
  * import (`importImageTool`). Spec: docs/specs/tools/image-loader.md
  */
-import { saveResultIn } from '../../shared/api/archives';
+import { getArchives, saveArchiveFiles, saveResultIn } from '../../shared/api/archives';
 import { ApiError } from '../../shared/api/http';
 import { checkFolder, pickImageFile } from '../../shared/api/local-files';
 import { emit } from '../../shared/events';
@@ -15,6 +16,7 @@ import { type Tool, ToolCancelled, type ToolContext, ToolNotReady } from '../../
 import { h } from '../../shared/ui/dom';
 import { field } from '../../shared/ui/form';
 import { fileStamp } from '../../shared/utils/datetime';
+import { DocumentManager } from '../document/DocumentManager';
 import { discardIfStopped } from './result';
 
 const NAME = '画像読み込み';
@@ -25,8 +27,25 @@ const FOLDER_HELP = [
   'ダイアログはバックエンドを動かしている PC に開きます。',
 ].join('\n');
 
-/** Creates the archive for `file` and selects the image. Returns the result summary. */
+/** The archive the Workspace shows when it has no image at all (just made with 新規作成), else null. */
+function shownEmptyArchive(): string | null {
+  const flow = DocumentManager.getInstance().getFlow();
+  return flow && !flow.roots.length && !flow.runs.length ? flow.archive : null;
+}
+
+/**
+ * Creates the archive for `file` (or puts it into the shown archive while that is empty) and selects the image.
+ * Returns the result summary.
+ */
 async function importImageFile(file: File, signal: AbortSignal): Promise<string> {
+  const empty = shownEmptyArchive();
+  if (empty) {
+    await saveArchiveFiles(empty, [{ blob: file, path: file.name }]);
+    await discardIfStopped(signal, `${empty}/${file.name}`);
+    const name = (await getArchives()).find(a => a.key === empty)?.name ?? empty;
+    emit('archives:changed', { select: [`${empty}/${file.name}`] });
+    return `「${name}」に ${file.name} を読み込みました`;
+  }
   const baseName = (file.name.replace(/\.[^/.]+$/, '') || file.name).replace(/[\\/:*?"<>|]/g, '_');
   // The archive is the page itself: no info.json (the original file name stays as the image name).
   const { folder: archive, archiveName } = await saveResultIn({

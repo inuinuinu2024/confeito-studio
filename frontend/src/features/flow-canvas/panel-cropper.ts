@@ -7,6 +7,9 @@
  * zoom, ＋, コマに合わせる and 全体を表示. Right: the cut as it would be, its box, 「この範囲で切り出し直す」 (saves a new
  * version, shown at once) and コマ割りの履歴 (the versions, newest first): a click shows that version in the
  * Workspace with what was made from it. A 別ウィンドウ (shared/ui/window.ts): ×, Esc and a click outside close it.
+ *
+ * コマの追加 (the ＋ between the panel rows) opens the same window in add mode (`host.add`): the frame starts at the
+ * box given, 「初期位置に戻す」 puts it back, 「このコマを追加」 saves it as a new panel and closes the window; no history.
  */
 import { fetchArchiveKey } from '../../shared/api/archives';
 import { h, icon } from '../../shared/ui/dom';
@@ -45,7 +48,7 @@ export interface CropperVersion {
 }
 
 export interface PanelCropperHost {
-  /** "コマ #2 — 02.png" */
+  /** "コマ 2 — 02.png" */
   title: string;
   /** The page before the split. */
   loadPage(): Promise<Blob | null>;
@@ -55,6 +58,13 @@ export interface PanelCropperHost {
   pick(index: number): Promise<void>;
   /** Cuts the panel again with `box`; resolves false when it failed (the host reports why). */
   recrop(box: Box): Promise<boolean>;
+}
+
+/** コマの追加: where the frame starts, and saving the box as a new panel (false when it failed). */
+export interface PanelAdderHost {
+  title: string;
+  loadPage(): Promise<Blob | null>;
+  add: { start: Box; save(box: Box): Promise<boolean> };
 }
 
 /** `pixel_box` of `filename` in `<splitFolder>/panels.json`, or null when it is missing or broken. */
@@ -72,7 +82,9 @@ export async function panelBoxOf(splitFolder: string, filename: string): Promise
 
 const sizeOf = ([xmin, ymin, xmax, ymax]: Box) => `${xmax - xmin} × ${ymax - ymin}`;
 
-export function openPanelCropper(host: PanelCropperHost): void {
+export function openPanelCropper(host: PanelCropperHost | PanelAdderHost): void {
+  const adding = 'add' in host ? host.add : null;
+  const recropper = 'add' in host ? null : host;
   let objectUrl: string | null = null;
   const win = openWindow({
     title: host.title,
@@ -83,7 +95,7 @@ export function openPanelCropper(host: PanelCropperHost): void {
     },
   });
 
-  let state = host.state();
+  let state = recropper?.state() ?? null;
   let naturalWidth = 0;
   let naturalHeight = 0;
   // The view: the page's top left at (viewX, viewY) in the stage, `scale` screen px per page px.
@@ -95,7 +107,7 @@ export function openPanelCropper(host: PanelCropperHost): void {
   let busy = false;
 
   const img = h('img', { class: 'panel-cropper__image', alt: '', draggable: false });
-  const current = h('div', { class: 'panel-cropper__current', title: '表示中の版の範囲' });
+  const current = h('div', { class: 'panel-cropper__current', title: adding ? '初期位置' : '表示中の版の範囲' });
   const frame = h(
     'div',
     { class: 'panel-cropper__frame', title: 'ドラッグで移動、四隅と四辺で大きさを変更' },
@@ -118,8 +130,14 @@ export function openPanelCropper(host: PanelCropperHost): void {
     tool('全体を表示', 'crop_free', () => fit()),
   );
   const preview = h('canvas', { class: 'panel-cropper__preview', width: 1, height: 1 });
-  const resetButton = button('表示中の範囲に戻す', () => resetFrame(), { variant: 'outline', size: 'small' });
-  const recropButton = button('この範囲で切り出し直す', () => void recrop(), { variant: 'primary', block: true });
+  const resetButton = button(adding ? '初期位置に戻す' : '表示中の範囲に戻す', () => resetFrame(), {
+    variant: 'outline',
+    size: 'small',
+  });
+  const recropButton = button(adding ? 'このコマを追加' : 'この範囲で切り出し直す', () => void recrop(), {
+    variant: 'primary',
+    block: true,
+  });
   const history = h('div', { class: 'panel-cropper__versions', attrs: { role: 'list' } });
   const status = h('div', { class: 'panel-cropper__status' });
 
@@ -134,15 +152,16 @@ export function openPanelCropper(host: PanelCropperHost): void {
         h('div', { class: 'panel-cropper__preview-box' }, preview),
         h('div', { class: 'panel-cropper__buttons' }, resetButton),
         recropButton,
-        h('div', { class: 'cs-field__label panel-cropper__history-label', text: 'コマ割りの履歴' }),
-        history,
+        adding ? null : h('div', { class: 'cs-field__label panel-cropper__history-label', text: 'コマ割りの履歴' }),
+        adding ? null : history,
       ),
     ),
     status,
   );
 
   const px = (value: number) => `${value * scale}px`;
-  const shownBox = (): Box | null => state?.versions[state.shown]?.box ?? null;
+  /** The shown version's box (add mode: where the frame started). */
+  const shownBox = (): Box | null => adding?.start ?? state?.versions[state.shown]?.box ?? null;
   const place = (el: HTMLElement, r: Rect) =>
     Object.assign(el.style, { left: px(r.x), top: px(r.y), width: px(r.w), height: px(r.h) });
 
@@ -154,7 +173,8 @@ export function openPanelCropper(host: PanelCropperHost): void {
     const unchanged = !box || !shown || sameBox(box, shown);
     current.hidden = !ready || !shown || unchanged;
     if (shown && !current.hidden) place(current, rectOfBox(shown));
-    recropButton.disabled = busy || !box || unchanged;
+    // A new panel can be added where it started; a re-cut has to differ from the shown version.
+    recropButton.disabled = busy || !box || (!adding && unchanged);
     resetButton.disabled = busy || unchanged;
     for (const b of history.querySelectorAll('button')) b.disabled = busy;
     win.panel.classList.toggle('panel-cropper--busy', busy);
@@ -301,17 +321,17 @@ export function openPanelCropper(host: PanelCropperHost): void {
 
   /** Reads the versions again (after a pick or a re-cut) and puts the frame on the shown one. */
   function refresh(): void {
-    state = host.state();
+    state = recropper?.state() ?? null;
     renderHistory();
     resetFrame();
   }
 
   async function pick(index: number): Promise<void> {
-    if (busy || !state || index === state.shown) return;
+    if (busy || !recropper || !state || index === state.shown) return;
     busy = true;
     render();
     try {
-      await host.pick(index);
+      await recropper.pick(index);
     } finally {
       busy = false;
       refresh();
@@ -323,14 +343,16 @@ export function openPanelCropper(host: PanelCropperHost): void {
     if (busy || !rect) return;
     const box = boxOfRect(rect, naturalWidth, naturalHeight);
     busy = true;
-    status.textContent = '切り出し直しています…';
+    status.textContent = adding ? 'コマを追加しています…' : '切り出し直しています…';
     render();
     let ok = false;
     try {
-      ok = await host.recrop(box);
+      ok = adding ? await adding.save(box) : !!(await recropper?.recrop(box));
     } finally {
       busy = false;
-      if (ok) {
+      if (ok && adding) {
+        win.close();
+      } else if (ok) {
         refresh();
         status.textContent = `「${state?.versions[state.shown]?.label ?? ''}」として切り出し直しました。`;
       } else {
@@ -395,7 +417,7 @@ export function openPanelCropper(host: PanelCropperHost): void {
     fit();
   }
 
-  renderHistory();
+  if (!adding) renderHistory();
   render();
   void loadPage();
 }

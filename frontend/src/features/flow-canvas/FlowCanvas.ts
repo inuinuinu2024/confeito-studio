@@ -17,15 +17,22 @@
  * - A page split into panels is not shown in the flow: each panel starts its own row at the left. The page is in
  *   the left pane (元ページ) and its コマ結合 results in the right pane (コマ結合後, side-pane.ts); both collapse.
  *   A page not split yet has a 「コマ分割」 button right of it.
- * - 「結合」 on a generated image made from a panel marks what コマ結合 pastes for that panel (else the 原画;
+ * - 「最終」 on a generated image made from a panel marks what コマ結合 pastes for that panel (else the 原画;
  *   saved in the archive).
  * - Delete removes the selected results and what was made from them (deletion.ts; Ctrl+Z undoes).
- * - Drag on the background pans, Ctrl + wheel zooms, the wheel scrolls; image files dropped here are imported.
+ * - At the right end of a panel row: the AI画像生成 and 背景除去 buttons of the TOOLS list (open the window / ▶ / ⏸),
+ *   for the row's rightmost image (it is selected first). At the top of the コマ結合後 pane, the same buttons for every
+ *   panel: 全コマに AI画像生成, 全コマに背景除去 (every row's rightmost image, one after another), コマ結合.
+ * - ＋ on the lines between the panel rows (and above the first / below the last) adds a panel: the panel cropper in
+ *   add mode, the frame starting between the panels around it (コマ追加, saved as a result of its own).
+ * - Always at 100% from the top left (no zoom, no dragging the view): scroll bars when the flow does not fit; image
+ *   files dropped here are imported.
  *
- * Inputs (events): archives:changed, archives:location-changed, tool:start, tool:target, normal-mode:toggle
+ * Inputs (events): archives:changed, archives:location-changed, tool:start, tool:end, tool:target
  */
 import './flow-canvas.css';
 import {
+  createArchive,
   fetchArchiveKey,
   getArchives,
   getFlow,
@@ -33,19 +40,22 @@ import {
   setFlowSelection,
   splitArchiveKey,
 } from '../../shared/api/archives';
-import { recropPanel } from '../../shared/api/image';
+import { addPanel, recropPanel } from '../../shared/api/image';
 import { IMAGE_FILE_PATTERN } from '../../shared/config';
 import { on, type ToolTargetState } from '../../shared/events';
 import { loadSettings, toolSettings } from '../../shared/state/tool-settings';
 import { isViewMode } from '../../shared/state/view-mode';
 import type { ArchiveEntry } from '../../shared/types/archive';
 import type { FlowImage } from '../../shared/types/flow';
-import { confirmDialog, openJsonPreview } from '../../shared/ui/dialogs';
+import { confirmDialog, inputDialog, openJsonPreview } from '../../shared/ui/dialogs';
 import { h, icon, setShown } from '../../shared/ui/dom';
 import { openImageViewer } from '../../shared/ui/image-viewer';
 import { showError, showToast } from '../../shared/ui/toast';
+import { describeError } from '../../shared/utils/error-message';
 import { historyManager } from '../../shared/utils/history';
-import { runTool, warnIfToolRunning } from '../ai-panel/tool-runner';
+import { createToolButton, type ToolButton } from '../ai-panel/components/ToolButton';
+import { openTool, playTool } from '../ai-panel/tool-launch';
+import { runningToolName, runTool, warnIfToolRunning } from '../ai-panel/tool-runner';
 import { openCompareWindow } from '../canvas/compare-window';
 import { DocumentManager } from '../document/DocumentManager';
 import { importImageTool } from '../tools/image-loader';
@@ -53,14 +63,18 @@ import { TOOLS } from '../tools';
 import { deleteTargets, deletionTargets } from './deletion';
 import { downloadImages } from './export-images';
 import {
+  ADD_TOOL,
   adoptableStack,
   buildGraph,
   compareTargets,
+  finalImages,
   type FlowGraph,
   type FlowStep,
   hiddenPage,
-  isOriginalRun,
+  joinsRow,
   mergeChoice,
+  newPanelBox,
+  type PageBox,
   pageMerges,
   splitPageOf,
   panelOf,
@@ -76,13 +90,29 @@ import {
   type VisibleFlow,
   visibleFlow,
 } from './flow-graph';
-import { boundsOf, edgePath, type FlowLayout, intersects, LAYOUT, type Rect, layoutFlow } from './flow-layout';
-import { createPanZoom } from './pan-zoom';
+import {
+  edgePath,
+  type FlowLayout,
+  intersects,
+  LAYOUT,
+  type PanelGap,
+  panelGaps,
+  type PanelTools,
+  type Rect,
+  boundsOf,
+  layoutFlow,
+} from './flow-layout';
 import { openPanelCropper, panelBoxOf } from './panel-cropper';
 import { createSidePane } from './side-pane';
 import { forgetThumbnails, thumbnailUrl } from './thumbnails';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+/** The tools at the right end of a panel row (docs/specs/flow-canvas.md 「コマの行のツール」), top to bottom. */
+const ROW_TOOL_IDS = ['nano-banana-pro', 'remove-background'];
+/** The tool at the top of the コマ結合後 pane (docs/specs/flow-canvas.md 「全コマのツール」): コマ結合 of every panel. */
+const MERGE_TOOL_ID = 'panel-merge';
+/** Room kept around the selection when it is scrolled into view. */
+const REVEAL_MARGIN = 24;
 
 /** A small arrowhead at the end of each edge (where one process leads to the next). */
 function arrowDefs(): SVGDefsElement {
@@ -133,6 +163,10 @@ export function createFlowCanvas(): HTMLElement {
   /** Selected image keys in selection order. */
   let selected: string[] = [];
   const cellElements = new Map<string, HTMLElement>();
+  /** The tool buttons of the panel rows shown (▶ / ⏸ follow the running tool). */
+  let rowToolButtons: { name: string; button: ToolButton }[] = [];
+  /** The buttons for every panel at the top of the コマ結合後 pane (made once). */
+  const paneToolButtons: { name: string; button: ToolButton }[] = [];
   const targetStates = new Map<string, ToolTargetState>();
   /** Results of the tool run in progress: all of them end up selected. */
   let runResults: string[] | null = null;
@@ -140,46 +174,55 @@ export function createFlowCanvas(): HTMLElement {
 
   // ── DOM ──
   const archiveSelect = h('select', { class: 'cs-select flow-toolbar__archive', title: '表示するアーカイブ' });
+  const newButton = h('button', { class: 'flow-toolbar__button', title: '新規作成' }, icon('add', 18));
+  const importButton = h('button', { class: 'flow-toolbar__button', title: '画像読み込み' }, icon('upload', 18));
   const refreshIcon = icon('refresh', 16);
-  const refreshButton = h('button', { class: 'flow-toolbar__button', title: '最新の状態に更新' }, refreshIcon);
+  const refreshButton = h('button', { class: 'flow-toolbar__button', title: '更新' }, refreshIcon);
   const exportButton = h(
     'button',
-    { class: 'flow-toolbar__button', title: '選択した画像を書き出す（ダウンロード）', disabled: true },
+    { class: 'flow-toolbar__button', title: '書き出し', disabled: true },
     icon('download', 16),
   );
   const deleteButton = h(
     'button',
-    { class: 'flow-toolbar__button', title: '選択した結果を削除 (Delete)', disabled: true },
+    { class: 'flow-toolbar__button', title: '削除（Delete）', disabled: true },
     icon('delete', 16),
   );
   const undoButton = h(
     'button',
-    { class: 'flow-toolbar__button', title: '削除を元に戻す (Ctrl+Z)', disabled: true },
+    { class: 'flow-toolbar__button', title: '元に戻す（Ctrl+Z）', disabled: true },
     icon('undo', 16),
+  );
+  const redoButton = h(
+    'button',
+    { class: 'flow-toolbar__button', title: 'やり直し（Ctrl+Y）', disabled: true },
+    icon('redo', 16),
   );
   const selectionInfo = h('span', { class: 'flow-toolbar__selection' });
   const toolbar = h(
     'div',
     { class: 'flow-toolbar' },
-    icon('folder', 16),
     archiveSelect,
+    newButton,
+    importButton,
     refreshButton,
     exportButton,
     deleteButton,
     undoButton,
+    redoButton,
     selectionInfo,
   );
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.classList.add('flow-edges');
   const world = h('div', { class: 'flow-world' });
   const band = h('div', { class: 'flow-band' });
-  const viewport = h('div', { class: 'flow-viewport' }, world, band);
+  // Scrolls (scroll bars) when the flow does not fit; the world is never moved or scaled otherwise.
+  const viewport = h('div', { class: 'flow-viewport' }, world);
   const emptyMessage = h('span', { class: 'canvas-empty__message' });
   const emptyHint = h('span', { class: 'canvas-empty__hint' });
   const emptyState = h('div', { class: 'canvas-empty flow-empty' }, icon('image', 48), emptyMessage, emptyHint);
-  const panZoom = createPanZoom(viewport, world);
-  panZoom.onFitRequest = () => fitAll();
-  const center = h('div', { class: 'flow-center' }, viewport, toolbar, panZoom.bar, emptyState);
+  // The toolbar above the viewport (not over it), so nothing of the flow is ever hidden under it.
+  const center = h('div', { class: 'flow-center' }, toolbar, viewport, emptyState);
   // 3 panes when a page is split (docs/specs/flow-canvas.md 「3 枚構成」): 元ページ | the flow | コマ結合後.
   const leftPane = createSidePane({
     side: 'left',
@@ -188,12 +231,55 @@ export function createFlowCanvas(): HTMLElement {
     settings,
     onOpen: (image, title) => void openViewer(image, title),
   });
+  /** The panel rows shown, top to bottom. */
+  const panelRows = () =>
+    [...(flow?.steps.values() ?? [])]
+      .filter(s => s.panelIndex)
+      .sort((a, b) => (a.panelIndex ?? 0) - (b.panelIndex ?? 0));
+  /**
+   * The buttons of `toolIds` for the images `keys()` returns when one is pressed: they are selected first, then the
+   * button opens the tool window and ▶ runs it (as in the TOOLS list). `into` collects them for ▶ / ⏸.
+   */
+  const toolButtons = (
+    toolIds: readonly string[],
+    keys: () => string[],
+    into: { name: string; button: ToolButton }[],
+  ): HTMLElement[] =>
+    toolIds.flatMap(id => {
+      const tool = TOOLS.find(t => t.id === id);
+      if (!tool) return [];
+      const forImages = (action: () => void) => {
+        if (warnIfToolRunning(tool.name)) return;
+        const chosen = keys();
+        if (!chosen.length) return;
+        setSelected(chosen);
+        action();
+      };
+      const button = createToolButton(tool, {
+        open: el => forImages(() => void openTool(tool, el)),
+        play: () => forImages(() => void playTool(tool)),
+      });
+      button.setRunning(runningToolName() === tool.name);
+      into.push({ name: tool.name, button });
+      return [button.el];
+    });
+  // コマ結合 of every panel, at the top of the コマ結合後 pane.
+  const paneTools = h(
+    'div',
+    { class: 'flow-pane__tools flow-tools' },
+    ...toolButtons(
+      [MERGE_TOOL_ID],
+      () => panelRows().flatMap(s => (s.cells[0] ? [s.cells[0].key] : [])),
+      paneToolButtons,
+    ),
+  );
   const rightPane = createSidePane({
     side: 'right',
     title: 'コマ結合後',
-    empty: 'まだコマ結合していません。コマを選んで右の「コマ結合」を実行すると、ここに結合後のページが表示されます。',
+    empty: 'まだコマ結合していません。上の「コマ結合」を実行すると、ここに結合後のページが表示されます。',
     settings,
     onOpen: (image, title) => void openViewer(image, title),
+    tools: paneTools,
   });
   const main = h('main', { class: 'flow-canvas' }, leftPane.el, center, rightPane.el);
   // The step geometry comes from LAYOUT (flow-layout.ts) so the CSS boxes match the computed layout.
@@ -202,6 +288,8 @@ export function createFlowCanvas(): HTMLElement {
   main.style.setProperty('--flow-pad', `${LAYOUT.padding}px`);
   main.style.setProperty('--flow-cell-h', `${LAYOUT.cellHeight}px`);
   main.style.setProperty('--flow-cell-gap', `${LAYOUT.cellGap}px`);
+  main.style.setProperty('--flow-origin-gap', `${LAYOUT.originGap}px`);
+  main.style.setProperty('--flow-tools-w', `${LAYOUT.toolsWidth}px`);
   main.style.setProperty('--flow-gutter', `${LAYOUT.gutter}px`);
   main.style.setProperty('--flow-row-gap', `${LAYOUT.rowGap}px`);
 
@@ -237,9 +325,11 @@ export function createFlowCanvas(): HTMLElement {
    * undo: with nothing to undo.
    */
   const syncActionButtons = () => {
-    exportButton.disabled = !selected.length;
+    // Without a selection: every panel's 「最終」 image (nothing to export without panel rows).
+    exportButton.disabled = !selected.length && !panelRows().length;
     deleteButton.disabled = !selected.length || historyManager.isBusy();
     undoButton.disabled = !historyManager.canUndo();
+    redoButton.disabled = !historyManager.canRedo();
   };
 
   const setSelected = (keys: readonly string[]) => {
@@ -275,7 +365,7 @@ export function createFlowCanvas(): HTMLElement {
       'div',
       {
         class: 'flow-cell__thumb',
-        title: panelHead ? 'クリックで切り出した範囲を表示・切り直し' : 'クリックで拡大表示',
+        title: panelHead ? '切り直し' : '拡大表示',
       },
       img,
     );
@@ -288,16 +378,26 @@ export function createFlowCanvas(): HTMLElement {
         h('span', { class: 'flow-cell__origin-name', text: label.name }),
         h('span', { class: 'flow-cell__origin-from', text: `← ${label.from}` }),
       );
+    // The 原画 of a box with generated images, and of every panel row: 「原画」 above it, so it is told apart from
+    // the generated images (▶ between them).
+    const source =
+      index === 0 && (step.layout === 'row' || !!step.panel)
+        ? h(
+            'div',
+            { class: 'flow-cell__origin flow-cell__origin--source', title: '原画（右の画像はこの画像から生成）' },
+            h('span', { class: 'flow-cell__origin-name', text: '原画' }),
+          )
+        : null;
     // No caption under the image (a cleaner canvas): the file name and size are in the tooltip.
     const size = sizeText(image);
     const cell = h(
       'div',
       {
-        class: `flow-cell${label ? ' flow-cell--labeled' : ''}`,
+        class: `flow-cell${label || source ? ' flow-cell--labeled' : ''}`,
         title: size ? `${image.name}（${size}）` : image.name,
         dataset: { key: image.key, name: image.name },
       },
-      origin,
+      origin ?? source,
       thumb,
       h('span', { class: 'flow-cell__badge flow-cell__badge--failed', title: '処理に失敗しました' }, icon('error', 16)),
       h(
@@ -319,7 +419,7 @@ export function createFlowCanvas(): HTMLElement {
           'button',
           {
             class: 'flow-cell__adopt',
-            title: adopted ? '採用中の候補（この先の処理を表示中）' : 'この候補を採用（この先の処理を表示）',
+            title: adopted ? '採用中' : '採用',
             onclick: (e: MouseEvent) => {
               e.stopPropagation();
               if (!adopted) void showRun(stackId, candidate.folder);
@@ -334,7 +434,8 @@ export function createFlowCanvas(): HTMLElement {
     cell.addEventListener('click', e => {
       e.stopPropagation();
       const onThumb = !!(e.target as HTMLElement).closest('.flow-cell__thumb');
-      const where = `${step.cellRuns[index]?.tool ?? '開始画像'}${label ? `（${label.name}）` : ''}`;
+      // A result in a row is named by its band ("背景除去 1"), others by their tool.
+      const where = label?.name ?? step.cellRuns[index]?.tool ?? '開始画像';
       if (onThumb && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
         if (panelHead) {
           void openCropper(step).then(opened => {
@@ -352,7 +453,8 @@ export function createFlowCanvas(): HTMLElement {
   const variantSwitcher = (step: FlowStep): HTMLElement | null => {
     const stack = step.stack;
     if (!stack || !step.run || stack.runs.length < 2 || step.layout === 'candidates') return null;
-    if (step.panelIndex && step.panelIndex > 1) return null;
+    // A panel row: only the first panel of the コマ分割 switches between its runs.
+    if (step.panelIndex && !step.splitHead) return null;
     const index = stack.runs.indexOf(step.run);
     const go = (delta: number) => (e: MouseEvent) => {
       e.stopPropagation();
@@ -361,7 +463,7 @@ export function createFlowCanvas(): HTMLElement {
     };
     return h(
       'div',
-      { class: 'flow-step__variants', title: `同じ画像に同じツールを ${stack.runs.length} 回実行した結果` },
+      { class: 'flow-step__variants' },
       h('button', { class: 'flow-step__variant-btn', title: '前の候補', onclick: go(-1) }, icon('chevron_left', 16)),
       h('span', { class: 'flow-step__variant-label', text: `${index + 1}/${stack.runs.length}` }),
       h('button', { class: 'flow-step__variant-btn', title: '次の候補', onclick: go(1) }, icon('chevron_right', 16)),
@@ -369,7 +471,7 @@ export function createFlowCanvas(): HTMLElement {
   };
 
   /**
-   * 「結合」 at the right end of the label of a generated image made from a panel: marks it as what コマ結合
+   * 「最終」 at the right end of the label of a generated image made from a panel: marks it as what コマ結合
    * pastes for that panel (one per panel; a click on the marked one removes the mark: the 原画 is pasted).
    * Gray while not marked. The 原画 (the panel itself) has none: it is used when nothing is marked.
    */
@@ -384,16 +486,13 @@ export function createFlowCanvas(): HTMLElement {
       'button',
       {
         class: `flow-cell__merge${marked ? ' flow-cell__merge--marked' : ''}`,
-        title: marked
-          ? `コマ結合で「${panel.name}」のコマにこの画像を使う（クリックで外すと原画を使う）`
-          : `コマ結合で「${panel.name}」のコマにこの画像を使う`,
+        title: marked ? '最終を外す' : '最終にする',
         onclick: (e: MouseEvent) => {
           e.stopPropagation();
           void setMergeChoice(panelKey, marked ? null : image.key);
         },
       },
-      icon('merge', 13),
-      '結合',
+      '最終',
     );
   };
 
@@ -413,7 +512,7 @@ export function createFlowCanvas(): HTMLElement {
 
   const stepTitle = (step: FlowStep) => {
     if (!step.run) return '開始画像';
-    if (step.panelIndex) return `コマ #${step.panelIndex}`;
+    if (step.panelIndex) return `コマ ${step.panelIndex}`;
     if (step.layout === 'candidates') return `${step.run.tool}（${step.cells.length} 件）`;
     return step.run.tool;
   };
@@ -431,7 +530,6 @@ export function createFlowCanvas(): HTMLElement {
         'button',
         {
           class: 'flow-action__btn',
-          title: 'このページをコマ分割する（コマ分割ツールの保存済みの設定で実行）',
           onclick: (e: MouseEvent) => {
             e.stopPropagation();
             if (step.splitPage) void splitPage(step.splitPage);
@@ -461,22 +559,20 @@ export function createFlowCanvas(): HTMLElement {
       step.layout === 'candidates' || (step.layout === 'column' && step.cells.length > 1)
         ? ''
         : sizeText(step.cells[0]);
-    const menuButton = h('button', { class: 'flow-step__menu', title: 'メニュー' }, icon('more_horiz', 18));
+    // A panel row has a labelled 「コマを削除」 below its size (that panel alone); other headings the ⋯ menu.
+    const panel = step.panelIndex ? step.panel : undefined;
+    const menuButton = panel
+      ? h('button', { class: 'flow-row__delete' }, icon('delete', 14), 'コマを削除')
+      : h('button', { class: 'flow-step__menu', title: 'メニュー' }, icon('more_horiz', 18));
     menuButton.addEventListener('click', e => {
       e.stopPropagation();
-      openStepMenu(step, menuButton);
+      if (panel) void deleteKeys([panel.key]);
+      else openStepMenu(step, menuButton);
     });
     const heading = h(
       'div',
       { class: className, title: step.run ? `${step.run.created_at}　${folderName(step.run.folder)}` : '' },
       h('span', { class: 'flow-step__title', text: stepTitle(step) }),
-      step.versionLabel
-        ? h('span', {
-            class: 'flow-step__version',
-            text: step.versionLabel,
-            title: 'コマの範囲を切り直した版を表示中（原画をクリックすると範囲の確認・版の切り替え）',
-          })
-        : null,
       size ? h('span', { class: 'flow-step__size', text: size }) : null,
       variantSwitcher(step),
       menuButton,
@@ -503,16 +599,90 @@ export function createFlowCanvas(): HTMLElement {
         style: {
           top: `${row.y - LAYOUT.rowGap / 2}px`,
           height: `${row.h + LAYOUT.rowGap}px`,
-          width: `${layout.width}px`,
         },
       },
       stepHeading(step, 'flow-row__label'),
     );
   };
 
+  /** ＋ on the line between two panel rows (or above the first / below the last): adds a panel there. */
+  const renderGap = (gap: PanelGap): HTMLElement =>
+    h(
+      'button',
+      {
+        class: 'flow-insert',
+        title: 'コマを追加',
+        dataset: { after: String(gap.after?.panelIndex ?? 0), before: String(gap.before?.panelIndex ?? 0) },
+        style: { left: `${gap.x}px`, top: `${gap.y}px` },
+        onclick: (e: MouseEvent) => {
+          e.stopPropagation();
+          void openAdder(gap);
+        },
+      },
+      icon('add', 16),
+    );
+
+  /** "コマ 1 と 2 の間" / "コマ 1 の前" / "コマ 3 の後" */
+  const gapText = (gap: PanelGap) =>
+    gap.after && gap.before
+      ? `コマ ${gap.after.panelIndex} と ${gap.before.panelIndex} の間`
+      : gap.before
+        ? `コマ ${gap.before.panelIndex} の前`
+        : `コマ ${gap.after?.panelIndex} の後`;
+
+  /** The rightmost image of a panel row (its last cell), the tools of the row run on it. */
+  const rightmost = (step: FlowStep | undefined) => step?.cells[step.cells.length - 1];
+
+  /**
+   * The AI画像生成 and 背景除去 buttons of the panel rows at the left of their free room (`layout.panelTools`): each
+   * row's right after its images, for its rightmost image; the 全コマ header's above the first row, for every row's
+   * rightmost image (docs/specs/flow-canvas.md 「コマの行のツール」「全コマのツール」).
+   */
+  const renderPanelTools = (tools: PanelTools): HTMLElement[] => {
+    const place = (x: number, y: number, h: number) => ({ left: `${x}px`, top: `${y}px`, height: `${h}px` });
+    const rowTools = tools.rows.map(({ id, x, y }) => {
+      const image = rightmost(flow?.steps.get(id));
+      return h(
+        'div',
+        { class: 'flow-row-tools flow-tools', dataset: { step: id }, style: place(x, y, LAYOUT.cellHeight) },
+        ...toolButtons(ROW_TOOL_IDS, () => (image ? [image.key] : []), rowToolButtons),
+      );
+    });
+    const everyRow = () =>
+      panelRows().flatMap(s => {
+        const image = rightmost(s);
+        return image ? [image.key] : [];
+      });
+    const header = [
+      h('div', {
+        class: 'flow-panels-header__label',
+        text: '全コマ',
+        style: { top: `${tools.header.y}px`, height: `${tools.header.h}px` },
+      }),
+      h(
+        'div',
+        {
+          class: 'flow-row-tools flow-tools flow-panels-header',
+          style: place(tools.header.x, tools.header.y, tools.header.h),
+        },
+        ...toolButtons(ROW_TOOL_IDS, everyRow, rowToolButtons),
+      ),
+    ];
+    return [...header, ...rowTools];
+  };
+
   const renderStep = (step: FlowStep, rect: Rect): HTMLElement => {
     if (step.layout === 'action') return renderAction(step, rect);
     const labels = rowLabels(step);
+    const cells: HTMLElement[] = step.cells.map((cell, i) => renderCell(cell, step, i, labels[i]));
+    // ▶ between the 原画 and the images generated from it (LAYOUT.originGap leaves room for it).
+    if (step.layout === 'row' && cells.length > 1) {
+      cells.splice(
+        1,
+        0,
+        h('span', { class: 'flow-step__origin-arrow', attrs: { 'aria-hidden': 'true' } }, icon('play_arrow', 20)),
+      );
+    }
     // The step that starts a row has its heading as the row label; the others above their images.
     const head = step.rowHead ? null : stepHeading(step, 'flow-step__head');
     const classes = [
@@ -529,7 +699,7 @@ export function createFlowCanvas(): HTMLElement {
         style: { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.w}px`, height: `${rect.h}px` },
       },
       head,
-      h('div', { class: 'flow-step__cells' }, ...step.cells.map((cell, i) => renderCell(cell, step, i, labels[i]))),
+      h('div', { class: 'flow-step__cells' }, ...cells),
     );
   };
 
@@ -555,12 +725,15 @@ export function createFlowCanvas(): HTMLElement {
   const render = () => {
     for (const img of world.querySelectorAll('img')) thumbnailObserver.unobserve(img);
     cellElements.clear();
+    rowToolButtons = [];
     flow = graph ? visibleFlow(graph) : null;
     layout = flow ? layoutFlow(flow) : null;
     const steps = flow && layout ? [...flow.steps.values()].map(s => renderStep(s, layout!.steps.get(s.id)!)) : [];
     const rows = layout ? layout.rows.map(renderRow) : [];
+    const gaps = flow && layout ? panelGaps(flow, layout).map(renderGap) : [];
     renderEdges();
-    world.replaceChildren(...rows.filter((r): r is HTMLElement => !!r), svg, ...steps);
+    const panelTools = layout?.panelTools ? renderPanelTools(layout.panelTools) : [];
+    world.replaceChildren(...rows.filter((r): r is HTMLElement => !!r), svg, ...steps, ...gaps, ...panelTools, band);
     world.style.width = `${layout?.width ?? 0}px`;
     world.style.height = `${layout?.height ?? 0}px`;
     for (const key of cellElements.keys()) applyTargetState(key);
@@ -592,7 +765,7 @@ export function createFlowCanvas(): HTMLElement {
 
   /**
    * Shows `name` (null: nothing). `select` replaces the selection (else the selection is kept where it
-   * still exists); `fit` fits the flow into view, otherwise the view stays and the selection is revealed.
+   * still exists); `fit` shows the flow from its top left, otherwise the view stays and the selection is revealed.
    */
   const load = async (name: string | null, opts: { select?: string[]; fit?: boolean } = {}) => {
     const request = ++loadRequest;
@@ -617,7 +790,7 @@ export function createFlowCanvas(): HTMLElement {
     syncArchiveSelect();
     render();
     setSelected(opts.select ?? (switched ? [] : selected));
-    if (opts.fit || switched) fitAll();
+    if (opts.fit || switched) goHome();
     else revealSelection();
   };
 
@@ -635,17 +808,24 @@ export function createFlowCanvas(): HTMLElement {
     }
   };
 
-  let pendingFit = false;
-  const fitAll = () => {
-    pendingFit = !viewport.clientWidth;
-    // From the left edge of the flow: the row labels are part of it.
-    const bounds = layout ? boundsOf(layout.steps.values()) : null;
-    if (!pendingFit) panZoom.fit(bounds && { ...bounds, x: 0, w: bounds.x + bounds.w });
-  };
+  /** Shows the flow from its top left (the row labels at the left edge). */
+  const goHome = () => viewport.scrollTo(0, 0);
 
+  /** Scrolls the least so that the selection is in view (the view stays at the left edge when it can). */
   const revealSelection = () => {
     const rect = layout && boundsOf(selected.map(k => layout!.cells.get(k)).filter((r): r is Rect => !!r));
-    if (rect) panZoom.reveal(rect);
+    if (!rect) return;
+    /** The scroll position along one axis that shows [start, start + size) with `REVEAL_MARGIN` around it. */
+    const along = (scroll: number, view: number, start: number, size: number) =>
+      start - REVEAL_MARGIN < scroll
+        ? Math.max(0, start - REVEAL_MARGIN)
+        : start + size + REVEAL_MARGIN > scroll + view
+          ? Math.min(start - REVEAL_MARGIN, start + size + REVEAL_MARGIN - view)
+          : scroll;
+    viewport.scrollTo(
+      along(viewport.scrollLeft, viewport.clientWidth, rect.x + world.offsetLeft, rect.w),
+      along(viewport.scrollTop, viewport.clientHeight, rect.y + world.offsetTop, rect.h),
+    );
   };
 
   /** Reloads the archive list and shows `wanted` (or the current / newest archive when it is gone). */
@@ -679,7 +859,6 @@ export function createFlowCanvas(): HTMLElement {
     const url = URL.createObjectURL(blob);
     openImageViewer(url, `${where} — ${image.name}`, {
       subtitle: image.width && image.height ? `${image.width} × ${image.height} px` : undefined,
-      onDownload: () => void downloadImages([image.key]),
       onClose: () => URL.revokeObjectURL(url),
     });
   };
@@ -692,7 +871,7 @@ export function createFlowCanvas(): HTMLElement {
   const openImage = (step: FlowStep, index: number, where: string) => {
     const image = step.cells[index];
     const run = step.cellRuns[index];
-    const targets = graph && run && isOriginalRun(run) ? compareTargets(graph, step, index) : [];
+    const targets = graph && run && joinsRow(run) ? compareTargets(graph, step, index) : [];
     if (!targets.length) {
       void openViewer(image, where);
       return;
@@ -701,7 +880,6 @@ export function createFlowCanvas(): HTMLElement {
       title: `${where} — ${image.name}`,
       targets,
       processed: image,
-      onDownload: () => void downloadImages([image.key]),
     });
   };
 
@@ -715,12 +893,13 @@ export function createFlowCanvas(): HTMLElement {
     const name = archive;
     const split = panel && graph?.runOfImage.get(panel.key);
     if (!graph || !name || !panel || !split || !pageKey || !graph.images.has(pageKey)) return false;
-    const splitBox = await panelBoxOf(split.folder, panel.name);
+    // The box of the panel as split (panels.json), or as added (its コマ追加 info.json).
+    const splitBox = panelVersions(graph, panel).versions[0]?.box ?? (await panelBoxOf(split.folder, panel.name));
     if (!splitBox) return false;
     const versionsNow = () =>
       graph && archive === name && graph.images.has(panel.key) ? panelVersions(graph, panel) : null;
     openPanelCropper({
-      title: `コマ #${step.panelIndex} — ${panel.name}`,
+      title: `コマ ${step.panelIndex} — ${panel.name}`,
       loadPage: () => fetchArchiveKey(pageKey),
       state: () => {
         const now = versionsNow();
@@ -748,7 +927,7 @@ export function createFlowCanvas(): HTMLElement {
             showError('表示する版を保存できませんでした', err),
           );
           await reload(name, { select: [result.key] });
-          showToast(`コマ #${step.panelIndex} を切り出し直しました`, 'success');
+          showToast(`コマ ${step.panelIndex} を切り出し直しました`, 'success');
           return true;
         } catch (err) {
           showError('コマを切り出し直せませんでした', err);
@@ -757,6 +936,57 @@ export function createFlowCanvas(): HTMLElement {
       },
     });
     return true;
+  };
+
+  /** The box on the page of the shown version of a panel row's panel (panels.json for a panel as split). */
+  const panelBox = async (step: FlowStep | null, splitFolder: string): Promise<PageBox | null> => {
+    const panel = step?.panel;
+    if (!graph || !panel) return null;
+    return shownVersion(graph, panel)?.box ?? (await panelBoxOf(splitFolder, panel.name));
+  };
+
+  /**
+   * ＋ between the panel rows (docs/specs/flow-canvas.md 「コマの追加」): the panel cropper in add mode, the frame
+   * starting between the panels around it; the new panel is saved as a コマ追加 result and selected.
+   */
+  const openAdder = async (gap: PanelGap) => {
+    const split = graph && splitPageOf(graph);
+    const name = archive;
+    if (!graph || !split || !name) return;
+    const [above, below] = await Promise.all([
+      panelBox(gap.after, split.split.folder),
+      panelBox(gap.before, split.split.folder),
+    ]);
+    const pageHeight = split.page.height ?? Math.max(above?.[3] ?? 0, below?.[3] ?? 0);
+    const start = newPanelBox(above, below, pageHeight);
+    if (!start) {
+      showError('隣のコマの範囲が分からないため、コマを追加できません（panels.json を読めません）');
+      return;
+    }
+    openPanelCropper({
+      title: `コマの追加 — ${gapText(gap)}`,
+      loadPage: () => fetchArchiveKey(split.page.key),
+      add: {
+        start,
+        save: async box => {
+          try {
+            const result = await addPanel(
+              split.split.folder,
+              box,
+              gap.after?.panel?.key ?? null,
+              gap.before?.panel?.key ?? null,
+            );
+            await reload(name, { select: [result.key] });
+            const index = flow?.stepOfCell.get(result.key)?.panelIndex;
+            showToast(index ? `コマ ${index} を追加しました` : 'コマを追加しました', 'success');
+            return true;
+          } catch (err) {
+            showError('コマを追加できませんでした', err);
+            return false;
+          }
+        },
+      },
+    });
   };
 
   let closeMenu: (() => void) | null = null;
@@ -781,17 +1011,19 @@ export function createFlowCanvas(): HTMLElement {
     const page = hiddenPage(step);
     const deleteLabel = !run
       ? 'この画像を削除'
-      : step.panelIndex
-        ? 'このコマ分割を削除'
-        : step.layout === 'candidates'
-          ? 'すべての候補を削除'
-          : 'この結果を削除';
+      : step.added
+        ? 'このコマを削除'
+        : step.panelIndex
+          ? 'このコマ分割を削除'
+          : step.layout === 'candidates'
+            ? 'すべての候補を削除'
+            : 'この結果を削除';
     const pageImage = page ? graph?.images.get(page) : undefined;
     const menu = h(
       'div',
       { class: 'flow-menu', attrs: { role: 'menu' } },
       item('情報を見る', 'info', () => void showInfo(step), !run),
-      // A panel row deletes its whole コマ分割 (the panel itself, whatever version is shown).
+      // A panel row deletes its whole コマ分割 (an added panel: itself), whatever version is shown.
       item(deleteLabel, 'delete', () => void deleteKeys(step.panel ? [step.panel.key] : step.cells.map(c => c.key))),
       pageImage ? item('元のページごと削除', 'delete_forever', () => void deleteKeys([pageImage.key])) : null,
     );
@@ -839,36 +1071,65 @@ export function createFlowCanvas(): HTMLElement {
     const plan = planDeletion(graph, keys);
     const archiveName = archives.find(a => a.key === graph?.archive)?.name ?? graph.archive;
     const targets = deletionTargets(graph, plan, archiveName);
-    if (!targets.length) return;
+    if (!targets.length && !plan.panels.length) return;
+    // Panel rows deleted (as split: marked; added: their コマ追加 run) are named by their row: "コマ 2".
+    const panelNames = plan.panels.map(k => `コマ ${flowPanelIndex(k)}`);
+    const added = keys.filter(k => graph?.runOfImage.get(k)?.tool === ADD_TOOL && flowPanelIndex(k) !== '');
+    const rowNames = [...panelNames, ...added.map(k => `コマ ${flowPanelIndex(k)}`)];
+    const chosen = targets.length - plan.downstream - added.length;
+    const results = `選択した${plan.roots.length ? '画像・' : ''}結果`;
+    const what = !rowNames.length
+      ? `${results}を削除します（${chosen} 件）。`
+      : `${rowNames.join('・')}${chosen ? ` と${results}（${chosen} 件）` : ''} を削除します。`;
     const message = plan.whole
       ? `アーカイブ「${archiveName}」を削除します（開始画像と結果 ${plan.runs.length} 件）。`
-      : [
-          `選択した${plan.roots.length ? '画像・' : ''}結果を削除します（${targets.length - plan.downstream} 件）。`,
-          plan.downstream ? `この先の結果 ${plan.downstream} 件も一緒に削除されます。` : '',
-        ].join('');
+      : [what, plan.downstream ? `この先の結果 ${plan.downstream} 件も一緒に削除されます。` : ''].join('');
+    const panels = plan.panels.length
+      ? { archive: graph.archive, keys: plan.panels, label: panelNames.join('・') }
+      : null;
     const ok = await confirmDialog({
       title: '削除の確認',
       message: `${message}\nCtrl+Z で元に戻せます（アプリを終了するまで）。`,
       confirmLabel: '削除',
     });
-    if (ok) await deleteTargets(targets);
+    if (ok) await deleteTargets(targets, panels);
   };
 
-  // ── Pointer: pan, rectangle selection, background click ──
+  /** The row number of the panel `key` (its row may show another version of it). */
+  const flowPanelIndex = (key: string) =>
+    [...(flow?.steps.values() ?? [])].find(s => s.panel?.key === key)?.panelIndex ?? '';
+
+  // ── Pointer: rectangle selection (Shift + drag), background click ──
   let gesture: {
-    kind: 'pan' | 'band';
+    kind: 'click' | 'band';
     x: number;
     y: number;
     moved: boolean;
     base: string[];
   } | null = null;
 
+  /** Client position -> world position (the world scrolls with the viewport). */
+  const toWorld = (clientX: number, clientY: number) => {
+    const r = world.getBoundingClientRect();
+    return { x: clientX - r.left, y: clientY - r.top };
+  };
+  /** On a scroll bar of the viewport (not its content). */
+  const onScrollbar = (e: MouseEvent) => {
+    const r = viewport.getBoundingClientRect();
+    return e.clientX - r.left >= viewport.clientWidth || e.clientY - r.top >= viewport.clientHeight;
+  };
+
   viewport.addEventListener('pointerdown', e => {
-    if (e.button !== 0 || (e.target as HTMLElement).closest('.flow-step, .flow-row__label')) return;
+    const target = e.target as HTMLElement;
+    if (
+      e.button !== 0 ||
+      onScrollbar(e) ||
+      target.closest('.flow-step, .flow-row__label, .flow-insert, .flow-row-tools')
+    )
+      return;
     closeMenu?.();
-    gesture = { kind: e.shiftKey ? 'band' : 'pan', x: e.clientX, y: e.clientY, moved: false, base: [...selected] };
+    gesture = { kind: e.shiftKey ? 'band' : 'click', x: e.clientX, y: e.clientY, moved: false, base: [...selected] };
     viewport.setPointerCapture(e.pointerId);
-    if (gesture.kind === 'pan') viewport.classList.add('flow-viewport--panning');
   });
   viewport.addEventListener('pointermove', e => {
     if (!gesture) return;
@@ -876,47 +1137,35 @@ export function createFlowCanvas(): HTMLElement {
     const dy = e.clientY - gesture.y;
     if (!gesture.moved && Math.hypot(dx, dy) < 3) return;
     gesture.moved = true;
-    if (gesture.kind === 'pan') {
-      panZoom.panBy(e.movementX, e.movementY);
-      return;
-    }
-    const host = viewport.getBoundingClientRect();
-    const left = Math.min(e.clientX, gesture.x) - host.left;
-    const top = Math.min(e.clientY, gesture.y) - host.top;
+    if (gesture.kind !== 'band') return;
+    const a = toWorld(gesture.x, gesture.y);
+    const b = toWorld(e.clientX, e.clientY);
+    const area = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
     Object.assign(band.style, {
       display: 'block',
-      left: `${left}px`,
-      top: `${top}px`,
-      width: `${Math.abs(dx)}px`,
-      height: `${Math.abs(dy)}px`,
+      left: `${area.x}px`,
+      top: `${area.y}px`,
+      width: `${area.w}px`,
+      height: `${area.h}px`,
     });
-    const a = panZoom.toWorld(gesture.x, gesture.y);
-    const b = panZoom.toWorld(e.clientX, e.clientY);
-    const area = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
     const inside = layout ? [...layout.cells].filter(([, r]) => intersects(area, r)).map(([k]) => k) : [];
     setSelected([...gesture.base, ...inside]);
   });
   const endGesture = () => {
-    if (gesture && !gesture.moved && gesture.kind === 'pan') setSelected([]);
+    if (gesture && !gesture.moved && gesture.kind === 'click') setSelected([]);
     gesture = null;
     band.style.display = 'none';
-    viewport.classList.remove('flow-viewport--panning');
   };
   viewport.addEventListener('pointerup', endGesture);
   viewport.addEventListener('pointercancel', endGesture);
 
+  // No zoom, also not the browser's with Ctrl: Ctrl + wheel scrolls like the wheel.
   viewport.addEventListener(
     'wheel',
     e => {
+      if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
-      if (e.ctrlKey || e.metaKey) {
-        const r = viewport.getBoundingClientRect();
-        panZoom.zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - r.left, e.clientY - r.top);
-      } else if (e.shiftKey) {
-        panZoom.panBy(-(e.deltaY || e.deltaX), 0);
-      } else {
-        panZoom.panBy(-e.deltaX, -e.deltaY);
-      }
+      viewport.scrollBy(e.deltaX, e.deltaY);
     },
     { passive: false },
   );
@@ -963,9 +1212,42 @@ export function createFlowCanvas(): HTMLElement {
     }
   });
 
-  exportButton.addEventListener('click', () => void downloadImages(selected));
+  // 新規作成: an empty archive with the name entered, shown at once (its images come with 画像読み込み / a drop).
+  newButton.addEventListener('click', async () => {
+    // Filled by the dialog when the archive was made.
+    const result: { archive?: { key: string; name: string } } = {};
+    await inputDialog({
+      title: 'アーカイブの新規作成',
+      label: '名前',
+      placeholder: '例: 第2話',
+      confirmLabel: '作成',
+      submit: async name => {
+        try {
+          result.archive = await createArchive(name);
+          return null;
+        } catch (err) {
+          return describeError(err).message;
+        }
+      },
+    });
+    if (!result.archive) return;
+    const { key, name } = result.archive;
+    await reload(key, { fit: true });
+    showToast(`「${name}」を作成しました`, 'success');
+  });
+
+  // 書き出し: the selection, or every panel's 「最終」 image when nothing is selected.
+  exportButton.addEventListener('click', () => {
+    void downloadImages(selected.length || !graph ? selected : finalImages(graph, panelRows()));
+  });
   deleteButton.addEventListener('click', () => void deleteSelection());
   undoButton.addEventListener('click', () => void historyManager.undo());
+  redoButton.addEventListener('click', () => void historyManager.redo());
+  // 画像読み込み: the tool's ▶ (the file dialog at once; into the shown archive while it is empty).
+  importButton.addEventListener('click', () => {
+    const loader = TOOLS.find(t => t.id === 'image-loader');
+    if (loader) void playTool(loader);
+  });
   on('history:changed', syncActionButtons);
 
   // ── Events ──
@@ -985,6 +1267,15 @@ export function createFlowCanvas(): HTMLElement {
     selected = [];
     void reload(null, { fit: true });
   });
+  // The row tool buttons: ⏸ on the running tool's, the others dimmed (like the TOOLS list).
+  on('tool:start', ({ toolName }) => {
+    for (const { name, button } of [...rowToolButtons, ...paneToolButtons]) button.setRunning(name === toolName);
+    main.classList.add('flow-canvas--busy');
+  });
+  on('tool:end', () => {
+    for (const { button } of [...rowToolButtons, ...paneToolButtons]) button.setRunning(false);
+    main.classList.remove('flow-canvas--busy');
+  });
   on('tool:start', () => {
     runResults = [];
     for (const [key, state] of targetStates) if (state === 'failed') targetStates.delete(key);
@@ -999,10 +1290,6 @@ export function createFlowCanvas(): HTMLElement {
     if (state === 'done') targetStates.delete(key);
     else targetStates.set(key, state);
     applyTargetState(key);
-  });
-  // An archive loaded while the canvas was hidden (another mode) is fitted when it is shown.
-  on('normal-mode:toggle', ({ enabled }) => {
-    if (enabled && pendingFit) fitAll();
   });
 
   void (async () => {

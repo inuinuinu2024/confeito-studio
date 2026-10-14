@@ -241,3 +241,64 @@ def test_recrop_panel_errors(panel: str, box: list[float], source: str | None, m
 def test_parse_box_rejects_bad_input(text: str | None) -> None:
     with pytest.raises(panel_service.PanelServiceError):
         panel_service.parse_box(text)
+
+
+def test_add_panel_cuts_a_new_panel_of_the_split_from_the_page(archives_dir: Path) -> None:
+    _split_fixture()
+
+    result = panel_service.add_panel("page/split", [40, 20.4, 160, 80], "page/split/01.png", "page/split/02.png")
+
+    folder = result["folder"]
+    assert folder.startswith("page/") and folder.endswith("_コマ追加")
+    assert result["key"] == f"{folder}/panel.png"
+    assert result["pixel_box"] == [40, 20, 160, 80]
+    assert (result["width"], result["height"]) == (120, 60)
+    cut = Image.open(archives_dir / result["key"])
+    assert cut.size == (120, 60)
+    assert cut.getpixel((10, 10)) == (255, 0, 0, 255)
+    assert cut.getpixel((110, 10)) == (0, 0, 255, 255)
+    info = json.loads((archives_dir / folder / "info.json").read_text(encoding="utf-8"))
+    assert info["tool"] == "コマ追加" and info["source"] == "page/split"
+    assert info["settings"] == {
+        "split": "page/split",
+        "pixel_box": [40, 20, 160, 80],
+        "after": "page/split/01.png",
+        "before": "page/split/02.png",
+    }
+    # The コマ分割 itself is not rewritten.
+    panels = json.loads((archives_dir / "page/split/panels.json").read_text(encoding="utf-8"))
+    assert len(panels["panels"]) == 2
+
+
+def test_add_panel_at_the_top_has_no_panel_before_it(archives_dir: Path) -> None:
+    _split_fixture()
+    result = panel_service.add_panel("page/split", [0, 0, 10, 10], None, "page/split/01.png")
+    info = json.loads((archives_dir / result["folder"] / "info.json").read_text(encoding="utf-8"))
+    assert (info["settings"]["after"], info["settings"]["before"]) == (None, "page/split/01.png")
+
+
+@pytest.mark.parametrize(
+    ("split", "box", "source", "message"),
+    [
+        ("", [0, 0, 10, 10], "page/page.png", "コマを追加するコマ分割が指定されていません"),
+        ("page/none", [0, 0, 10, 10], "page/page.png", "コマ分割の結果ではありません"),
+        ("page/split", [0, 0, 10, 10], None, "分割前のページが記録されていないため、コマを追加できません"),
+        ("page/split", [300, 0, 400, 10], "page/page.png", "ページの外か、大きさが 0"),
+    ],
+)
+def test_add_panel_errors(split: str, box: list[float], source: str | None, message: str) -> None:
+    _split_fixture(source)
+    with pytest.raises(panel_service.PanelServiceError, match=message):
+        panel_service.add_panel(split, box)
+
+
+def test_recrop_panel_cuts_an_added_panel_from_the_page_of_its_split(archives_dir: Path) -> None:
+    _split_fixture()
+    added = panel_service.add_panel("page/split", [0, 0, 50, 50])
+
+    result = panel_service.recrop_panel(added["key"], [150, 0, 200, 50])
+
+    assert Image.open(archives_dir / result["key"]).getpixel((5, 5)) == (0, 0, 255, 255)
+    info = json.loads((archives_dir / result["folder"] / "info.json").read_text(encoding="utf-8"))
+    assert info["source"] == added["key"]
+    assert info["settings"] == {"split": "page/split", "panel": "panel.png", "pixel_box": [150, 0, 200, 50]}

@@ -57,6 +57,11 @@ export function warnIfToolRunning(toolName: string): boolean {
   return true;
 }
 
+/** Name of the tool running now, or null. */
+export function runningToolName(): string | null {
+  return running?.name ?? null;
+}
+
 /** Stops the running tool (no-op when nothing runs). */
 export function stopTool(): void {
   running?.controller.abort();

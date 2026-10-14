@@ -64,7 +64,7 @@ export function labelEvery(days: number): number {
 export const OTHER_SERIES = 'その他';
 
 /** Tools in the order of their chart colors; any other tool is placed after these. */
-export const TOOL_ORDER = ['Nano Banana画像生成', 'コマ分割'];
+export const TOOL_ORDER = ['AI画像生成', 'コマ分割'];
 /** Colored series in the chart; tools past this fold into OTHER_SERIES. */
 export const MAX_SERIES = 3;
 

@@ -271,6 +271,25 @@ def new_archive_meta(name: str, now: datetime | None = None) -> ArchiveMeta:
     }
 
 
+_FOLDER_UNSAFE = re.compile(r'[\\/:*?"<>|]')
+
+
+def create_archive(name: str, now: datetime | None = None) -> dict[str, str]:
+    """Creates an empty archive shown as ``name`` (Workspace 「新規作成」): the folder ``YYYYMMDD_HHMMSS_<name>``
+    (characters a folder name cannot have replaced by ``_``) with only its .archive.json. A name another archive
+    uses is refused, as when renaming. Returns its key and display name."""
+    display = normalize_display_name(name)
+    if display in display_names():
+        raise ArchiveConflictError(f"同じ名前のアーカイブ「{display}」があります。")
+    now = now or datetime.now()
+    safe = _FOLDER_UNSAFE.sub("_", display).strip(" .") or "archive"
+    folder = unique_name(settings.archives_dir, f"{now:%Y%m%d_%H%M%S}_{safe}")
+    validate_archive_name(folder)
+    meta: ArchiveMeta = {"name": display, "created_at": f"{now:%Y-%m-%d %H:%M:%S}"}
+    save_archive(folder, [(ARCHIVE_META_FILE, meta_bytes(meta))])
+    return {"key": folder, "name": display}
+
+
 def rename_archive(archive_name: str, new_name: str) -> ArchiveMeta:
     """Changes the display name (the folder name stays); a name another archive uses is refused."""
     archive_dir = existing_archive_dir(archive_name)

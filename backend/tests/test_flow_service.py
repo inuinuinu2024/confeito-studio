@@ -52,7 +52,7 @@ def test_flow_lists_roots_and_runs_oldest_first() -> None:
     # The order of info.json outputs is kept.
     assert [o["name"] for o in split["outputs"]] == ["01.png", "02.png"]
     assert split["outputs"][0]["width"] == 6
-    assert flow["selection"] == {} and flow["merge"] == {}
+    assert flow["selection"] == {} and flow["merge"] == {} and flow["removed"] == {}
 
 
 def test_folder_without_readable_info_is_a_run_without_input() -> None:
@@ -114,6 +114,21 @@ def test_merge_choices_are_kept_next_to_the_selection() -> None:
         flow_service.set_merge_choice("page", "", "x")
 
 
+def test_panels_deleted_one_by_one_are_kept_in_the_flow_file() -> None:
+    save_archive("page", [("page.png", make_png(4, 4))])
+
+    flow_service.set_merge_choice("page", "page/split/01.png", "page/gen/g.png")
+    flow_service.set_panel_removed("page", "page/split/02.png", True)
+    flow_service.set_panel_removed("page", "page/split/03.png", True)
+    flow_service.set_panel_removed("page", "page/split/03.png", False)
+
+    flow = flow_service.get_flow("page")
+    assert list(flow["removed"]) == ["page/split/02.png"]
+    assert flow["merge"] == {"page/split/01.png": "page/gen/g.png"}
+    with pytest.raises(archive_service.ArchiveValidationError):
+        flow_service.set_panel_removed("page", "", True)
+
+
 def test_broken_flow_file_counts_as_no_selection(archives_dir: Path) -> None:
     save_archive("page", [("page.png", make_png(4, 4)), (".flow.json", b"[1, 2")])
 
@@ -163,6 +178,8 @@ def test_flow_api(client) -> None:
     assert client.get("/api/archives/page/flow").json()["selection"] == {"s": "f"}
     assert client.put("/api/archives/page/flow/merge", json={"panel": "p", "image": "i"}).status_code == 200
     assert client.get("/api/archives/page/flow").json()["merge"] == {"p": "i"}
+    assert client.put("/api/archives/page/flow/removed", json={"panel": "p", "removed": True}).status_code == 200
+    assert list(client.get("/api/archives/page/flow").json()["removed"]) == ["p"]
 
     res = client.get("/api/archives/page/thumbnail", params={"path": "page.png", "size": 150})
     assert res.status_code == 200

@@ -36,6 +36,7 @@ def _archive_with_flow(archives_dir: Path) -> str:
     )
     flow_service.set_selection(page, f"{split}/01.png|背景除去", nobg)
     flow_service.set_selection(page, f"|コマ分割|{split}", split)
+    flow_service.set_panel_removed(page, f"{split}/02.png", True)
     return page
 
 
@@ -232,6 +233,22 @@ def test_export_images_side_by_side(archives_dir: Path, tmp_path: Path) -> None:
         transfer.export_images([f"{page}/missing.png"], tmp_path / "x.zip")
     with pytest.raises(svc.ArchiveNotFoundError):
         transfer.export_images([page], tmp_path / "x.zip")  # an archive is not an image
+
+
+def test_export_images_with_names_chosen(archives_dir: Path, tmp_path: Path) -> None:
+    page = _archive_with_flow(archives_dir)
+    keys = [f"{page}/20260101_100200_背景除去/nobg.png", f"{page}/page.png", f"{page}/20260101_100100_コマ分割/01.png"]
+
+    name = transfer.export_images(
+        keys, tmp_path / "i.zip", names=["コマ1.png", "コマ1.png", ""], zip_name="第1話: 完成"
+    )
+
+    assert name == "第1話_ 完成.zip"
+    with zipfile.ZipFile(tmp_path / "i.zip") as zf:
+        # The same name twice gets "_2"; an empty one keeps the usual name.
+        assert zf.namelist() == ["コマ1.png", "コマ1_2.png", "20260101_100100_コマ分割_01.png"]
+    with pytest.raises(svc.ArchiveValidationError, match="画像と名前の数"):
+        transfer.export_images(keys, tmp_path / "x.zip", names=["a.png"])
 
 
 def test_details_route(client, archives_dir: Path) -> None:

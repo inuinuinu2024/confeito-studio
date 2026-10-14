@@ -51,7 +51,7 @@ export interface Tool {
   /** Prepares the tool's state before its window opens (after the settings are read). */
   beforeOpen?: () => Promise<void>;
   /**
-   * Side-by-side columns in the tool window (400px each; e.g. 3 for Nano Banana画像生成). renderSettings then
+   * Side-by-side columns in the tool window (400px each; e.g. 3 for AI画像生成). renderSettings then
    * appends that many `.tool-window__column` elements, each scrolling on its own. Default: one column.
    */
   windowColumns?: number;

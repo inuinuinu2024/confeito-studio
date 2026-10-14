@@ -18,6 +18,43 @@ export function imageFileName(key: string): string {
   return rel.replace(/\//g, '_').replace(UNSAFE_FILE_CHARS, '_') || 'image';
 }
 
+/** "a.b.png" -> { stem: "a.b", ext: ".png" }; a name without an extension has ext "". */
+export function splitFileName(name: string): { stem: string; ext: string } {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? { stem: name.slice(0, dot), ext: name.slice(dot) } : { stem: name, ext: '' };
+}
+
+/** `stem` + `ext` usable as a file name (characters a file name cannot have become "_"). */
+export function exportFileName(stem: string, ext: string): string {
+  return `${stem.trim().replace(UNSAFE_FILE_CHARS, '_')}${ext}`;
+}
+
+/**
+ * Why each name of an export (stem + extension) cannot be used, or null: empty, or the same as another one
+ * (ignoring case, as Windows does). Same order as `names`.
+ */
+export function exportNameErrors(names: readonly { stem: string; ext: string }[]): (string | null)[] {
+  const full = names.map(n => exportFileName(n.stem, n.ext).toLowerCase());
+  return names.map((n, i) => {
+    if (!n.stem.trim()) return 'ファイル名を入力してください';
+    return full.indexOf(full[i]) !== i || full.lastIndexOf(full[i]) !== i ? '同じ名前があります' : null;
+  });
+}
+
+/**
+ * `count` names numbered from `start` (書き出しの「連番を付ける」): the "#"s in `base` become the number, as many digits as
+ * there are "#"s ("第1話_##" -> 第1話_01, 第1話_02 …); without "#", "_<number>" is put after it with two digits (three from 100).
+ */
+export function serialNames(base: string, start: number, count: number): string[] {
+  const hashes = /#+/.exec(base);
+  const last = start + count - 1;
+  const digits = hashes ? hashes[0].length : Math.max(2, String(last).length);
+  return Array.from({ length: count }, (_, i) => {
+    const n = String(start + i).padStart(digits, '0');
+    return hashes ? base.slice(0, hashes.index) + n + base.slice(hashes.index + hashes[0].length) : `${base}_${n}`;
+  });
+}
+
 /** Why `name` cannot be a display name (null when it can). The backend checks it again. */
 export function displayNameError(name: string): string | null {
   const trimmed = name.trim();

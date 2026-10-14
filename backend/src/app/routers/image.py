@@ -11,8 +11,8 @@ from starlette.concurrency import run_in_threadpool
 from ..errors import BadRequestError, unexpected_errors_as
 from ..services import panel_geometry
 from ..services.image_service import remove_background
-from ..services.merge_service import merge_panels, parse_boxes, parse_overrides
-from ..services.panel_service import build_preview, parse_box, recrop_panel, split_panels
+from ..services.merge_service import merge_panels, parse_boxes, parse_extras, parse_overrides, parse_removed
+from ..services.panel_service import add_panel, build_preview, parse_box, recrop_panel, split_panels
 
 router = APIRouter(prefix="/image", tags=["image"])
 
@@ -92,16 +92,38 @@ async def api_recrop_panel(panel_key: str = Form(...), box: str = Form(...)) -> 
         return await run_in_threadpool(recrop_panel, panel_key, pixel_box)
 
 
+@router.post("/add-panel")
+async def api_add_panel(
+    split_folder: str = Form(...),
+    box: str = Form(...),
+    after: str | None = Form(None),
+    before: str | None = Form(None),
+) -> dict:
+    """Adds a panel to a コマ分割: cuts ``box`` (JSON ``[xmin, ymin, xmax, ymax]``) from its page, between the
+    panels ``after`` and ``before`` (keys; none at the top / the bottom)."""
+    pixel_box = parse_box(box)
+    with unexpected_errors_as("コマの追加の処理中にエラーが発生しました。"):
+        return await run_in_threadpool(add_panel, split_folder, pixel_box, after, before)
+
+
 @router.post("/merge-panels")
 async def api_merge_panels(
-    target_folder: str = Form(...), overrides: str | None = Form(None), boxes: str | None = Form(None)
+    target_folder: str = Form(...),
+    overrides: str | None = Form(None),
+    boxes: str | None = Form(None),
+    extras: str | None = Form(None),
+    removed: str | None = Form(None),
 ) -> dict:
     """Pastes the panels listed in ``<target_folder>/panels.json`` back into one image.
 
     ``overrides`` (JSON ``{panel file name: archive key}``) replaces panels with other images;
-    ``boxes`` (JSON ``{panel file name: [xmin, ymin, xmax, ymax]}``) places panels cut again (コマ切り直し).
+    ``boxes`` (JSON ``{panel file name: [xmin, ymin, xmax, ymax]}``) places panels cut again (コマ切り直し);
+    ``extras`` (JSON ``[{"key": archive key, "box": [xmin, ymin, xmax, ymax]}]``) pastes the panels added by
+    hand (コマ追加); ``removed`` (JSON list of panel file names) leaves out the panels deleted one by one.
     """
     replacements = parse_overrides(overrides)
     placed = parse_boxes(boxes)
+    added = parse_extras(extras)
+    left_out = parse_removed(removed)
     with unexpected_errors_as("コマ結合の処理中にエラーが発生しました。"):
-        return await run_in_threadpool(merge_panels, target_folder, replacements, placed)
+        return await run_in_threadpool(merge_panels, target_folder, replacements, placed, added, left_out)

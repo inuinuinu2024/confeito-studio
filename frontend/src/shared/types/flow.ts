@@ -38,4 +38,6 @@ export interface FlowData {
   selection: Record<string, string>;
   /** Image marked for each panel (panel image key -> image key): what コマ結合 pastes for that panel. */
   merge: Record<string, string>;
+  /** Panels of a コマ分割 deleted one by one (panel image key -> when): not shown, not pasted by コマ結合. */
+  removed?: Record<string, string>;
 }

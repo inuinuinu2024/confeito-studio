@@ -84,12 +84,14 @@ backend/src/app/
 | PUT | `/archives/{name}/meta` | `{name}`: 表示名を変える（`.archive.json`。フォルダ名は変えない。同じ表示名があれば 409）→ `{name, created_at}` |
 | POST | `/archives/export` | `{names}`: アーカイブの zip（`manifest.json` ＋ フォルダごと）。ファイル名は `X-File-Name`（URL エンコード）。一時ファイルを送って消す |
 | POST | `/archives/import` | multipart `file`（zip）: 中のアーカイブを新しいアーカイブとして追加 → `{imported: [{key, name}], skipped_files, warnings}`。読めない zip は 400 |
-| POST | `/archives/export-images` | `{keys}`: 画像をフォルダなしで並べた zip（名前は `<結果フォルダ>_<ファイル名>`、重なれば `_2`）。ファイル名は `X-File-Name` |
+| POST | `/archives/export-images` | `{keys, names?, zip_name?}`: 画像をフォルダなしで並べた zip（名前は `names`（keys と同じ順。空は既定）、なければ `<結果フォルダ>_<ファイル名>`、重なれば `_2`。zip の名前は `zip_name`）。ファイル名は `X-File-Name` |
 | POST | `/archives` | multipart: `name`, `files[]`, `paths[]` で保存（既存なら追記・上書き） |
+| POST | `/archives/empty` | `{name}`: 空のアーカイブを作る（Workspace の新規作成）。`{key, name}` を返す。同じ表示名があれば 409 |
 | POST | `/archives/results` | ツールの結果を保存: multipart `root?`, `name`, `info?`(JSON), `files[]`, `paths[]` → `{folder, archive_name}`（`save_result`。同名は `_2`…、info.json を付ける。新しいアーカイブには `.archive.json`。`archive_name` は表示名） |
 | GET | `/archives/{name}/contents` | 配下の全フォルダ・ファイル（`folderId` で親子。`.flow.json`・`.archive.json` は含めない） |
-| GET | `/archives/{name}/flow` | Workspace の処理フロー `{archive, roots, runs, selection}`。roots = 直下の画像、runs = 直下の結果フォルダ（info.json の `tool`/`created_at`/`source`/`sources`/`settings` と、直下の画像 `outputs[{key,name,width,height}]`。古い順）、selection = `.flow.json` の表示中の候補、merge = コマ結合に使う画像のマーク |
+| GET | `/archives/{name}/flow` | Workspace の処理フロー `{archive, roots, runs, selection}`。roots = 直下の画像、runs = 直下の結果フォルダ（info.json の `tool`/`created_at`/`source`/`sources`/`settings` と、直下の画像 `outputs[{key,name,width,height}]`。古い順）、selection = `.flow.json` の表示中の候補、merge = コマ結合に使う画像のマーク、removed = 1 つずつ削除したコマ |
 | PUT | `/archives/{name}/flow/selection` | `{stack, folder}`: スタックの表示中の候補を `.flow.json` に保存（`folder: null` で既定 = 最新に戻す） |
+| PUT | `/archives/{name}/flow/removed` | `{panel, removed}`: コマ分割のコマ `panel` を 1 つだけ削除した記録を `.flow.json` に保存（`removed: false` で消す = 元に戻す） |
 | PUT | `/archives/{name}/flow/merge` | `{panel, image}`: コマ結合でコマ `panel` に貼る画像のマークを `.flow.json` に保存（`image: null` でマークを外す = 原画） |
 | GET | `/archives/{name}/thumbnail?path=&size=` | 画像の縮小コピー（長辺 `size` px、32〜1024。透過ありは PNG、なしは JPEG）。画像でない・ない時は 404 |
 | GET | `/archives/{name}/extract?path=` | ファイル本体 |
@@ -100,8 +102,9 @@ backend/src/app/
 | POST | `/image/remove-bg` | 背景除去（[specs/tools/remove-background.md](../specs/tools/remove-background.md)） |
 | POST | `/image/split-panels` | コマ分割（[specs/tools/panel-split-merge.md](../specs/tools/panel-split-merge.md)） |
 | POST | `/image/split-panels/preview` | コマ分割で Gemini に送るリクエストの確認用 |
-| POST | `/image/recrop-panel` | コマの切り直し。form `panel_key`（コマ分割の結果のコマのキー）、`box`（JSON `[xmin, ymin, xmax, ymax]`、分割前のページの画素） |
-| POST | `/image/merge-panels` | コマ結合。form `target_folder`（コマ分割の結果フォルダ）、`overrides?`（JSON `{コマのファイル名: 差し替える画像のキー}`）、`boxes?`（JSON `{コマのファイル名: 切り直した範囲}`） |
+| POST | `/image/recrop-panel` | コマの切り直し。form `panel_key`（コマ分割の結果のコマ・追加したコマのキー）、`box`（JSON `[xmin, ymin, xmax, ymax]`、分割前のページの画素） |
+| POST | `/image/add-panel` | コマの追加。form `split_folder`（コマ分割の結果フォルダのキー）、`box`（JSON、分割前のページの画素）、`after` / `before`（間に入れたコマのキー。省略可） |
+| POST | `/image/merge-panels` | コマ結合。form `target_folder`（コマ分割の結果フォルダ）、`overrides?`（JSON `{コマのファイル名: 差し替える画像のキー}`）、`boxes?`（JSON `{コマのファイル名: 切り直した範囲}`）、`extras?`（JSON `[{key, box}]`、追加したコマ）、`removed?`（JSON `[コマのファイル名]`、貼らないコマ） |
 | POST | `/nano-banana-pro` | 画像生成・Interactions API（応答は画像そのもの） |
 | POST | `/nano-banana-pro/generate-content` | 画像生成・generateContent API（応答は上と同じ） |
 | POST | `/local-files/check-folder` | `{path}` が絶対パスの既存フォルダか（空欄は可）。違えば 404（画像読み込み） |

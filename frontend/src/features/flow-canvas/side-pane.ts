@@ -27,6 +27,8 @@ export function createSidePane(opts: {
   empty: string;
   settings: ToolSettings;
   onOpen: (image: FlowImage, title: string) => void;
+  /** Shown below the heading, above the images (the buttons for every panel of the コマ結合後 pane). */
+  tools?: HTMLElement;
 }): SidePane {
   const { side, title, settings } = opts;
   const cssVar = `--flow-${side}-width`;
@@ -38,13 +40,14 @@ export function createSidePane(opts: {
   const edgeIcon = icon('arrow_left', 20);
   const edgeButton = h('button', { class: 'flow-pane__edge' }, edgeIcon);
   const mainImage = h('img', { class: 'flow-pane__img', alt: title, draggable: false });
-  const main = h('button', { class: 'flow-pane__main', title: 'クリックで拡大表示' }, mainImage);
+  const main = h('button', { class: 'flow-pane__main', title: '拡大表示' }, mainImage);
   const emptyText = h('div', { class: 'flow-pane__empty', text: opts.empty });
   const list = h('div', { class: 'flow-pane__list' });
   const content = h(
     'div',
     { class: 'flow-pane__content' },
     h('div', { class: 'flow-pane__head' }, h('span', { class: 'flow-pane__title', text: title }), sizeLabel),
+    opts.tools ?? null,
     h('div', { class: 'flow-pane__body' }, main, emptyText),
     list,
   );

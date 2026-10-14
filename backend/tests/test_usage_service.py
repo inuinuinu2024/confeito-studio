@@ -318,7 +318,7 @@ def test_generated_image_is_recorded(client, monkeypatch: pytest.MonkeyPatch) ->
 
     assert res.status_code == 200
     [entry] = records()
-    assert entry["tool"] == "Nano Banana画像生成" and entry["status"] == "success" and not entry["estimated"]
+    assert entry["tool"] == "AI画像生成" and entry["status"] == "success" and not entry["estimated"]
     assert entry["service_tier"] == "priority"
     assert entry["usage"]["output_image_tokens"] == 1120 and entry["usage"]["images"] == 1
     assert entry["cost_usd"] == pytest.approx((100 * 3.60 + 1120 * 216.00) / 1_000_000)
@@ -386,3 +386,16 @@ def test_panel_split_is_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
     [entry] = records()
     assert entry["tool"] == "コマ分割" and entry["model"] == "gemini-3.8-flash" and entry["api"] == "generate_content"
     assert entry["usage"] == usage(input_tokens=1000, output_text_tokens=50, thought_tokens=30)
+
+
+def test_records_of_a_renamed_tool_count_under_its_new_name(data_dir: Path) -> None:
+    # Nano Banana画像生成 was renamed AI画像生成: old and new records are one tool, the records are not rewritten.
+    add(at_jst(10, 4, 1), "Nano Banana画像生成", "gemini-3.8-flash", input_tokens=1_000_000)
+    add(at_jst(10, 4, 2), "AI画像生成", "gemini-3.8-flash", input_tokens=1_000_000)
+
+    day = usage_store.day_detail("local", "2026-10-04", 540)
+    summary = usage_store.summary("local", NOW_MS, 540, "7d")
+
+    assert [(r["name"], r["count"]) for r in day["by_tool"]] == [("AI画像生成", 2)]
+    assert {r["tool"] for r in day["records"]} == {"AI画像生成"}
+    assert summary["daily"][-1]["by_tool"] == {"AI画像生成": pytest.approx(1.5)}
