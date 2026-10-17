@@ -21,8 +21,8 @@
  *   saved in the archive).
  * - Delete removes the selected results and what was made from them (deletion.ts; Ctrl+Z undoes).
  * - At the right end of a panel row: the AI画像生成 and 背景除去 buttons of the TOOLS list (open the window / ▶ / ⏸),
- *   for the row's rightmost image (it is selected first). At the top of the コマ結合後 pane, the same buttons for every
- *   panel: 全コマに AI画像生成, 全コマに背景除去 (every row's rightmost image, one after another), コマ結合.
+ *   for the row's rightmost image (it is selected first). In the 全コマ row above the panel rows, the same buttons for
+ *   every panel: AI画像生成, 背景除去 (every row's rightmost image, one after another) and コマ結合 (every panel).
  * - ＋ on the lines between the panel rows (and above the first / below the last) adds a panel: the panel cropper in
  *   add mode, the frame starting between the panels around it (コマ追加, saved as a result of its own).
  * - Always at 100% from the top left (no zoom, no dragging the view): scroll bars when the flow does not fit; image
@@ -109,7 +109,7 @@ import { forgetThumbnails, thumbnailUrl } from './thumbnails';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 /** The tools at the right end of a panel row (docs/specs/flow-canvas.md 「コマの行のツール」), top to bottom. */
 const ROW_TOOL_IDS = ['nano-banana-pro', 'remove-background'];
-/** The tool at the top of the コマ結合後 pane (docs/specs/flow-canvas.md 「全コマのツール」): コマ結合 of every panel. */
+/** The tool of the 全コマ row only (docs/specs/flow-canvas.md 「全コマのツール」): コマ結合 of every panel. */
 const MERGE_TOOL_ID = 'panel-merge';
 const SPLIT_TOOL_ID = 'panel-splitter';
 /** Room kept around the selection when it is scrolled into view. */
@@ -166,7 +166,7 @@ export function createFlowCanvas(): HTMLElement {
   const cellElements = new Map<string, HTMLElement>();
   /** The tool buttons of the panel rows shown (▶ / ⏸ follow the running tool). */
   let rowToolButtons: { name: string; button: ToolButton }[] = [];
-  /** The buttons of the side panes: every panel's at the top of コマ結合後, the 元ページ's (made once). */
+  /** The buttons of the side panes: the 元ページ's コマ分割 (made once). */
   const paneToolButtons: { name: string; button: ToolButton }[] = [];
   /** The page in the 元ページ pane (not in the flow): コマ分割 of the widened pane runs on it. */
   let pageKey: string | null = null;
@@ -734,7 +734,7 @@ export function createFlowCanvas(): HTMLElement {
           style: place(tools.header.x, tools.header.y, tools.header.h),
         },
         ...toolButtons(ROW_TOOL_IDS, everyRow, rowToolButtons),
-        // コマ結合 of every panel, as at the top of the コマ結合後 pane.
+        // コマ結合 of every panel: only here, not in the コマ結合後 pane.
         ...toolButtons([MERGE_TOOL_ID], panelOriginals, rowToolButtons),
       ),
     ];
@@ -920,7 +920,7 @@ export function createFlowCanvas(): HTMLElement {
     if (request !== loadRequest) return;
     const switched = name !== archive;
     archive = data ? name : null;
-    docs.setFlow(archive, data);
+    docs.setFlow(archive, data, archives.find(a => a.key === archive)?.name ?? archive);
     graph = data ? buildGraph(data) : null;
     if (graph && archive && opts.select?.length) adoptNewResults(graph, archive, opts.select);
     if (switched && archive && settings.get('archive', '') !== archive) {

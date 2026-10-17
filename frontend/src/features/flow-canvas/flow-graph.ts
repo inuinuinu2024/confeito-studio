@@ -779,6 +779,44 @@ export function mergeExtras(graph: FlowGraph, splitRun: FlowRun): { key: string;
   });
 }
 
+/** A panel row that コマ結合 pastes otherwise than as split / added (the merge tool window's card). */
+export interface MergeReplacement {
+  /** The row number in the Workspace ("コマ <n>"; rows move up after a deletion, down after an addition). */
+  number: number;
+  /** The image marked 「最終」 for it, named by its band ("背景除去 1"; else its file name), or null. */
+  marked: string | null;
+  /** The re-cut version shown ("切り直し 1"; pasted at its box), or null. */
+  recut: string | null;
+}
+
+/**
+ * The panel rows of the コマ分割 run `split` whose pasted image or box is not the panel's own
+ * (docs/specs/tools/panel-split-merge.md 「コマ結合」), top to bottom. `flow` names the marked images by their bands.
+ */
+export function mergeReplacements(graph: FlowGraph, flow: VisibleFlow, split: FlowRun): MergeReplacement[] {
+  return panelOrder(graph, split).flatMap((panel, i) => {
+    const choice = mergeChoice(graph, panel);
+    const version = shownVersion(graph, panel);
+    const recut = version?.run.tool === RECROP_TOOL ? version.label : null;
+    if (!choice.marked && !recut) return [];
+    let marked: string | null = null;
+    if (choice.marked) {
+      const step = flow.stepOfCell.get(choice.key);
+      const at = step ? step.cells.findIndex(c => c.key === choice.key) : -1;
+      const band = step && at >= 0 ? rowLabels(step)[at]?.name : undefined;
+      marked = band ?? graph.images.get(choice.key)?.name ?? choice.key;
+    }
+    return [{ number: i + 1, marked, recut }];
+  });
+}
+
+/** The row numbers ("コマ <n>") of the panels added by hand to the コマ分割 run `split`, top to bottom. */
+export function addedPanelNumbers(graph: FlowGraph, split: FlowRun): number[] {
+  return panelOrder(graph, split).flatMap((panel, i) =>
+    graph.runOfImage.get(panel.key)?.tool === ADD_TOOL ? [i + 1] : [],
+  );
+}
+
 /** The nearest run of `tool` upstream of `key` (the image itself counts when that run made it). */
 export function upstreamRun(graph: FlowGraph, key: string, tool: string): FlowRun | null {
   const seen = new Set<string>();

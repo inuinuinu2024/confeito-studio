@@ -1,7 +1,7 @@
 """Panel merging (コマ結合): paste split panels back onto a canvas of the original size.
 
-Reads ``panels.json`` written by panel_service and saves ``<YYYYMMDD_HHMMSS>_コマ結合.png`` + info.json
-in ``<root of the target>/<YYYYMMDD_HHMMSS>_コマ結合/`` (``archive_service.save_result``).
+Reads ``panels.json`` of a コマ分割 result (``split_folder``, written by panel_service) and saves
+``<YYYYMMDD_HHMMSS>_コマ結合.png`` + info.json in ``<its archive>/<YYYYMMDD_HHMMSS>_コマ結合/`` (``archive_service.save_result``).
 A panel can be replaced by another image (e.g. its colored version, docs/specs/tools/panel-split-merge.md):
 ``overrides`` maps the panel's file name to an archive key, and that image is resized to the panel's size.
 A panel cut again from the page (コマ切り直し) has its own box: ``boxes`` maps the panel's file name to that
@@ -18,7 +18,14 @@ from typing import Any
 from PIL import Image
 
 from ..errors import BadRequestError, exception_text
-from .archive_service import ArchiveServiceError, extract_file, normalize_rel_path, save_result, split_archive_path
+from .archive_service import (
+    ArchiveServiceError,
+    extract_file,
+    normalize_rel_path,
+    read_meta,
+    save_result,
+    split_archive_path,
+)
 from .panel_geometry import clamp_pixel_box
 
 TOOL_NAME = "コマ結合"
@@ -35,12 +42,14 @@ def _load_panels_json(root: str, folder_path: str, label: str) -> dict[str, Any]
         return json.loads(content.decode("utf-8"))
     except ArchiveServiceError as e:
         raise MergeServiceError(
-            f"選択されたフォルダ ({label}) 内に panels.json が見つかりません。"
-            "コマ分割ツールで作成されたフォルダを選択してください。"
+            f"コマ分割の結果（{label}）に panels.json（コマの位置の記録）が見つかりません。"
+            "キャンバスでコマ分割したコマを選択してください。",
+            raw_response=e.message,
         ) from e
-    except json.JSONDecodeError as e:
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
         raise MergeServiceError(
-            f"フォルダ ({label}) 内の panels.json の解析に失敗しました。ファイルが破損している可能性があります。"
+            f"コマ分割の結果（{label}）の panels.json を読み取れません。ファイルが壊れている可能性があります。",
+            raw_response=exception_text(e),
         ) from e
 
 
@@ -112,10 +121,10 @@ def _open_image(archive: str, path: str, label: str) -> Image.Image:
         return Image.open(io.BytesIO(img_bytes)).convert("RGBA")
     except ArchiveServiceError as e:
         raise MergeServiceError(
-            f"コマ画像 ({label}) がフォルダ内に見つかりません。ファイルが削除または移動された可能性があります。"
+            f"コマの画像（{label}）が見つかりません。削除された可能性があります。", raw_response=e.message
         ) from e
     except Exception as e:
-        raise MergeServiceError(f"コマ画像 ({label}) を読み込めませんでした。", raw_response=exception_text(e)) from e
+        raise MergeServiceError(f"コマの画像（{label}）を読み込めませんでした。", raw_response=exception_text(e)) from e
 
 
 def _compose(
@@ -209,21 +218,21 @@ def _settings(
 
 
 def merge_panels(
-    target_folder: str,
+    split_folder: str,
     overrides: dict[str, str] | None = None,
     boxes: dict[str, list[float]] | None = None,
     extras: list[dict[str, Any]] | None = None,
     removed: list[str] | None = None,
 ) -> dict[str, Any]:
-    target = normalize_rel_path(target_folder)
+    target = normalize_rel_path(split_folder)
     if not target:
         raise MergeServiceError(
-            "対象のコマ分割が指定されていません。キャンバスでコマ分割の結果（コマ）を選択してください。"
+            "結合するコマ分割が指定されていません。キャンバスでコマ分割したコマ（またはコマから作った画像）を選択してください。"
         )
 
     parts = target.split("/")
     root, folder_path = parts[0], "/".join(parts[1:])
-    panels_data = _load_panels_json(root, folder_path, target)
+    panels_data = _load_panels_json(root, folder_path, folder_path or root)
     overrides = overrides or {}
     boxes = boxes or {}
     extras = extras or []
@@ -249,6 +258,7 @@ def merge_panels(
     return {
         "status": "success",
         "folder": folder,
+        "archive_name": read_meta(root)["name"],
         "filename": out_filename,
         "auto_select_key": f"{folder}/{out_filename}",
     }

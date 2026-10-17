@@ -1,7 +1,7 @@
 """Manga panel splitting (コマ分割): detect panels with Gemini, crop them, save to an archive.
 
 Output (see docs/specs/tools/panel-split-merge.md): ``01.png, 02.png, ..., panels.json, info.json`` in
-``<root archive>/<YYYYMMDD_HHMMSS>_コマ分割/``, or a new archive of that name without ``target_folder``
+``<archive>/<YYYYMMDD_HHMMSS>_コマ分割/`` (the archive shown in the Workspace), or a new archive of that name without one
 (``archive_service.save_result``).
 
 A panel can be cut again from the page with a box chosen by hand (コマ切り直し, ``recrop_panel``): a result
@@ -32,6 +32,7 @@ from .archive_service import (
     ArchiveServiceError,
     extract_file,
     normalize_rel_path,
+    read_meta,
     save_result,
     split_archive_path,
 )
@@ -113,12 +114,12 @@ def split_panels(
     api_key: str | None = None,
     model_name: str = geo.DEFAULT_MODEL,
     thinking_level: str = "LOW",
-    target_folder: str | None = None,
+    archive: str | None = None,
     source_key: str | None = None,
     prompt: str | None = None,
 ) -> dict[str, Any]:
-    """``target_folder``: the selected archive folder (its top level gets the result folder).
-    ``source_key``: ARCHIVES key of the split image, recorded in info.json.
+    """``archive``: the archive the result folder goes into (None: a new archive).
+    ``source_key``: archive key of the split image, recorded in info.json.
     ``prompt``: the detection instructions (blank: the defaults), recorded in info.json as used."""
     key = gemini.resolve_api_key(api_key)
     if not key:
@@ -176,7 +177,7 @@ def split_panels(
         "prompt": instructions,
     }
     folder = save_result(
-        target_folder,
+        archive,
         f"{now:%Y%m%d_%H%M%S}_{TOOL_NAME}",
         files,
         {"tool": TOOL_NAME, "source": source_key or None, "settings": settings},
@@ -186,6 +187,7 @@ def split_panels(
     return {
         "status": "success",
         "folder": folder,
+        "archive_name": read_meta(split_archive_path(folder)[0])["name"],
         "auto_select_key": f"{folder}/{geo.panel_filename(1)}",
         "panels_count": len(panels),
         "panels": panels,

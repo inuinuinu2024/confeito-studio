@@ -96,7 +96,7 @@ class ArchiveMeta(TypedDict):
 
 
 class ArchiveEntry(TypedDict):
-    """One row of the ARCHIVES tree (mirrors the frontend ``ArchiveEntry`` type)."""
+    """One entry of GET /archives and /archives/{name}/contents (mirrors the frontend ``ArchiveEntry`` type)."""
 
     key: str
     name: str

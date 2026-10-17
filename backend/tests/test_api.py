@@ -503,15 +503,15 @@ def test_add_panel_error_is_bad_request(client) -> None:
 
 
 def test_merge_panels_error_is_bad_request(client) -> None:
-    res = client.post("/api/image/merge-panels", data={"target_folder": "missing"})
+    res = client.post("/api/image/merge-panels", data={"split_folder": "missing"})
     assert res.status_code == 400
-    assert "panels.json が見つかりません" in res.json()["detail"]
+    assert "panels.json（コマの位置の記録）が見つかりません" in res.json()["detail"]["message"]
 
 
 @pytest.mark.parametrize(
     ("route", "target", "kwargs", "message"),
     [
-        ("merge-panels", "merge_panels", {"data": {"target_folder": "x"}}, "コマ結合の処理中にエラーが発生しました。"),
+        ("merge-panels", "merge_panels", {"data": {"split_folder": "x"}}, "コマ結合の処理中にエラーが発生しました。"),
         (
             "remove-bg",
             "remove_background",

@@ -68,7 +68,7 @@ def test_split_into_subfolder_of_selected_archive(fake: FakeGemini, archives_dir
     result = panel_service.split_panels(
         make_png(200, 100),
         original_filename="page.png",
-        target_folder="page/sub",
+        archive="page",
         model_name="gemini-3.1-pro",
         thinking_level="high",
         source_key="page/page.png",
@@ -78,7 +78,8 @@ def test_split_into_subfolder_of_selected_archive(fake: FakeGemini, archives_dir
     assert fake.calls[0]["api_key"] == "test-key"
     assert fake.calls[0]["payload"]["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "HIGH"}
     folder = result["folder"]
-    assert folder.startswith("page/") and folder.endswith("_コマ分割")  # top level, even with a sub folder selected
+    assert folder.startswith("page/") and folder.endswith("_コマ分割")
+    assert result["archive_name"] == "page"
     assert result["auto_select_key"] == f"{folder}/01.png"
     assert result["panels_count"] == 2
     files = {p.name for p in (archives_dir / folder).iterdir()}

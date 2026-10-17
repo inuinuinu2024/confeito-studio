@@ -3607,11 +3607,13 @@ async function runScenarios(
     await page.locator(`${win} .tool-window__run`).click();
     const toast = await waitForToast(page, /AI画像生成: .*画像を保存しました/);
     await page.unroute('**/api/nano-banana-pro');
-    // The folder name from the toast as shown (lastToast masks the timestamps).
-    const folder = await page.$$eval(
-      '.toast',
-      els => els.map(t => /「(.+)」に画像を保存しました/.exec(t.textContent ?? '')?.[1]).find(Boolean) ?? '',
-    );
+    // The result folder from the toast as shown (「<display name> / <folder>」; lastToast masks the timestamps), in the
+    // archive shown.
+    const folder = await page.$$eval('.toast', els => {
+      const archive = document.querySelector<HTMLSelectElement>('.flow-toolbar__archive')?.value ?? '';
+      const name = els.map(t => /「.+ \/ (.+)」に画像を保存しました/.exec(t.textContent ?? '')?.[1]).find(Boolean);
+      return name ? `${archive}/${name}` : '';
+    });
     const result = await page.evaluate(
       async ({ apiBase, folder, draw }) => {
         const archive = folder.split('/')[0];

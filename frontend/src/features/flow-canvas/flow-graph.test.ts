@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FlowData, FlowImage, FlowRun } from '../../shared/types/flow';
 import {
+  addedPanelNumbers,
   adoptableStack,
   buildGraph,
   cascadeRuns,
@@ -16,6 +17,7 @@ import {
   mergeExtras,
   mergeOverrides,
   mergeRemoved,
+  mergeReplacements,
   newPanelBox,
   type PageBox,
   panelOf,
@@ -669,6 +671,43 @@ describe('panel versions (コマ切り直し)', () => {
     expect(mergeChoice(asSplit, panel)).toEqual({ key: 'a/s1/01.png', marked: false });
     expect(mergeOverrides(asSplit, split(asSplit))).toEqual({});
     expect(mergeBoxes(asSplit, split(asSplit))).toEqual({});
+  });
+});
+
+describe('mergeReplacements', () => {
+  /** sample() + a panel added at the top (a1), panel 01 marked with its 着彩 (p1), panel 02 shown as re-cut (k1). */
+  const data = (removed: Record<string, string> = {}): FlowData => {
+    const base = sample();
+    base.runs.push(
+      {
+        ...run('a1', 'コマ追加', 'a/s1', ['panel.png'], '2026-01-02 10:00:00'),
+        settings: { split: 'a/s1', pixel_box: [0, 0, 5, 5], after: null, before: 'a/s1/01.png' },
+      },
+      {
+        ...run('k1', 'コマ切り直し', 'a/s1/02.png', ['02.png'], '2026-01-02 11:00:00'),
+        settings: { split: 'a/s1', panel: '02.png', pixel_box: [0, 5, 10, 10] },
+      },
+    );
+    return { ...base, merge: { 'a/s1/01.png': 'a/p1/p.png' }, removed };
+  };
+  const replacements = (flowData: FlowData) => {
+    const graph = buildGraph(flowData);
+    return mergeReplacements(graph, visibleFlow(graph), graph.runs.get('a/s1')!);
+  };
+
+  it('names the panels by their rows and the marked images by their bands', () => {
+    expect(replacements(data())).toEqual([
+      { number: 2, marked: '着彩 1', recut: null },
+      { number: 3, marked: null, recut: '切り直し 1' },
+    ]);
+    const graph = buildGraph(data());
+    expect(addedPanelNumbers(graph, graph.runs.get('a/s1')!)).toEqual([1]);
+  });
+
+  it('numbers the rows left after a panel is deleted one by one', () => {
+    expect(replacements(data({ 'a/s1/01.png': '2026-01-03 10:00:00' }))).toEqual([
+      { number: 2, marked: null, recut: '切り直し 1' },
+    ]);
   });
 });
 

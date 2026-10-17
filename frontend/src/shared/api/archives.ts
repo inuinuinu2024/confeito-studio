@@ -87,16 +87,6 @@ export function importArchives(file: File): Promise<ArchiveImportResult> {
   return postForm<ArchiveImportResult>('/archives/import', formData({ file: [file, file.name] }));
 }
 
-/** Every folder and file inside one archive (flat list linked by folderId). [] on failure. */
-export async function getArchiveContents(archiveName: string): Promise<ArchiveEntry[]> {
-  try {
-    return await requestJson<ArchiveEntry[]>(`/archives/${enc(archiveName)}/contents`);
-  } catch (err) {
-    console.error('Failed to fetch archive contents:', err);
-    return [];
-  }
-}
-
 export async function extractArchiveFile(archiveName: string, path: string): Promise<Blob> {
   return (await request(`/archives/${enc(archiveName)}/extract?path=${enc(path)}`)).blob();
 }
@@ -136,7 +126,7 @@ export async function setFlowSelection(archiveName: string, stack: string, folde
   });
 }
 
-/** Marks `image` as what コマ結合 pastes for `panel` (null: back to the newest image made from the panel). */
+/** Marks `image` as what コマ結合 pastes for `panel` (null: removes the mark, the panel itself is pasted). */
 export async function setFlowMerge(archiveName: string, panel: string, image: string | null): Promise<void> {
   await request(`/archives/${enc(archiveName)}/flow/merge`, {
     method: 'PUT',

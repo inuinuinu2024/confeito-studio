@@ -100,12 +100,12 @@ backend/src/app/
 | POST | `/archives/{name}/delete_contents` | `{paths}` を `.trash/.items/{name}/` へ移動。空になったフォルダ・アーカイブは消す |
 | POST | `/archives/{name}/restore_contents` | `{paths}` を `.trash/.items/{name}/` から元の場所へ戻す（Undo。同じ名前のものがあれば 409 で何も移さない） |
 | POST | `/image/remove-bg` | 背景除去（[specs/tools/remove-background.md](../specs/tools/remove-background.md)） |
-| POST | `/image/split-panels` | コマ分割（[specs/tools/panel-split-merge.md](../specs/tools/panel-split-merge.md)） |
+| POST | `/image/split-panels` | コマ分割（[specs/tools/panel-split-merge.md](../specs/tools/panel-split-merge.md)）。form `image`、`archive?`（結果を入れるアーカイブ = Workspace に表示中のもの。なければ新しいアーカイブ）、`source_key?`（分割した画像のキー）ほか設定。応答に結果フォルダのキー `folder` とアーカイブの表示名 `archive_name` |
 | POST | `/image/split-panels/preview` | コマ分割で Gemini に送るリクエストの確認用 |
 | GET | `/image/split-panels/default-prompt` | コマ分割の検出の指示（プロンプト）の初期値と、読み順の入る位置 `{reading_order}` |
 | POST | `/image/recrop-panel` | コマの切り直し。form `panel_key`（コマ分割の結果のコマ・追加したコマのキー）、`box`（JSON `[xmin, ymin, xmax, ymax]`、分割前のページの画素） |
 | POST | `/image/add-panel` | コマの追加。form `split_folder`（コマ分割の結果フォルダのキー）、`box`（JSON、分割前のページの画素）、`after` / `before`（間に入れたコマのキー。省略可） |
-| POST | `/image/merge-panels` | コマ結合。form `target_folder`（コマ分割の結果フォルダ）、`overrides?`（JSON `{コマのファイル名: 差し替える画像のキー}`）、`boxes?`（JSON `{コマのファイル名: 切り直した範囲}`）、`extras?`（JSON `[{key, box}]`、追加したコマ）、`removed?`（JSON `[コマのファイル名]`、貼らないコマ） |
+| POST | `/image/merge-panels` | コマ結合。form `split_folder`（コマ分割の結果フォルダのキー）、`overrides?`（JSON `{コマのファイル名: 差し替える画像のキー}`）、`boxes?`（JSON `{コマのファイル名: 切り直した範囲}`）、`extras?`（JSON `[{key, box}]`、追加したコマ）、`removed?`（JSON `[コマのファイル名]`、貼らないコマ）。応答に `folder`・`archive_name` |
 | POST | `/nano-banana-pro` | 画像生成・Interactions API（応答は画像そのもの） |
 | POST | `/nano-banana-pro/generate-content` | 画像生成・generateContent API（応答は上と同じ） |
 | POST | `/local-files/check-folder` | `{path}` が絶対パスの既存フォルダか（空欄は可）。違えば 404（画像読み込み） |

@@ -17,6 +17,7 @@ import { openJsonPreview } from '../../shared/ui/dialogs';
 import { h } from '../../shared/ui/dom';
 import { button, field, select, slider } from '../../shared/ui/form';
 import { showError } from '../../shared/ui/toast';
+import { savedPlace } from '../../shared/utils/archives';
 import { AppMessageError } from '../../shared/utils/error-message';
 import { canvasToBlob } from '../../shared/utils/image';
 import { SELECT_IMAGE } from '../ai-panel/run-targets';
@@ -197,6 +198,6 @@ export class PanelSplitterTool implements Tool {
     await discardIfStopped(context.signal, result.folder);
 
     emit('archives:changed', { select: result.panels.map(p => `${result.folder}/${p.filename}`) });
-    return `${result.panels_count} コマに分割し、「${result.folder}」に保存しました`;
+    return `${result.panels_count} コマに分割し、「${savedPlace(result.folder, result.archive_name)}」に保存しました`;
   }
 }

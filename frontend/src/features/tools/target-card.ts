@@ -7,7 +7,7 @@ import type { FlowImage } from '../../shared/types/flow';
 import { h, icon } from '../../shared/ui/dom';
 import { SELECT_IMAGE } from '../ai-panel/run-targets';
 import { DocumentManager } from '../document/DocumentManager';
-import { currentArchive } from './result';
+import { currentArchiveName } from './result';
 
 /** Warning card: "⚠️ <subject>が選択されていません" and how to select it. */
 export function missingTargetCard(subject: string, hint = SELECT_IMAGE): HTMLElement {
@@ -19,9 +19,9 @@ export function missingTargetCard(subject: string, hint = SELECT_IMAGE): HTMLEle
   );
 }
 
-/** "保存先: <archive> / [日時]_<tool>/" (or a new archive when there is none). */
+/** "保存先: <archive's display name> / [日時]_<tool>/" (or a new archive when there is none). */
 export function saveDestinationLine(toolName: string): HTMLElement {
-  const archive = currentArchive();
+  const archive = currentArchiveName();
   return h(
     'div',
     { class: 'cs-card__line cs-card__line--accent' },

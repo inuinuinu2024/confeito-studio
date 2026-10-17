@@ -126,6 +126,6 @@
   `Inputs/payload.json`（実際に送ったリクエスト。画像データは省略）、`info.json`（source = null、settings = `model` / `api`）を保存する。
   原画がある時は `Raw/generated.*`・`Inputs/Original.*`・`settings.original` が加わる（上の「原画」）。
 - 画像の拡張子は、実際に返ってきた画像の形式（バックエンドの応答の Content-Type）で決める。
-- 完了後: 「AI画像生成: 「<結果フォルダ>」に画像を保存しました」のトースト。生成画像を選択する。
+- 完了後: 「AI画像生成: 「<保存先>」に画像を保存しました」（<保存先> は [notifications.md](../notifications.md)「ツール実行時」）のトースト。生成画像を選択する。
 - エラー時: バックエンドの日本語メッセージをエラートーストに出し、Gemini の生の応答（セーフティブロック等）を原文として併せて表示する
   （[notifications.md](../notifications.md)）。error.txt は書かない。

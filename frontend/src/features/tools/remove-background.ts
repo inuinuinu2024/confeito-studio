@@ -9,6 +9,7 @@ import { toolSettings } from '../../shared/state/tool-settings';
 import { type Tool, type ToolContext, ToolNotReady } from '../../shared/types/tool';
 import { button, field, slider, switchRow } from '../../shared/ui/form';
 import { AppMessageError } from '../../shared/utils/error-message';
+import { savedPlace } from '../../shared/utils/archives';
 import { SELECT_IMAGE } from '../ai-panel/run-targets';
 import { canvasToBlob } from '../../shared/utils/image';
 import { discardIfStopped, saveToolResult } from './result';
@@ -98,7 +99,7 @@ export class RemoveBackgroundTool implements Tool {
       context.signal,
     );
 
-    const folder = await saveToolResult(this.name, [{ blob: result, path: 'nobg.png' }], {
+    const { folder, archiveName } = await saveToolResult(this.name, [{ blob: result, path: 'nobg.png' }], {
       source: context.target?.key ?? null,
       settings: {
         alpha_matting: this.get('alpha_matting') === 'true',
@@ -109,6 +110,6 @@ export class RemoveBackgroundTool implements Tool {
     });
     await discardIfStopped(context.signal, folder);
     emit('archives:changed', { select: [`${folder}/nobg.png`] });
-    return `「${folder}」に保存しました`;
+    return `「${savedPlace(folder, archiveName)}」に保存しました`;
   }
 }

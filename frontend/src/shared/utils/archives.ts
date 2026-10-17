@@ -3,6 +3,16 @@
  * (docs/specs/archive-manager.md, docs/specs/archives.md 「エクスポート / インポート」).
  */
 
+/**
+ * Where a tool result was saved, as the user knows it (tool windows' 保存先 and the tools' toasts,
+ * docs/specs/notifications.md): "<display name> / <result folder>", or the display name alone for a result saved
+ * as a new archive (the folder key is the archive itself).
+ */
+export function savedPlace(folder: string, archiveName: string): string {
+  const slash = folder.indexOf('/');
+  return slash === -1 ? archiveName : `${archiveName} / ${folder.slice(slash + 1)}`;
+}
+
 /** Longest display name (backend: archive_service.DISPLAY_NAME_MAX). */
 export const DISPLAY_NAME_MAX = 100;
 

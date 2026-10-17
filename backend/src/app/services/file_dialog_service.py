@@ -61,7 +61,7 @@ def _ask_directory(initial_dir: Path) -> str:
     root.withdraw()
     root.attributes("-topmost", True)
     try:
-        return filedialog.askdirectory(parent=root, title="ARCHIVES の保存先を選択", initialdir=str(initial_dir))
+        return filedialog.askdirectory(parent=root, title="アーカイブの保存先を選択", initialdir=str(initial_dir))
     finally:
         root.destroy()
 

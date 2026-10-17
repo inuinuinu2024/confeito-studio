@@ -46,8 +46,10 @@ export interface PanelRecord {
 
 export interface SplitPanelsResult {
   status: 'success';
-  /** Result folder key: "<root>/<stamp>_コマ分割" or a new archive "<stamp>_コマ分割". */
+  /** Result folder key: "<archive>/<stamp>_コマ分割" or a new archive "<stamp>_コマ分割". */
   folder: string;
+  /** Display name of its archive. */
+  archive_name: string;
   auto_select_key: string;
   panels_count: number;
   panels: PanelRecord[];
@@ -59,13 +61,13 @@ export interface SplitPanelsResult {
 }
 
 /**
- * Detects panels with Gemini and saves 01.png, 02.png, ... + panels.json + info.json into the
- * top level of `targetFolder` (a new archive when null). `sourceKey` is recorded in info.json.
+ * Detects panels with Gemini and saves 01.png, 02.png, ... + panels.json + info.json into a result folder of
+ * `archive` (a new archive when null). `sourceKey` is recorded in info.json.
  */
 export function splitPanels(
   image: Blob,
   originalFilename: string,
-  targetFolder: string | null,
+  archive: string | null,
   sourceKey: string | null,
   opts: PanelSplitOptions,
 ): Promise<SplitPanelsResult> {
@@ -78,7 +80,7 @@ export function splitPanels(
       original_filename: originalFilename,
       model_name: opts.model,
       thinking_level: opts.thinkingLevel,
-      target_folder: targetFolder,
+      archive,
       source_key: sourceKey,
       prompt: opts.prompt,
     }),
@@ -117,8 +119,10 @@ export function fetchSplitPanelsDefaultPrompt(): Promise<SplitPanelsDefaultPromp
 
 export interface MergePanelsResult {
   status: 'success';
-  /** Result folder key: "<root of the target>/<stamp>_コマ結合". */
+  /** Result folder key: "<archive of the コマ分割>/<stamp>_コマ結合". */
   folder: string;
+  /** Display name of its archive. */
+  archive_name: string;
   filename: string;
   auto_select_key: string;
 }
@@ -133,13 +137,13 @@ export interface MergeExtra {
 }
 
 /**
- * Pastes the panels of `<targetFolder>/panels.json` back into one image. `overrides` replaces panels
+ * Pastes the panels of `<splitFolder>/panels.json` (a コマ分割 result) back into one image. `overrides` replaces panels
  * (panel file name -> archive key of the image to paste instead, resized to the panel); `boxes` places the
  * panels cut again (コマ切り直し) at their own box (panel file name -> box), resized to it; `extras` adds the
  * panels added by hand (コマ追加), each at its box; `removed` leaves out the panels deleted one by one (file names).
  */
 export function mergePanels(
-  targetFolder: string,
+  splitFolder: string,
   overrides: Record<string, string> = {},
   boxes: Record<string, PixelBox> = {},
   extras: MergeExtra[] = [],
@@ -149,7 +153,7 @@ export function mergePanels(
   return postForm(
     '/image/merge-panels',
     formData({
-      target_folder: targetFolder,
+      split_folder: splitFolder,
       overrides: json(overrides),
       boxes: json(boxes),
       extras: json(extras),

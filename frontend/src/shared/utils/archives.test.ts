@@ -6,6 +6,7 @@ import {
   filterArchives,
   formatSize,
   imageFileName,
+  savedPlace,
   serialNames,
   splitFileName,
 } from './archives';
@@ -19,6 +20,16 @@ describe('imageFileName', () => {
 
   it('replaces characters a file name cannot have', () => {
     expect(imageFileName('a/x:y?.png')).toBe('x_y_.png');
+  });
+});
+
+describe('savedPlace', () => {
+  it('names the archive by its display name, followed by the result folder', () => {
+    expect(savedPlace('20261002_200000_page/20261002_200310_背景除去', '第1話')).toBe(
+      '第1話 / 20261002_200310_背景除去',
+    );
+    // A result saved as a new archive is the archive itself.
+    expect(savedPlace('20261002_200310_背景除去', '背景除去')).toBe('背景除去');
   });
 });
 

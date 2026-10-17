@@ -53,7 +53,7 @@ async def api_split_panels(
     original_filename: str = Form("image.png"),
     model_name: str = Form(panel_geometry.DEFAULT_MODEL),
     thinking_level: str = Form("LOW"),
-    target_folder: str | None = Form(None),
+    archive: str | None = Form(None),
     source_key: str | None = Form(None),
     prompt: str | None = Form(None),
     api_key: str | None = Header(None, alias="X-API-Key"),
@@ -70,7 +70,7 @@ async def api_split_panels(
             api_key=api_key,
             model_name=model_name,
             thinking_level=thinking_level,
-            target_folder=target_folder,
+            archive=archive,
             source_key=source_key,
             prompt=prompt,
         )
@@ -120,13 +120,13 @@ async def api_add_panel(
 
 @router.post("/merge-panels")
 async def api_merge_panels(
-    target_folder: str = Form(...),
+    split_folder: str = Form(...),
     overrides: str | None = Form(None),
     boxes: str | None = Form(None),
     extras: str | None = Form(None),
     removed: str | None = Form(None),
 ) -> dict:
-    """Pastes the panels listed in ``<target_folder>/panels.json`` back into one image.
+    """Pastes the panels listed in ``<split_folder>/panels.json`` (a コマ分割 result) back into one image.
 
     ``overrides`` (JSON ``{panel file name: archive key}``) replaces panels with other images;
     ``boxes`` (JSON ``{panel file name: [xmin, ymin, xmax, ymax]}``) places panels cut again (コマ切り直し);
@@ -138,4 +138,4 @@ async def api_merge_panels(
     added = parse_extras(extras)
     left_out = parse_removed(removed)
     with unexpected_errors_as("コマ結合の処理中にエラーが発生しました。"):
-        return await run_in_threadpool(merge_panels, target_folder, replacements, placed, added, left_out)
+        return await run_in_threadpool(merge_panels, split_folder, replacements, placed, added, left_out)

@@ -38,6 +38,7 @@ def test_merge_saves_into_a_result_folder_of_the_archive(archives_dir: Path) -> 
 
     folder = result["folder"]
     assert folder.startswith("page/") and folder.endswith("_コマ結合")
+    assert result["archive_name"] == "page"  # the display name (the folder name without .archive.json)
     assert result["filename"] == f"{folder.split('/')[1]}.png"
     assert result["auto_select_key"] == f"{folder}/{result['filename']}"
     merged = Image.open(archives_dir / folder / result["filename"])
@@ -65,7 +66,7 @@ def test_merge_of_a_top_level_split_stays_in_that_archive(archives_dir: Path) ->
 
 @pytest.mark.parametrize(
     ("target", "message"),
-    [("", "対象のコマ分割が指定されていません"), ("missing", "panels.json が見つかりません")],
+    [("", "結合するコマ分割が指定されていません"), ("missing", "panels.json（コマの位置の記録）が見つかりません")],
 )
 def test_merge_errors(target: str, message: str) -> None:
     with pytest.raises(merge_service.MergeServiceError, match=message):
@@ -74,7 +75,7 @@ def test_merge_errors(target: str, message: str) -> None:
 
 def test_merge_reports_missing_panel_image() -> None:
     save_archive("page", [("panels.json", json.dumps(PANELS_JSON).encode())])
-    with pytest.raises(merge_service.MergeServiceError, match=r"コマ画像 \(01.png\) がフォルダ内に見つかりません"):
+    with pytest.raises(merge_service.MergeServiceError, match=r"コマの画像（01.png）が見つかりません"):
         merge_service.merge_panels("page")
 
 
@@ -122,7 +123,7 @@ def test_merge_pastes_larger_panels_first_so_insets_stay_on_top(archives_dir: Pa
 
 def test_merge_reports_missing_override() -> None:
     _make_split_folder("split/")
-    with pytest.raises(merge_service.MergeServiceError, match=r"コマ画像 \(page/gone.png\)"):
+    with pytest.raises(merge_service.MergeServiceError, match=r"コマの画像（page/gone.png）が見つかりません"):
         merge_service.merge_panels("page/split", {"01.png": "page/gone.png"})
 
 

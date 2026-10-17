@@ -6,7 +6,7 @@
  * shown in its row (flow-graph.ts `mergeChoice`); a panel shown as cut again (コマ切り直し) is pasted at its own box
  * (`mergeBoxes`); a panel added by hand (コマ追加) is pasted at its box too (`mergeExtras`), a panel deleted one by one
  * is left out (`mergeRemoved`). The tool window lists
- * what will be merged and where the result goes.
+ * what will be merged (panels named by their Workspace rows, "コマ <n>") and where the result goes.
  * Spec: docs/specs/tools/panel-split-merge.md
  */
 import { fetchArchiveKey } from '../../shared/api/archives';
@@ -15,20 +15,20 @@ import { emit } from '../../shared/events';
 import type { FlowImage, FlowRun } from '../../shared/types/flow';
 import { type RunTarget, type Tool, type ToolContext, ToolNotReady } from '../../shared/types/tool';
 import { h } from '../../shared/ui/dom';
+import { savedPlace } from '../../shared/utils/archives';
 import { DocumentManager } from '../document/DocumentManager';
 import {
-  addedPanels,
+  addedPanelNumbers,
   buildGraph,
   type FlowGraph,
-  keptPanels,
   mergeBoxes,
-  mergeChoice,
   mergeExtras,
   mergeOverrides,
   mergeRemoved,
-  shownVersion,
+  mergeReplacements,
   SPLIT_TOOL,
   upstreamRun,
+  visibleFlow,
 } from '../flow-canvas/flow-graph';
 import { discardIfStopped } from './result';
 import { missingTargetCard, saveDestinationLine } from './target-card';
@@ -86,31 +86,29 @@ export class PanelMergeTool implements Tool {
     const graph = currentGraph();
     const runs = splitRunsOf(graph, DocumentManager.getInstance().getSelection());
     if (!graph || !runs.length) return missingTargetCard('結合するコマ分割の結果', SELECT_PANEL);
+    const flow = visibleFlow(graph);
     const lines = runs.flatMap(run => {
-      // Each panel with an image marked 「最終」 or shown as cut again, and what is pasted for it.
-      const replaced = keptPanels(graph, run).flatMap(panel => {
-        const choice = mergeChoice(graph, panel);
-        if (choice.key === panel.key) return [];
-        const version = shownVersion(graph, panel);
-        const recut = version?.box ? version.label : null;
-        if (!choice.marked) return [`${panel.name} → ${recut}`];
-        const name = graph.images.get(choice.key)?.name ?? choice.key;
-        return [`${panel.name} → ${name}${recut ? `（${recut}の範囲に貼る）` : ''}`];
-      });
+      // Each panel row with an image marked 「最終」 or shown as cut again, and what is pasted for it.
+      const replaced = mergeReplacements(graph, flow, run).map(({ number, marked, recut }) =>
+        marked ? `コマ ${number} → ${marked}${recut ? `（${recut}の範囲に貼る）` : ''}` : `コマ ${number} → ${recut}`,
+      );
       const panels = h('div', { class: 'cs-card__line', text: 'panels.json を確認しています…' });
       void describePanels(run.folder).then(({ text, ok }) => {
         panels.textContent = text;
         if (!ok) panels.className = 'cs-card__warning';
       });
-      const added = addedPanels(graph, run).length;
-      const removed = mergeRemoved(graph, run);
+      const added = addedPanelNumbers(graph, run);
+      const removed = mergeRemoved(graph, run).length;
       return [
         h('div', { class: 'cs-card__line', text: `対象: ${run.folder.split('/').pop()}` }),
         panels,
-        added ? h('div', { class: 'cs-card__line', text: `追加したコマ: ${added} 件（追加した範囲に貼る）` }) : null,
-        removed.length
-          ? h('div', { class: 'cs-card__line', text: `削除したコマ: ${removed.join(', ')}（貼らない）` })
+        added.length
+          ? h('div', {
+              class: 'cs-card__line',
+              text: `追加したコマ: ${added.map(n => `コマ ${n}`).join(', ')}（追加した範囲に貼る）`,
+            })
           : null,
+        removed ? h('div', { class: 'cs-card__line', text: `削除したコマ: ${removed} 件（貼らない）` }) : null,
         h('div', {
           class: 'cs-card__line',
           text: replaced.length
@@ -145,6 +143,6 @@ export class PanelMergeTool implements Tool {
     // The backend saves the image itself, so a stopped run removes it afterwards.
     await discardIfStopped(context.signal, result.folder);
     emit('archives:changed', { select: [result.auto_select_key] });
-    return `「${result.folder}」に結合画像を保存しました`;
+    return `「${savedPlace(result.folder, result.archive_name)}」に結合画像を保存しました`;
   }
 }

@@ -5,7 +5,7 @@ sets is saved as ``app_archivesDir`` in the user's settings (settings/user_setti
 applied with ``settings.use_archives_dir`` at startup and when it changes. Switching only changes where ARCHIVES
 reads and writes: nothing is moved, the previous folder keeps its archives.
 
-Refused folders: relative paths, files, and folders that would expose the app's own files to ARCHIVES (deleting
+Refused folders: relative paths, files, and folders that would expose the app's own files to the Workspace (deleting
 an "archive" moves it to the trash): the project folder, its parents, and folders inside it other than the
 default archives folder.
 """
@@ -52,7 +52,7 @@ def _validate(text: str) -> Path:
     if _is_within(project, folder) or (_is_within(folder, project) and not _is_within(folder, default)):
         raise BadRequestError(
             f"アプリのフォルダ（{project}）やその中のフォルダは指定できません。"
-            "アプリのファイルが ARCHIVES に表示され、削除できてしまうためです。"
+            "アプリのファイルが Workspace に表示され、削除できてしまうためです。"
         )
     return folder
 

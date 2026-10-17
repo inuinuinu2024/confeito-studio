@@ -27,6 +27,7 @@ import { openJsonPreview } from '../../../shared/ui/dialogs';
 import { h } from '../../../shared/ui/dom';
 import { button, field, helpIcon, note, select } from '../../../shared/ui/form';
 import { showError, showToast } from '../../../shared/ui/toast';
+import { savedPlace } from '../../../shared/utils/archives';
 import { fileStamp } from '../../../shared/utils/datetime';
 import { AppMessageError } from '../../../shared/utils/error-message';
 import { imageExtension } from '../../../shared/utils/image';
@@ -478,10 +479,10 @@ export class NanoBananaProTool implements Tool {
       } else {
         files.unshift({ blob, path: imagePath });
       }
-      const folder = await saveToolResult(this.name, files, { source, settings }, stamp);
+      const { folder, archiveName } = await saveToolResult(this.name, files, { source, settings }, stamp);
       await discardIfStopped(context.signal, folder);
       emit('archives:changed', { select: [`${folder}/${imagePath}`] });
-      return `「${folder}」に画像を保存しました`;
+      return `「${savedPlace(folder, archiveName)}」に画像を保存しました`;
     } finally {
       stopProgress();
     }

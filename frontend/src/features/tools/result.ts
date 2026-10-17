@@ -7,7 +7,8 @@ import {
   deleteArchive,
   deleteArchiveContents,
   type ResultInfo,
-  saveResult,
+  type SavedResult,
+  saveResultIn,
   splitArchiveKey,
 } from '../../shared/api/archives';
 import { fileStamp } from '../../shared/utils/datetime';
@@ -18,14 +19,19 @@ export function currentArchive(): string | null {
   return DocumentManager.getInstance().getArchive();
 }
 
-/** Saves `files` (+ info.json) and resolves with the result folder key. */
+/** The display name of that archive, or null when there is none. */
+export function currentArchiveName(): string | null {
+  return DocumentManager.getInstance().getArchiveName();
+}
+
+/** Saves `files` (+ info.json) and resolves with the result folder key and its archive's display name. */
 export function saveToolResult(
   toolName: string,
   files: { blob: Blob; path: string }[],
   info: Omit<ResultInfo, 'tool'>,
   stamp = fileStamp(),
-): Promise<string> {
-  return saveResult({
+): Promise<SavedResult> {
+  return saveResultIn({
     root: currentArchive(),
     name: `${stamp}_${toolName}`,
     info: { tool: toolName, ...info },
