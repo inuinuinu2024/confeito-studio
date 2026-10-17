@@ -46,11 +46,13 @@ class PanelServiceError(BadRequestError):
     pass
 
 
-def build_preview(reading_order: str, model_name: str, thinking_level: str) -> dict[str, Any]:
+def build_preview(
+    reading_order: str, model_name: str, thinking_level: str, prompt: str | None = None
+) -> dict[str, Any]:
     """The Gemini request ``split_panels`` would send (image data replaced by a placeholder)."""
     model = geo.normalize_model_name(model_name)
     request_body = geo.build_detection_request(
-        "<BASE64_IMAGE_DATA>", reading_order, geo.normalize_thinking_level(thinking_level)
+        "<BASE64_IMAGE_DATA>", reading_order, geo.normalize_thinking_level(thinking_level), instructions=prompt
     )
     return {
         "api_endpoint": f"{gemini.API_BASE_URL}/models/{model}:generateContent",
@@ -59,11 +61,16 @@ def build_preview(reading_order: str, model_name: str, thinking_level: str) -> d
 
 
 def detect_panels(
-    image: Image.Image, reading_order: str, model: str, thinking_level: str, api_key: str
+    image: Image.Image,
+    reading_order: str,
+    model: str,
+    thinking_level: str,
+    api_key: str,
+    instructions: str | None = None,
 ) -> list[dict[str, Any]]:
     """Calls Gemini and returns the raw ``[{"panel_number", "box_2d"}, ...]`` list."""
     image_b64 = base64.b64encode(geo.prepare_inference_image(image)).decode("utf-8")
-    payload = geo.build_detection_request(image_b64, reading_order, thinking_level)
+    payload = geo.build_detection_request(image_b64, reading_order, thinking_level, instructions=instructions)
     raw_text = ""
     try:
         resp = gemini.generate_content(model, payload, api_key)
@@ -108,9 +115,11 @@ def split_panels(
     thinking_level: str = "LOW",
     target_folder: str | None = None,
     source_key: str | None = None,
+    prompt: str | None = None,
 ) -> dict[str, Any]:
     """``target_folder``: the selected archive folder (its top level gets the result folder).
-    ``source_key``: ARCHIVES key of the split image, recorded in info.json."""
+    ``source_key``: ARCHIVES key of the split image, recorded in info.json.
+    ``prompt``: the detection instructions (blank: the defaults), recorded in info.json as used."""
     key = gemini.resolve_api_key(api_key)
     if not key:
         raise PanelServiceError(gemini.MISSING_API_KEY_MESSAGE)
@@ -123,7 +132,8 @@ def split_panels(
     except Exception as e:
         raise PanelServiceError("画像ファイルを読み込めませんでした。", raw_response=exception_text(e)) from e
 
-    boxes = geo.order_by_markers(detect_panels(image, reading_order, model, level, key))
+    instructions = prompt.strip() if prompt and prompt.strip() else geo.DEFAULT_DETECTION_INSTRUCTIONS
+    boxes = geo.order_by_markers(detect_panels(image, reading_order, model, level, key, instructions))
     if not boxes:
         boxes = [{"panel_number": 1, "box_2d": [0, 0, 1000, 1000]}]  # treat the page as one panel
 
@@ -158,7 +168,13 @@ def split_panels(
         "panels": panels,
     }
     files.append(("panels.json", json.dumps(panels_meta, ensure_ascii=False, indent=2).encode("utf-8")))
-    settings = {"model": model, "thinking_level": level, "reading_order": reading_order, "padding": padding}
+    settings = {
+        "model": model,
+        "thinking_level": level,
+        "reading_order": reading_order,
+        "padding": padding,
+        "prompt": instructions,
+    }
     folder = save_result(
         target_folder,
         f"{now:%Y%m%d_%H%M%S}_{TOOL_NAME}",

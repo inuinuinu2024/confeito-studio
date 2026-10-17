@@ -10,6 +10,7 @@ import {
   hiddenPage,
   mergeBoxes,
   mergeChoice,
+  rowFinal,
   pageMerges,
   splitPageOf,
   mergeExtras,
@@ -75,6 +76,21 @@ function sample(selection: Record<string, string> = {}): FlowData {
   };
 }
 
+/**
+ * Candidates: the 背景除去 re-runs (q1, q2) of an image that cannot take them in its box (one of the several outputs
+ * of k1), and 着彩 (q3) of the newer one. k1 is made from the split page, so it is a row without input.
+ */
+function candidates(selection: Record<string, string> = {}): FlowData {
+  const data = sample(selection);
+  data.runs.push(
+    run('k1', 'トリミング', 'a/page.png', ['a.png', 'b.png'], '2026-01-01 11:00:00'),
+    run('q1', '背景除去', 'a/k1/a.png', ['n.png'], '2026-01-01 11:01:00'),
+    run('q2', '背景除去', 'a/k1/a.png', ['n.png'], '2026-01-01 11:02:00'),
+    run('q3', '着彩', 'a/q2/n.png', ['c.png'], '2026-01-01 11:03:00'),
+  );
+  return data;
+}
+
 describe('buildGraph', () => {
   it('stacks re-runs of the same tool on the same input', () => {
     const graph = buildGraph(sample());
@@ -106,30 +122,49 @@ describe('visibleFlow', () => {
   const ids = (steps: { id: string }[]) => steps.map(s => s.id);
 
   it('shows re-runs with one output each side by side; only the adopted one feeds further steps', () => {
-    const newest = visibleFlow(buildGraph(sample()));
-    const stack = newest.steps.get('a/page.png|背景除去')!;
+    const newest = visibleFlow(buildGraph(candidates()));
+    const stack = newest.steps.get('a/k1/a.png|背景除去')!;
     expect(stack.layout).toBe('candidates');
-    expect(stack.cells.map(c => c.key)).toEqual(['a/r1/nobg.png', 'a/r2/nobg.png']);
-    expect(stack.run?.folder).toBe('a/r2');
-    expect(stack.cellChildren.map(ids)).toEqual([[], ['a/r2/nobg.png|着彩']]);
-    expect(newest.stepOfCell.has('a/c1/c.png')).toBe(true);
+    expect(stack.cells.map(c => c.key)).toEqual(['a/q1/n.png', 'a/q2/n.png']);
+    expect(stack.run?.folder).toBe('a/q2');
+    expect(stack.cellChildren.map(ids)).toEqual([[], ['a/q2/n.png|着彩']]);
+    expect(newest.stepOfCell.has('a/q3/c.png')).toBe(true);
 
-    const older = visibleFlow(buildGraph(sample({ 'a/page.png|背景除去': 'a/r1' })));
-    expect(older.steps.get('a/page.png|背景除去')!.run?.folder).toBe('a/r1');
-    expect(older.stepOfCell.has('a/c1/c.png')).toBe(false);
-    expect(older.stepOfCell.has('a/r2/nobg.png')).toBe(true);
+    const older = visibleFlow(buildGraph(candidates({ 'a/k1/a.png|背景除去': 'a/q1' })));
+    expect(older.steps.get('a/k1/a.png|背景除去')!.run?.folder).toBe('a/q1');
+    expect(older.stepOfCell.has('a/q3/c.png')).toBe(false);
+    expect(older.stepOfCell.has('a/q2/n.png')).toBe(true);
   });
 
   it('shows a split page as its panels, each a row of its own; its merges are not in the flow', () => {
-    const flow = visibleFlow(buildGraph(sample()));
-    expect(flow.stepOfCell.has('a/page.png')).toBe(false);
+    const flow = visibleFlow(buildGraph(candidates()));
     expect(flow.trees.map(t => ids(t.steps))).toEqual([
       ['a/page.png|コマ分割#1', 'a/page.png|コマ分割#2'],
-      // The page's other results start at the left too (the page is hidden).
-      ['a/page.png|背景除去'],
+      // The page's results of several images start at the left too (the page is not in the flow).
+      ['a/page.png|トリミング'],
       ['|Nano Banana|a/x1'],
       ['a/gone.png|背景除去'],
     ]);
+    // The page and its results one image at a time (背景除去 re-runs, 着彩 of the adopted one) are the page's row,
+    // shown in the 元ページ pane: in no tree, the panels' コマ分割 not in it.
+    const row = flow.pageRow!;
+    expect([row.id, row.layout]).toEqual(['page:a/page.png', 'row']);
+    expect(row.cells.map(c => c.key)).toEqual(['a/page.png', 'a/r1/nobg.png', 'a/r2/nobg.png', 'a/c1/c.png']);
+    expect(rowLabels(row)).toEqual([
+      null,
+      { name: '背景除去 1', from: '原画' },
+      { name: '背景除去 2', from: '原画' },
+      { name: '着彩 1', from: '背景除去 2' },
+    ]);
+    expect(flow.trees.some(t => t.steps.includes(row))).toBe(false);
+    expect(flow.stepOfCell.get('a/page.png')).toBe(row);
+    expect(flow.steps.has('a/page.png|背景除去')).toBe(false);
+    // Without anything made from it, the page is still a row (its 原画).
+    const bare = sample();
+    bare.runs = bare.runs.filter(r => !['a/r1', 'a/r2', 'a/c1'].includes(r.folder));
+    const alone = visibleFlow(buildGraph(bare)).pageRow!;
+    expect([alone.layout, alone.cells.length]).toEqual(['row', 1]);
+    expect(visibleFlow(buildGraph({ ...sample(), roots: [], runs: [] })).pageRow).toBeNull();
     expect(ids(flow.trees[0].after)).toEqual([]);
     expect(flow.steps.has('a/s1|コマ結合')).toBe(false);
     const [first, second] = flow.trees[0].steps;
@@ -141,15 +176,26 @@ describe('visibleFlow', () => {
     expect(hiddenPage(first)).toBe('a/page.png');
   });
 
-  it('shows a page without a split as a step, and re-split runs (several outputs) switched in a column', () => {
+  it('shows a page not split yet as the page row, and re-split runs (several outputs) switched in a column', () => {
     const data = sample();
     data.runs = data.runs.filter(r => !['a/s1', 'a/p1', 'a/m1'].includes(r.folder));
     const unsplit = visibleFlow(buildGraph(data));
-    expect(ids(unsplit.trees[0].steps)).toEqual(['root:a/page.png']);
-    // The 「コマ分割」 button comes first right of the page, joined by an edge.
-    const action = unsplit.trees[0].steps[0].cellChildren[0][0];
-    expect([action.id, action.layout, action.splitPage]).toEqual(['split:a/page.png', 'action', 'a/page.png']);
-    expect(unsplit.edges).toContainEqual({ from: 'a/page.png', to: 'split:a/page.png' });
+    // Nothing split: the page and its results one image at a time are the page's row (shown like 元ページ), no merge.
+    expect(unsplit.pageRow!.cells.map(c => c.key)).toEqual([
+      'a/page.png',
+      'a/r1/nobg.png',
+      'a/r2/nobg.png',
+      'a/c1/c.png',
+    ]);
+    expect(unsplit.mergeRow).toBeNull();
+    expect(unsplit.trees.map(t => ids(t.steps))).toEqual([['|Nano Banana|a/x1'], ['a/gone.png|背景除去']]);
+    // Several pages not split: each a step in the flow, the 「コマ分割」 button first right of it, joined by an edge.
+    const two = visibleFlow(buildGraph({ ...data, roots: [...data.roots, img('a/page2.png')] }));
+    expect(two.pageRow).toBeNull();
+    const second = two.trees.find(t => t.steps[0].id === 'root:a/page2.png')!.steps[0];
+    const action = second.cellChildren[0][0];
+    expect([action.id, action.layout, action.splitPage]).toEqual(['split:a/page2.png', 'action', 'a/page2.png']);
+    expect(two.edges).toContainEqual({ from: 'a/page2.png', to: 'split:a/page2.png' });
 
     const resplit = sample();
     resplit.runs.push(run('s2', 'コマ分割', 'a/page.png', ['01.png', '02.png', '03.png'], '2026-01-01 13:00:00'));
@@ -162,10 +208,12 @@ describe('visibleFlow', () => {
   });
 
   it('draws edges from the input image, or from every image a merge used, never from a hidden page', () => {
-    const { edges } = visibleFlow(buildGraph(sample()));
+    const { edges } = visibleFlow(buildGraph(candidates()));
+    // Not from the page's row (the 元ページ pane), even to what it fed in the flow (トリミング).
     expect(edges.some(e => e.from === 'a/page.png')).toBe(false);
     expect(edges.some(e => e.from === 'a/s1/01.png')).toBe(false); // 着彩 is in the panel's row: no edge
-    expect(edges).toContainEqual({ from: 'a/r2/nobg.png', to: 'a/r2/nobg.png|着彩' });
+    expect(edges).toContainEqual({ from: 'a/k1/a.png', to: 'a/k1/a.png|背景除去' });
+    expect(edges).toContainEqual({ from: 'a/q2/n.png', to: 'a/q2/n.png|着彩' });
     expect(edges.some(e => e.to === '|Nano Banana|a/x1' || e.to === 'a/gone.png|背景除去')).toBe(false);
   });
 
@@ -210,7 +258,6 @@ describe('visibleFlow', () => {
       { name: 'AI画像生成 3', from: 'AI画像生成 2' },
       { name: '背景除去 1', from: 'AI画像生成 2' },
     ]);
-    expect(rowLabels(flow.steps.get('a/page.png|背景除去')!)).toEqual([null, null]);
 
     // Adopting the older generation hides what was made from the newer one (a choice saved under the old name).
     const older = visibleFlow(buildGraph({ ...data, selection: { 'a/s1/02.png|Nano Banana画像生成': 'a/g1' } }));
@@ -231,6 +278,31 @@ describe('visibleFlow', () => {
     expect(pageMerges(graph, found.split).map(m => m.key)).toEqual(['a/m2/m2.png', 'a/m1/m.png']);
     data.runs = data.runs.filter(r => r.tool !== 'コマ分割');
     expect(splitPageOf(buildGraph(data))).toBeNull();
+  });
+
+  it('makes the shown merge and what was made from it a row of its own (the コマ結合後 pane), merges switched with ‹ ›', () => {
+    const data = sample();
+    data.runs.push(
+      run('m2', 'コマ結合', 'a/s1', ['m2.png'], '2026-01-01 12:00:00'),
+      run('b2', '背景除去', 'a/m2/m2.png', ['b.png'], '2026-01-01 12:01:00'),
+      run('b1', '背景除去', 'a/m1/m.png', ['b.png'], '2026-01-01 12:02:00'),
+    );
+    const flow = visibleFlow(buildGraph(data));
+    const row = flow.mergeRow!;
+    // The newest merge, its 背景除去 to its right; not in the flow, no edges from it.
+    expect([row.id, row.layout, row.run?.folder]).toEqual(['merge:a/s1|コマ結合', 'row', 'a/m2']);
+    expect(row.cells.map(c => c.key)).toEqual(['a/m2/m2.png', 'a/b2/b.png']);
+    expect(flow.trees.some(t => t.steps.includes(row))).toBe(false);
+    expect(flow.edges.some(e => e.from === 'a/m2/m2.png')).toBe(false);
+    // The merges are switched with ‹ › (the stack's runs), not adopted with ★.
+    expect(row.stack?.runs.map(r => r.folder)).toEqual(['a/m1', 'a/m2']);
+    expect(adoptableStack(buildGraph(data), row.run)).toBeNull();
+    const older = visibleFlow(buildGraph({ ...data, selection: { 'a/s1|コマ結合': 'a/m1' } })).mergeRow!;
+    expect(older.cells.map(c => c.key)).toEqual(['a/m1/m.png', 'a/b1/b.png']);
+    // Without a merge: none.
+    expect(
+      visibleFlow(buildGraph({ ...sample(), runs: sample().runs.filter(r => r.tool !== 'コマ結合') })).mergeRow,
+    ).toBeNull();
   });
 });
 
@@ -272,6 +344,18 @@ describe('merge marks', () => {
     // A mark on a deleted image counts as none.
     const deleted = buildGraph({ ...data, merge: { 'a/s1/01.png': 'a/gone/x.png' } });
     expect(mergeOverrides(deleted, deleted.runs.get('a/s1')!)).toEqual({});
+  });
+
+  it('shows the image of the page row marked 「最終」 in the 元ページ pane, else the page', () => {
+    const final = (merge: Record<string, string>) => {
+      const graph = buildGraph({ ...sample(), merge });
+      return rowFinal(graph, visibleFlow(graph).pageRow!);
+    };
+    expect(final({})).toEqual({ key: 'a/page.png', marked: false });
+    expect(final({ 'a/page.png': 'a/c1/c.png' })).toEqual({ key: 'a/c1/c.png', marked: true });
+    // An image not in the page's row (a panel's), or deleted, counts as none.
+    expect(final({ 'a/page.png': 'a/p1/p.png' })).toEqual({ key: 'a/page.png', marked: false });
+    expect(final({ 'a/page.png': 'a/gone/x.png' })).toEqual({ key: 'a/page.png', marked: false });
   });
 });
 
@@ -315,7 +399,6 @@ describe('layoutFlow', () => {
     expect(layout.rows.map(r => r.id)).toEqual([
       'a/page.png|コマ分割#1',
       'a/page.png|コマ分割#2',
-      'a/page.png|背景除去',
       '|Nano Banana|a/x1',
       'a/gone.png|背景除去',
     ]);
@@ -323,21 +406,25 @@ describe('layoutFlow', () => {
   });
 
   it('places candidates side by side in one step', () => {
-    const layout = layoutFlow(visibleFlow(buildGraph(sample())));
-    const box = layout.steps.get('a/page.png|背景除去')!;
-    expect([box.w, box.h]).toEqual([stepWidth(2), stepHeight(1, false)]);
-    const [a, b] = [layout.cells.get('a/r1/nobg.png')!, layout.cells.get('a/r2/nobg.png')!];
+    const flow = visibleFlow(buildGraph(candidates()));
+    const layout = layoutFlow(flow);
+    const box = layout.steps.get('a/k1/a.png|背景除去')!;
+    const [a, b] = [layout.cells.get('a/q1/n.png')!, layout.cells.get('a/q2/n.png')!];
+    expect(box.w).toBe(stepWidth(2));
     expect(a.y).toBe(b.y);
     expect(b.x).toBe(a.x + LAYOUT.cellWidth + LAYOUT.cellGap);
-    // The adopted candidate's next step is in the next column, from the top of the row (its heading is below the
-    // row's line, so its images are a heading lower than those of the row's first step).
-    expect(layout.cells.get('a/c1/c.png')!.y).toBe(a.y + LAYOUT.headerHeight);
-    // Rows do not overlap.
+    // The adopted candidate's next step is in the next column, its images level with the candidates'.
+    expect(layout.cells.get('a/q3/c.png')!.y).toBe(a.y);
+    // Rows do not overlap; the page's row (the 元ページ pane) is not laid out.
     expect(box.y).toBeGreaterThan(layout.steps.get('a/page.png|コマ分割#2')!.y + stepHeight(1, false));
+    expect(layout.steps.has(flow.pageRow!.id)).toBe(false);
+    expect(layout.cells.has('a/page.png')).toBe(false);
   });
 
   it('is empty without trees', () => {
-    expect(layoutFlow({ trees: [], edges: [], stepOfCell: new Map(), steps: new Map() })).toMatchObject({
+    expect(
+      layoutFlow({ trees: [], pageRow: null, mergeRow: null, edges: [], stepOfCell: new Map(), steps: new Map() }),
+    ).toMatchObject({
       width: 0,
       height: 0,
     });
@@ -472,14 +559,21 @@ describe('flowOrigin', () => {
         step.cells.findIndex(c => c.key === key),
       ).map(t => [t.label, t.image.key]);
     };
-    // c.png, then AI画像生成 1 (g1) and 2 (g2) in one box; the 原画 is the page the flow started from.
+    // The page's row (the 元ページ pane): the 背景除去 re-runs, 着彩 of the newer one, then AI画像生成 1 (g1) and 2 (g2);
+    // the 原画 is the page.
     expect(targets('a/g2/g.png')).toEqual([
       ['原画（page.png）', 'a/page.png'],
+      ['背景除去 1（nobg.png）', 'a/r1/nobg.png'],
+      ['背景除去 2（nobg.png）', 'a/r2/nobg.png'],
+      ['着彩 1（c.png）', 'a/c1/c.png'],
       ['AI画像生成 1（g.png）', 'a/g1/g.png'],
     ]);
-    expect(targets('a/g1/g.png')).toEqual([
-      ['原画（page.png）', 'a/page.png'],
-      ['AI画像生成 2（g.png）', 'a/g2/g.png'],
+    expect(targets('a/g1/g.png').map(([label]) => label)).toEqual([
+      '原画（page.png）',
+      '背景除去 1（nobg.png）',
+      '背景除去 2（nobg.png）',
+      '着彩 1（c.png）',
+      'AI画像生成 2（g.png）',
     ]);
     // Panel 01's box: its 着彩 (any tool) and the generation.
     expect(targets('a/g3/g.png')).toEqual([

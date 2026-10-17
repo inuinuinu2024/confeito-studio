@@ -102,6 +102,7 @@ backend/src/app/
 | POST | `/image/remove-bg` | 背景除去（[specs/tools/remove-background.md](../specs/tools/remove-background.md)） |
 | POST | `/image/split-panels` | コマ分割（[specs/tools/panel-split-merge.md](../specs/tools/panel-split-merge.md)） |
 | POST | `/image/split-panels/preview` | コマ分割で Gemini に送るリクエストの確認用 |
+| GET | `/image/split-panels/default-prompt` | コマ分割の検出の指示（プロンプト）の初期値と、読み順の入る位置 `{reading_order}` |
 | POST | `/image/recrop-panel` | コマの切り直し。form `panel_key`（コマ分割の結果のコマ・追加したコマのキー）、`box`（JSON `[xmin, ymin, xmax, ymax]`、分割前のページの画素） |
 | POST | `/image/add-panel` | コマの追加。form `split_folder`（コマ分割の結果フォルダのキー）、`box`（JSON、分割前のページの画素）、`after` / `before`（間に入れたコマのキー。省略可） |
 | POST | `/image/merge-panels` | コマ結合。form `target_folder`（コマ分割の結果フォルダ）、`overrides?`（JSON `{コマのファイル名: 差し替える画像のキー}`）、`boxes?`（JSON `{コマのファイル名: 切り直した範囲}`）、`extras?`（JSON `[{key, box}]`、追加したコマ）、`removed?`（JSON `[コマのファイル名]`、貼らないコマ） |

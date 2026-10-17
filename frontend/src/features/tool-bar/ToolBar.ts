@@ -16,7 +16,7 @@ interface ButtonDef {
 }
 
 const MODES: Record<ViewMode, ButtonDef> = {
-  normal: { title: 'Workspace', icon: 'account_tree' },
+  normal: { title: 'Workspace', icon: 'content_cut' },
   archive: { title: 'Archive Manager', icon: 'inventory_2' },
   prompt: { title: 'Prompt Manager', icon: 'chat' },
   character: { title: 'Character Manager', icon: 'person' },

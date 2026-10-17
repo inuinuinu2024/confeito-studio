@@ -28,8 +28,8 @@ export const LAYOUT = {
    */
   toolsWidth: 168,
   toolsGap: 16,
-  /** The 全コマ header row: its two buttons, then the room before the line above the first panel row. */
-  panelHeader: 52 + 24,
+  /** The 全コマ header row: its three buttons (22px, 8px apart), then the room before the line above the first panel row. */
+  panelHeader: 82 + 24,
   /** Margin around the whole flow (above it: `topMargin`, close to the toolbar). */
   margin: 24,
   topMargin: 12,

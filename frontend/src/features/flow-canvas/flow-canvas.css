@@ -4,6 +4,7 @@
    Achromatic (grays and white) except the ★ of the adopted candidate and the errors. */
 .flow-canvas {
   display: flex;
+  flex-direction: column;
   /* Selection, edges, buttons */
   --flow-accent: var(--color-on-surface);
   --flow-accent-soft: rgba(255, 255, 255, 0.08);
@@ -21,7 +22,14 @@
   background-color: var(--color-surface-container-lowest);
 }
 
-/* The flow between the side panes: the toolbar on top, the viewport (scrolling) below it, never under it */
+/* Below the toolbar: 元ページ | the flow | コマ結合後 */
+.flow-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The flow between the side panes: the viewport (scrolling) */
 .flow-center {
   position: relative;
   display: flex;
@@ -49,6 +57,12 @@
 .flow-pane--right {
   --flow-pane-width: var(--flow-right-width, 320px);
   border-left: 1px solid var(--color-line);
+}
+
+/* Both panes look like a row of the flow: the flow's background (.flow-canvas); no text selected by a drag */
+.flow-pane {
+  background-color: var(--color-surface-container-lowest);
+  user-select: none;
 }
 
 .flow-pane--collapsed {
@@ -84,7 +98,7 @@
   left: calc(-1 * var(--flow-collapsed-inset));
 }
 
-/* A collapsed pane's line stays at the edge of the flow: the flow (toolbar and view) is inside it */
+/* A collapsed pane's line stays at the edge of the flow: the flow is inside it */
 .flow-pane--left.flow-pane--collapsed + .flow-center {
   padding-left: var(--flow-collapsed-inset);
 }
@@ -105,57 +119,228 @@
   display: none;
 }
 
-/* ◀ / ▶ in a circle on the boundary with the flow: collapses / opens the pane */
-.flow-pane__edge {
+/* ◀ / ▶ in a circle on the boundary with the flow: collapses / opens the pane; below it (元ページ, while open) the ▶
+   that widens it (the second stage). The pair is centred on the boundary. */
+.flow-pane__edges {
   position: absolute;
   top: 50%;
   z-index: 7;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transform: translateY(-50%);
+}
+
+.flow-pane__edge,
+.flow-pane__wide,
+.flow-pane__jump {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 24px;
   height: 24px;
-  /* A visible outline, like the ＋ between the panel rows */
-  border: 1px solid var(--color-outline);
+  /* Like the ＋ between the panel rows: the outline in the boundary line's colour, a lighter fill (white on hover) */
+  border: 1px solid var(--color-line);
   border-radius: 50%;
-  background-color: var(--color-surface-container-low);
-  color: var(--color-on-surface-variant);
-  transform: translateY(-50%);
+  background-color: var(--color-surface-container-highest);
+  color: var(--color-outline);
   cursor: pointer;
 }
 
-.flow-pane__edge:hover {
+.flow-pane__edge:hover,
+.flow-pane__wide:hover,
+.flow-pane__jump:hover {
   border-color: var(--flow-accent);
-  background-color: var(--color-surface-container-high);
+  background-color: var(--color-surface-bright);
   color: var(--flow-accent);
 }
 
-.flow-pane--left .flow-pane__edge {
+/* ▶▶ / ◀◀: the two triangles side by side, close together */
+.flow-pane__jump .material-symbols-outlined + .material-symbols-outlined {
+  margin-left: -13px;
+}
+
+.flow-pane--left .flow-pane__edges {
   right: -13px;
 }
 
-.flow-pane--right .flow-pane__edge {
+.flow-pane--right .flow-pane__edges {
   left: -13px;
 }
 
 /* Collapsed: the button sits just inside the flow (the pane has no width) */
-.flow-pane--left.flow-pane--collapsed .flow-pane__edge {
+.flow-pane--left.flow-pane--collapsed .flow-pane__edges {
   right: -28px;
 }
 
-.flow-pane--right.flow-pane--collapsed .flow-pane__edge {
+.flow-pane--right.flow-pane--collapsed .flow-pane__edges {
   left: -28px;
 }
 
-.flow-pane__head {
+/* Wide (the second stage of 元ページ): over the flow, up to the other pane. A strip of the flow (hidden) stays between
+   the two boundaries, so their buttons do not meet; the width is not dragged. */
+.flow-pane--wide {
+  flex: 1;
+  width: auto;
+}
+
+.flow-pane--wide .flow-pane__resizer {
+  display: none;
+}
+
+/* A page not split yet, nothing else in the flow (FlowCanvas.ts pageOnly): 元ページ as widened over the whole
+   Workspace; no flow, no boundary (its line and buttons) */
+.flow-canvas--page-only .flow-center {
+  display: none;
+}
+
+.flow-pane--full {
+  border-right: none;
+}
+
+.flow-pane--full::after,
+.flow-pane--full .flow-pane__edges {
+  display: none;
+}
+
+.flow-pane--wide + .flow-center,
+.flow-center:has(+ .flow-pane--wide) {
+  flex: 0 0 48px;
+}
+
+.flow-pane--wide + .flow-center > *,
+.flow-center:has(+ .flow-pane--wide) > * {
+  visibility: hidden;
+}
+
+/* A side pane like a panel row of the flow (side-pane.ts): the label on the left (like .flow-row__label), the image in
+   a cell with its band; one page, not split into rows, so the row takes the whole pane */
+.flow-pane__row {
   display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: calc(var(--flow-row-gap) / 2 + var(--flow-pad)) var(--flow-pad);
+}
+
+.flow-pane__row-label {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   flex-shrink: 0;
-  align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 6px 0 12px;
-  border-bottom: 1px solid var(--color-line);
-  font-size: 12px;
+  gap: 2px;
+  width: calc(var(--flow-gutter) - 12px - var(--flow-pad));
+  padding: 0 4px 8px calc(16px - var(--flow-pad));
+  font-size: 13px;
+}
+
+/* Only while widened: at the first stage the image takes the whole pane */
+.flow-pane:not(.flow-pane--wide) .flow-pane__row-label {
+  display: none;
+}
+
+.flow-pane__row-label .flow-pane__size {
+  flex: none;
+}
+
+/* ‹ 2/3 › of the merges under the コマ結合後 label */
+.flow-pane__row-extra:empty {
+  display: none;
+}
+
+.flow-pane__row-extra {
+  margin-top: 4px;
+}
+
+.flow-pane--empty .flow-pane__empty {
+  display: block;
+}
+
+.flow-pane--empty .flow-pane__row > .flow-pane__cell {
+  display: none;
+}
+
+/* The cell takes the rest of the pane, top to bottom (the image stays contained) */
+.flow-pane__row .flow-pane__cell {
+  flex: 1;
+  width: auto;
+  height: auto;
+  min-width: 0;
+}
+
+/* Widened 元ページ: the page's row (FlowCanvas.ts renderPageRow, the cells of the flow) instead of its one cell. Each
+   cell as high as the pane and as wide as its image at that height (at least a cell of the flow; --flow-aspect is
+   width / height), side by side, scrolling sideways when they do not fit; the tools right after the last one. */
+.flow-pane__history {
+  display: none;
+  flex: 1;
+  gap: var(--flow-cell-gap);
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  container-type: size;
+}
+
+.flow-pane--wide .flow-pane__history {
+  display: flex;
+}
+
+.flow-pane--wide .flow-pane__row > .flow-pane__cell {
+  display: none;
+}
+
+/* Band (20px) + gap (4px) + padding (2 × 6px) above / below the image, padding at its sides */
+.flow-pane__history .flow-cell {
+  width: max(var(--flow-cell-w), calc((100cqh - 36px) * var(--flow-aspect, 1) + 12px));
+  height: 100%;
+}
+
+/* The checkerboard only under the image, not beside it in a cell wider than the image */
+.flow-pane__history .flow-cell__thumb {
+  background: none;
+}
+
+.flow-pane__history .flow-cell__img {
+  /* Up to the pane's height (the whole image, larger than its file may be), the width from its shape */
+  width: auto;
+  height: 100%;
+  max-height: none;
+  background-color: #ffffff;
+  background-image: conic-gradient(#d9d9d9 25%, transparent 0 50%, #d9d9d9 0 75%, transparent 0);
+  background-size: 12px 12px;
+}
+
+/* The tools stay in sight at the right while the row scrolls (right after the last image when it fits) */
+.flow-pane__row .flow-pane__history .flow-pane__row-tools {
+  position: sticky;
+  right: 0;
+  margin-left: 8px;
+  padding-left: 8px;
+  background-color: var(--color-surface-container-lowest);
+}
+
+.flow-pane__history .flow-step__origin-arrow {
+  align-self: center;
+  padding-top: 0;
+}
+
+/* The tools of the widened 元ページ (FlowCanvas.ts pageTools): right of the image, from the top of its band; the
+   buttons look like the panel rows' (.flow-row-tools) */
+.flow-pane__row .flow-pane__row-tools {
+  position: static;
+  display: none;
+  flex-shrink: 0;
+  justify-content: flex-start;
+  margin-left: 16px;
+  padding-top: 6px;
+}
+
+.flow-pane--wide .flow-pane__row .flow-pane__row-tools {
+  display: flex;
+}
+
+/* The checkerboard only under the image (.flow-pane__img), not over the whole tall cell */
+.flow-pane__row .flow-pane__cell-thumb {
+  background: none;
 }
 
 .flow-pane__title {
@@ -169,23 +354,6 @@
   color: var(--color-on-surface-variant);
 }
 
-.flow-pane__body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  padding: 12px;
-}
-
-.flow-pane__main {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-  min-height: 0;
-  cursor: zoom-in;
-}
-
 .flow-pane__img {
   max-width: 100%;
   max-height: 100%;
@@ -196,46 +364,15 @@
   user-select: none;
 }
 
+/* Nothing yet (コマ結合後 before a merge): the text instead of the cell, open or widened */
 .flow-pane__empty {
+  display: none;
+  flex: 1;
   align-self: center;
+  padding: 0 8px;
   font-size: 12px;
   line-height: 1.6;
   color: var(--color-on-surface-variant);
-}
-
-/* Other merges, small below the large one */
-.flow-pane__list {
-  display: flex;
-  flex-shrink: 0;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 0 12px 12px;
-}
-
-.flow-pane__list:empty {
-  display: none;
-}
-
-.flow-pane__thumb {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 64px;
-  height: 64px;
-  padding: 2px;
-  border-radius: 4px;
-  background-color: var(--color-surface-container);
-  box-shadow: 0 0 0 1px var(--color-outline-variant);
-}
-
-.flow-pane__thumb--shown {
-  box-shadow: 0 0 0 2px var(--flow-accent);
-}
-
-.flow-pane__thumb-img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
 }
 
 .flow-pane__resizer {
@@ -308,17 +445,18 @@
   justify-content: center;
   width: 22px;
   height: 22px;
-  border: 1px solid var(--color-outline);
+  /* The outline in the colour of the lines it sits on, a lighter fill so it reads as a button (white on hover) */
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-full);
-  background-color: var(--color-surface-container-lowest);
-  color: var(--color-on-surface-variant);
+  background-color: var(--color-surface-container-highest);
+  color: var(--color-outline);
   transform: translate(-50%, -50%);
   cursor: pointer;
 }
 
 .flow-insert:hover {
   border-color: var(--flow-accent);
-  background-color: var(--color-surface-container-high);
+  background-color: var(--color-surface-bright);
   color: var(--flow-accent);
 }
 
@@ -350,8 +488,15 @@
   pointer-events: none;
 }
 
-/* ── Toolbar (top left) ── */
-/* Above the viewport, not over it: the flow (the ＋ over the first row too) never goes under it */
+/* ── Toolbar (top left of the whole view) ── */
+/* Above the side panes and the viewport, not over them: the flow (the ＋ over the first row too) never goes under it */
+.flow-toolbar-row {
+  display: flex;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-line);
+}
+
 .flow-toolbar {
   z-index: 20;
   display: flex;
@@ -359,8 +504,7 @@
   align-items: center;
   align-self: flex-start;
   gap: 6px;
-  max-width: calc(100% - 24px);
-  margin: 12px 12px 0;
+  max-width: 100%;
   padding: 4px 8px;
   color: var(--color-on-surface-variant);
   background: var(--color-surface-container);
@@ -529,7 +673,8 @@
   flex-direction: row;
 }
 
-.flow-cell {
+.flow-cell,
+.flow-pane__cell {
   width: var(--flow-cell-w);
   /* No box: only the image, outlined on hover / when selected */
   position: relative;
@@ -544,17 +689,21 @@
   cursor: pointer;
 }
 
-.flow-cell:hover {
+.flow-cell:hover,
+.flow-pane__cell:hover {
   box-shadow: 0 0 0 1px var(--color-outline);
 }
 
 .flow-cell--selected,
-.flow-cell--selected:hover {
+.flow-cell--selected:hover,
+.flow-pane__cell--selected,
+.flow-pane__cell--selected:hover {
   background-color: var(--flow-accent-soft);
   box-shadow: 0 0 0 2px var(--flow-accent);
 }
 
-.flow-cell__thumb {
+.flow-cell__thumb,
+.flow-pane__cell-thumb {
   display: flex;
   flex: 1;
   align-items: center;
@@ -569,7 +718,8 @@
   cursor: zoom-in;
 }
 
-.flow-cell__img {
+.flow-cell__img,
+.flow-pane__cell-img {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
@@ -1116,15 +1266,6 @@
 .flow-row-tools .ai-tool-play:hover {
   background: transparent;
   color: var(--color-on-surface);
-}
-
-/* The buttons for every panel at the top of the コマ結合後 pane (side-pane.ts tools) */
-.flow-pane__tools {
-  display: flex;
-  flex-shrink: 0;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 12px 0;
 }
 
 /* Tool buttons in the Workspace (.flow-tools): not reordered here (no drag & drop as in the TOOLS list) */

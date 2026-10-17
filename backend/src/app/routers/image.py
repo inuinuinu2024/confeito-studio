@@ -55,6 +55,7 @@ async def api_split_panels(
     thinking_level: str = Form("LOW"),
     target_folder: str | None = Form(None),
     source_key: str | None = Form(None),
+    prompt: str | None = Form(None),
     api_key: str | None = Header(None, alias="X-API-Key"),
 ) -> dict:
     """Detects panels with Gemini and saves them as 01.png, 02.png, ... + panels.json + info.json."""
@@ -71,6 +72,7 @@ async def api_split_panels(
             thinking_level=thinking_level,
             target_folder=target_folder,
             source_key=source_key,
+            prompt=prompt,
         )
 
 
@@ -79,9 +81,19 @@ async def api_split_panels_preview(
     reading_order: str = Form("left_to_right"),
     model_name: str = Form(panel_geometry.DEFAULT_MODEL),
     thinking_level: str = Form("LOW"),
+    prompt: str | None = Form(None),
 ) -> dict:
     """The Gemini request that /split-panels would send (for the tool's JSON preview)."""
-    return build_preview(reading_order, model_name, thinking_level)
+    return build_preview(reading_order, model_name, thinking_level, prompt)
+
+
+@router.get("/split-panels/default-prompt")
+async def api_split_panels_default_prompt() -> dict:
+    """The default detection instructions (the tool's prompt field starts from them) and the reading order's place."""
+    return {
+        "prompt": panel_geometry.DEFAULT_DETECTION_INSTRUCTIONS,
+        "reading_order_placeholder": panel_geometry.READING_ORDER_PLACEHOLDER,
+    }
 
 
 @router.post("/recrop-panel")

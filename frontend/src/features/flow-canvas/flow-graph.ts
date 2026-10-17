@@ -197,6 +197,18 @@ export interface FlowEdge {
 
 export interface VisibleFlow {
   trees: FlowTree[];
+  /**
+   * The split page (or, with nothing split yet, the only page) and what was made from it one image at a time
+   * (AI画像生成, 背景除去, … and from those), as one `row` box shown in the 元ページ pane, not in the flow (in `steps`,
+   * not in `trees`). Null without a page.
+   */
+  pageRow: FlowStep | null;
+  /**
+   * The shown コマ結合 of the shown コマ分割 and what was made from its page one image at a time, as one `row` box
+   * shown in the コマ結合後 pane (in `steps`, not in `trees`); its stack's runs (the merges) switch with ‹ ›. Null
+   * without a merge.
+   */
+  mergeRow: FlowStep | null;
   edges: FlowEdge[];
   /** Step of each shown image. */
   stepOfCell: Map<string, FlowStep>;
@@ -216,8 +228,10 @@ export const joinsRow = (run: FlowRun) => run.source !== null && run.outputs.len
 /** The stack of `run` when the canvas lets the user adopt one of its runs (★), else null. */
 export function adoptableStack(graph: FlowGraph, run: FlowRun | null): FlowStack | null {
   const stack = run && graph.stacks.get(graph.stackOfRun.get(run.folder) ?? '');
-  // The versions of a panel are picked in the panel cropper, not with ★; added panels are panels of their own.
-  return stack && stack.tool !== RECROP_TOOL && stack.tool !== ADD_TOOL && isCandidateStack(stack) ? stack : null;
+  // The versions of a panel are picked in the panel cropper, not with ★; added panels are panels of their own; the
+  // merges are switched with ‹ › in the コマ結合後 pane.
+  const own = stack && [RECROP_TOOL, ADD_TOOL, MERGE_TOOL].includes(stack.tool);
+  return stack && !own && isCandidateStack(stack) ? stack : null;
 }
 
 /** `[xmin, ymin, xmax, ymax]` in pixels of the page. */
@@ -399,7 +413,31 @@ export function visibleFlow(graph: FlowGraph): VisibleFlow {
     return step;
   }
 
-  /** A page with a コマ分割: its panels as boxes of their own, the page and its other results apart. */
+  let pageRow: FlowStep | null = null;
+  let mergeRow: FlowStep | null = null;
+
+  /** A box of `cells[0]` and what was made from it one image at a time (fillRow), always a row (its 原画 first). */
+  const sideRow = (id: string, stack: FlowStack | null, run: FlowRun | null, image: FlowImage): FlowStep => {
+    const row = fillRow(
+      register({
+        id,
+        stack,
+        run,
+        layout: 'column',
+        cells: [image],
+        cellRuns: [run],
+        cellChildren: [],
+        runChildren: [],
+      }),
+    );
+    row.layout = 'row';
+    return row;
+  };
+
+  /**
+   * A page with a コマ分割: its panels as boxes of their own; the page with the images made from it one at a time
+   * as `pageRow` (the 元ページ pane), its other results (several images at once) as rows without input.
+   */
   const splitPage = (root: FlowImage): FlowTree[] | null => {
     const childIds = graph.children.get(root.key) ?? [];
     const splitId = childIds.find(id => graph.stacks.get(id)?.tool === SPLIT_TOOL);
@@ -433,20 +471,36 @@ export function visibleFlow(graph: FlowGraph): VisibleFlow {
         }),
       );
     });
-    const others = childIds
-      .filter(id => id !== splitId)
-      .map(stackStep)
-      .filter((s): s is FlowStep => s !== null);
-    // コマ結合 of the panels is shown in the right pane (pageMerges), not in the flow.
+    // The page's row, like a page that is not split (fillRow), without the コマ分割 (the panel rows above).
+    absorbed.add(splitId);
+    pageRow = sideRow(`page:${root.key}`, null, null, root);
+    const others = pageRow.cellChildren.flat();
+    // コマ結合 of the panels: the shown one's row in the right pane, not in the flow.
+    const mergeId = (graph.children.get(run.folder) ?? []).find(id => graph.stacks.get(id)?.tool === MERGE_TOOL);
+    const mergeStack = mergeId ? graph.stacks.get(mergeId) : undefined;
+    const merge = mergeStack && shownRun(graph, mergeStack);
+    if (mergeId && mergeStack && merge?.outputs.length) {
+      absorbed.add(mergeId);
+      mergeRow = sideRow(`merge:${mergeId}`, mergeStack, merge, merge.outputs[0]);
+      others.push(...mergeRow.cellChildren.flat());
+    }
     return [{ steps: panels, after: [] }, ...others.map(step => ({ steps: [step], after: [] }))];
   };
 
   const trees: FlowTree[] = [];
   const actionEdges: FlowEdge[] = [];
+  // Nothing split yet, one page: it is the page's row as well, shown like the 元ページ pane (no panel rows yet).
+  // Several pages (not split) stay in the flow, each with its 「コマ分割」 button.
+  const onePage = graph.roots.length === 1 && splitPageOf(graph) === null;
   for (const root of graph.roots) {
     const split = splitPage(root);
     if (split) {
       trees.push(...split);
+      continue;
+    }
+    if (onePage) {
+      pageRow = sideRow(`page:${root.key}`, null, null, root);
+      trees.push(...pageRow.cellChildren.flat().map(step => ({ steps: [step], after: [] })));
       continue;
     }
     const step = register({
@@ -489,9 +543,13 @@ export function visibleFlow(graph: FlowGraph): VisibleFlow {
     const input = step.stack.input;
     const inputRun = graph.runs.get(input);
     const from = step.run.sources.length ? step.run.sources : inputRun ? inputRun.outputs.map(o => o.key) : [input];
-    for (const key of from) if (stepOfCell.has(key)) edges.push({ from: key, to: step.id });
+    // Not from the rows of the side panes (元ページ / コマ結合後): they are out of the flow.
+    for (const key of from) {
+      const at = stepOfCell.get(key);
+      if (at && at !== pageRow && at !== mergeRow) edges.push({ from: key, to: step.id });
+    }
   }
-  return { trees, edges, stepOfCell, steps };
+  return { trees, pageRow, mergeRow, edges, stepOfCell, steps };
 }
 
 /** The page shown split into panels (the first page with a コマ分割) and its shown コマ分割 run, or null. */
@@ -658,6 +716,18 @@ export function mergeChoice(graph: FlowGraph, panel: FlowImage): { key: string; 
   const marked = graph.merge[panel.key];
   const valid = !!marked && marked !== shown && graph.images.has(marked) && versionOf(graph, marked) === shown;
   return valid ? { key: marked, marked: true } : { key: shown, marked: false };
+}
+
+/**
+ * What a side pane shows at its first stage (docs/specs/flow-canvas.md 「3 枚構成」): the image of its row
+ * (`VisibleFlow.pageRow` / `mergeRow`) marked with 「最終」 (`marked`; it must still be in the row), else the row's
+ * 原画 (the page, the merged page).
+ */
+export function rowFinal(graph: FlowGraph, row: FlowStep): { key: string; marked: boolean } {
+  const page = row.cells[0];
+  const marked = graph.merge[page.key];
+  const valid = !!marked && marked !== page.key && row.cells.some(c => c.key === marked);
+  return valid ? { key: marked, marked: true } : { key: page.key, marked: false };
 }
 
 /**

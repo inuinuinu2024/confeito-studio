@@ -4,11 +4,17 @@
  * once per selected image.
  * Spec: docs/specs/tools/panel-split-merge.md
  */
-import { type PanelSplitOptions, previewSplitPanels, splitPanels } from '../../shared/api/image';
+import {
+  fetchSplitPanelsDefaultPrompt,
+  type PanelSplitOptions,
+  previewSplitPanels,
+  splitPanels,
+} from '../../shared/api/image';
 import { emit } from '../../shared/events';
 import { toolSettings } from '../../shared/state/tool-settings';
 import { type Tool, type ToolContext, ToolNotReady } from '../../shared/types/tool';
 import { openJsonPreview } from '../../shared/ui/dialogs';
+import { h } from '../../shared/ui/dom';
 import { button, field, select, slider } from '../../shared/ui/form';
 import { showError } from '../../shared/ui/toast';
 import { AppMessageError } from '../../shared/utils/error-message';
@@ -17,6 +23,7 @@ import { SELECT_IMAGE } from '../ai-panel/run-targets';
 import { DocumentManager } from '../document/DocumentManager';
 import { currentArchive, discardIfStopped } from './result';
 import { imageTargetCard } from './target-card';
+import './panel-splitter.css';
 
 const MODELS = [
   { value: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
@@ -36,6 +43,19 @@ export class PanelSplitterTool implements Tool {
 
   settingsPrefix = 'panelSplitter';
   private settings = toolSettings(this.settingsPrefix);
+  /** The default detection instructions (from the backend, read once when the window first opens). */
+  private defaultPrompt: string | null = null;
+
+  /** Reads the default detection instructions the prompt field starts from (once). */
+  async beforeOpen(): Promise<void> {
+    if (this.defaultPrompt !== null) return;
+    try {
+      this.defaultPrompt = (await fetchSplitPanelsDefaultPrompt()).prompt;
+    } catch (err) {
+      // The field is then empty: the backend still uses the defaults for an empty prompt.
+      showError('コマ分割の初期プロンプトを読み込めませんでした', err);
+    }
+  }
 
   private options(): PanelSplitOptions {
     let model = this.settings.get('model', 'gemini-3.8-flash');
@@ -48,7 +68,31 @@ export class PanelSplitterTool implements Tool {
       thinkingLevel: this.settings.get('thinking_level', 'LOW'),
       readingOrder: this.settings.get('reading_order', 'left_to_right'),
       padding: parseInt(this.settings.get('padding', '0'), 10) || 0,
+      prompt: this.settings.get('prompt', ''),
     };
+  }
+
+  /**
+   * The detection instructions sent to Gemini (docs/specs/tools/panel-split-merge.md 「プロンプト」): the saved ones,
+   * else the defaults. Kept empty in the settings while they are the defaults, so later defaults apply.
+   */
+  private promptField(saved: string): HTMLElement {
+    const textarea = h('textarea', {
+      class: 'cs-textarea panel-splitter__prompt',
+      value: saved || (this.defaultPrompt ?? ''),
+      placeholder: '（初期値の指示を使います）',
+      spellcheck: false,
+    });
+    const store = () => {
+      const text = textarea.value;
+      this.settings.set('prompt', text.trim() === (this.defaultPrompt ?? '').trim() ? '' : text);
+    };
+    textarea.addEventListener('input', store);
+    const reset = button('初期値へ戻す', () => {
+      textarea.value = this.defaultPrompt ?? '';
+      store();
+    });
+    return h('div', { class: 'panel-splitter__prompt-field' }, textarea, reset);
   }
 
   renderSettings(container: HTMLElement): void {
@@ -75,6 +119,12 @@ export class PanelSplitterTool implements Tool {
         'コマ余白（パディング）',
         slider({ min: 0, max: 30, value: String(opts.padding), format: v => `${v}px`, onInput: set('padding') }).el,
         '検出されたコマ枠線の外側に余白（ピクセル）を追加して切り抜きます。',
+      ),
+      field(
+        'プロンプト（検出の指示）',
+        this.promptField(opts.prompt),
+        'Gemini に送るコマ検出の指示です。{reading_order} には「コマの読み順」の設定が入ります。' +
+          '出力形式（JSON・座標）の指示はこの後に自動で付きます。空にすると初期値の指示を使います。',
       ),
       button('JSONプレビュー', () => void this.preview(), { block: true }),
     );

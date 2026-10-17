@@ -1,5 +1,5 @@
 /** /api/image — background removal and manga panel split/merge (backend/src/app/routers/image.py). */
-import { formData, postForm, request } from './http';
+import { formData, postForm, request, requestJson } from './http';
 
 export interface RemoveBackgroundOptions {
   alphaMatting: string;
@@ -29,6 +29,8 @@ export interface PanelSplitOptions {
   padding: number;
   model: string;
   thinkingLevel: string;
+  /** The detection instructions ("" = the defaults); the fixed output format follows them in the backend. */
+  prompt: string;
 }
 
 /** One entry of panels.json["panels"]. */
@@ -78,6 +80,7 @@ export function splitPanels(
       thinking_level: opts.thinkingLevel,
       target_folder: targetFolder,
       source_key: sourceKey,
+      prompt: opts.prompt,
     }),
   );
 }
@@ -95,8 +98,21 @@ export function previewSplitPanels(opts: Omit<PanelSplitOptions, 'padding'>): Pr
       reading_order: opts.readingOrder,
       model_name: opts.model,
       thinking_level: opts.thinkingLevel,
+      prompt: opts.prompt,
     }),
   );
+}
+
+export interface SplitPanelsDefaultPrompt {
+  /** The default detection instructions. */
+  prompt: string;
+  /** Where the instructions take the reading order of the settings ("{reading_order}"). */
+  reading_order_placeholder: string;
+}
+
+/** The default detection instructions of コマ分割 (the tool's prompt field starts from them). */
+export function fetchSplitPanelsDefaultPrompt(): Promise<SplitPanelsDefaultPrompt> {
+  return requestJson('/image/split-panels/default-prompt');
 }
 
 export interface MergePanelsResult {

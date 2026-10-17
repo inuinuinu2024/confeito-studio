@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 
 from src.app.providers import gemini
-from src.app.services import panel_service
+from src.app.services import panel_geometry, panel_service
 from src.app.services.archive_service import save_archive
 
 from .conftest import make_png
@@ -94,6 +94,8 @@ def test_split_into_subfolder_of_selected_archive(fake: FakeGemini, archives_dir
         "thinking_level": "HIGH",
         "reading_order": "left_to_right",
         "padding": 0,
+        # No prompt given: the default detection instructions, recorded as used.
+        "prompt": panel_geometry.DEFAULT_DETECTION_INSTRUCTIONS,
     }
     assert info["outputs"] == ["01.png", "02.png", "panels.json"]
 
@@ -172,6 +174,19 @@ def test_preview_matches_request_shape() -> None:
     body = preview["request_body"]
     assert body["contents"][0]["parts"][1]["inline_data"]["data"] == "<BASE64_IMAGE_DATA>"
     assert body["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "MEDIUM"}
+    custom = panel_service.build_preview("right_to_left", "gemini-3.8-flash", "LOW", "Split into 4 panels.")
+    assert custom["request_body"]["contents"][0]["parts"][0]["text"].startswith("Split into 4 panels.\n\n")
+
+
+def test_split_sends_and_records_the_edited_prompt(fake: FakeGemini, archives_dir: Path) -> None:
+    fake.responses.append(gemini_reply([{"panel_number": 1, "box_2d": [0, 0, 1000, 1000]}]))
+    result = panel_service.split_panels(
+        make_png(20, 10), reading_order="right_to_left", prompt="  Order: {reading_order}.  "
+    )
+    text = fake.calls[0]["payload"]["contents"][0]["parts"][0]["text"]
+    assert text.startswith(f"Order: {panel_geometry.READING_ORDER_DESCRIPTIONS['right_to_left']}.\n\n")
+    info = json.loads((archives_dir / result["folder"] / "info.json").read_text(encoding="utf-8"))
+    assert info["settings"]["prompt"] == "Order: {reading_order}."
 
 
 def _split_fixture(info_source: str | None = "page/page.png") -> None:

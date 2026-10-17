@@ -75,7 +75,7 @@ import {
   mergeChoice,
   newPanelBox,
   type PageBox,
-  pageMerges,
+  rowFinal,
   splitPageOf,
   panelOf,
   panelVersions,
@@ -103,7 +103,7 @@ import {
   layoutFlow,
 } from './flow-layout';
 import { openPanelCropper, panelBoxOf } from './panel-cropper';
-import { createSidePane } from './side-pane';
+import { createSidePane, type SidePane } from './side-pane';
 import { forgetThumbnails, thumbnailUrl } from './thumbnails';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -111,6 +111,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const ROW_TOOL_IDS = ['nano-banana-pro', 'remove-background'];
 /** The tool at the top of the コマ結合後 pane (docs/specs/flow-canvas.md 「全コマのツール」): コマ結合 of every panel. */
 const MERGE_TOOL_ID = 'panel-merge';
+const SPLIT_TOOL_ID = 'panel-splitter';
 /** Room kept around the selection when it is scrolled into view. */
 const REVEAL_MARGIN = 24;
 
@@ -165,8 +166,12 @@ export function createFlowCanvas(): HTMLElement {
   const cellElements = new Map<string, HTMLElement>();
   /** The tool buttons of the panel rows shown (▶ / ⏸ follow the running tool). */
   let rowToolButtons: { name: string; button: ToolButton }[] = [];
-  /** The buttons for every panel at the top of the コマ結合後 pane (made once). */
+  /** The buttons of the side panes: every panel's at the top of コマ結合後, the 元ページ's (made once). */
   const paneToolButtons: { name: string; button: ToolButton }[] = [];
+  /** The page in the 元ページ pane (not in the flow): コマ分割 of the widened pane runs on it. */
+  let pageKey: string | null = null;
+  /** Object URLs of the whole images of the 元ページ pane's row (its cells are as high as the pane). */
+  const paneUrls = new Map<string, string>();
   const targetStates = new Map<string, ToolTargetState>();
   /** Results of the tool run in progress: all of them end up selected. */
   let runResults: string[] | null = null;
@@ -212,6 +217,8 @@ export function createFlowCanvas(): HTMLElement {
     redoButton,
     selectionInfo,
   );
+  // The full width of the view, with the boundary line below it.
+  const toolbarRow = h('div', { class: 'flow-toolbar-row' }, toolbar);
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.classList.add('flow-edges');
   const world = h('div', { class: 'flow-world' });
@@ -221,21 +228,14 @@ export function createFlowCanvas(): HTMLElement {
   const emptyMessage = h('span', { class: 'canvas-empty__message' });
   const emptyHint = h('span', { class: 'canvas-empty__hint' });
   const emptyState = h('div', { class: 'canvas-empty flow-empty' }, icon('image', 48), emptyMessage, emptyHint);
-  // The toolbar above the viewport (not over it), so nothing of the flow is ever hidden under it.
-  const center = h('div', { class: 'flow-center' }, toolbar, viewport, emptyState);
-  // 3 panes when a page is split (docs/specs/flow-canvas.md 「3 枚構成」): 元ページ | the flow | コマ結合後.
-  const leftPane = createSidePane({
-    side: 'left',
-    title: '元ページ',
-    empty: '',
-    settings,
-    onOpen: (image, title) => void openViewer(image, title),
-  });
+  const center = h('div', { class: 'flow-center' }, viewport, emptyState);
   /** The panel rows shown, top to bottom. */
   const panelRows = () =>
     [...(flow?.steps.values() ?? [])]
       .filter(s => s.panelIndex)
       .sort((a, b) => (a.panelIndex ?? 0) - (b.panelIndex ?? 0));
+  /** The 原画 of every panel row (what コマ結合 is run for), top to bottom. */
+  const panelOriginals = () => panelRows().flatMap(s => (s.cells[0] ? [s.cells[0].key] : []));
   /**
    * The buttons of `toolIds` for the images `keys()` returns when one is pressed: they are selected first, then the
    * button opens the tool window and ▶ runs it (as in the TOOLS list). `into` collects them for ▶ / ⏸.
@@ -263,25 +263,65 @@ export function createFlowCanvas(): HTMLElement {
       into.push({ name: tool.name, button });
       return [button.el];
     });
-  // コマ結合 of every panel, at the top of the コマ結合後 pane.
-  const paneTools = h(
-    'div',
-    { class: 'flow-pane__tools flow-tools' },
-    ...toolButtons(
-      [MERGE_TOOL_ID],
-      () => panelRows().flatMap(s => (s.cells[0] ? [s.cells[0].key] : [])),
-      paneToolButtons,
-    ),
-  );
-  const rightPane = createSidePane({
-    side: 'right',
-    title: 'コマ結合後',
-    empty: 'まだコマ結合していません。上の「コマ結合」を実行すると、ここに結合後のページが表示されます。',
+  // 3 panes when a page is split (docs/specs/flow-canvas.md 「3 枚構成」): 元ページ | the flow | コマ結合後.
+  /** The tools of a widened side pane: `first` (for its own images), then the panel rows' tools for the rightmost image of its row. */
+  const sideTools = (first: HTMLElement[], row: () => FlowStep | null | undefined) =>
+    h(
+      'div',
+      { class: 'flow-row-tools flow-tools flow-pane__row-tools' },
+      ...first,
+      ...toolButtons(
+        ROW_TOOL_IDS,
+        () => {
+          const image = rightmost(row() ?? undefined);
+          return image ? [image.key] : [];
+        },
+        paneToolButtons,
+      ),
+    );
+  // Only one side pane is widened at a time: widening one brings the other back to its open width.
+  const leftPane: SidePane = createSidePane({
+    side: 'left',
+    title: '元ページ',
+    empty: '',
     settings,
     onOpen: (image, title) => void openViewer(image, title),
-    tools: paneTools,
+    // コマ分割 of the page.
+    tools: sideTools(
+      toolButtons([SPLIT_TOOL_ID], () => (pageKey ? [pageKey] : []), paneToolButtons),
+      () => flow?.pageRow,
+    ),
+    onWiden: () => rightPane.narrow(),
   });
-  const main = h('main', { class: 'flow-canvas' }, leftPane.el, center, rightPane.el);
+  const rightPane: SidePane = createSidePane({
+    side: 'right',
+    title: 'コマ結合後',
+    empty: 'まだコマ結合していません。「全コマ」の行の「コマ結合」を実行すると、ここに結合後のページが表示されます。',
+    settings,
+    onOpen: (image, title) => void openViewer(image, title),
+    // No コマ結合 here: it is in the 全コマ row.
+    tools: sideTools([], () => flow?.mergeRow),
+    onWiden: () => leftPane.narrow(),
+  });
+  if (leftPane.wide) rightPane.narrow();
+  // A click on a pane's background clears the selection, as on the flow's.
+  for (const pane of [leftPane, rightPane]) {
+    pane.el.addEventListener('click', e => {
+      if (
+        !(e.target as HTMLElement).closest(
+          '.flow-cell, .flow-pane__cell, button, .flow-pane__edges, .flow-pane__resizer',
+        )
+      )
+        setSelected([]);
+    });
+  }
+  // The toolbar spans the whole view, above the side panes and the flow (not over them), so nothing is hidden under it.
+  const main = h(
+    'main',
+    { class: 'flow-canvas' },
+    toolbarRow,
+    h('div', { class: 'flow-body' }, leftPane.el, center, rightPane.el),
+  );
   // The step geometry comes from LAYOUT (flow-layout.ts) so the CSS boxes match the computed layout.
   main.style.setProperty('--flow-cell-w', `${LAYOUT.cellWidth}px`);
   main.style.setProperty('--flow-head', `${LAYOUT.headerHeight}px`);
@@ -316,6 +356,8 @@ export function createFlowCanvas(): HTMLElement {
     const images = graph ? selected.map(k => graph!.images.get(k)).filter((i): i is FlowImage => !!i) : [];
     docs.setSelection(images);
     for (const [key, el] of cellElements) el.classList.toggle('flow-cell--selected', selected.includes(key));
+    leftPane.select(selected);
+    rightPane.select(selected);
     selectionInfo.textContent = selected.length ? `${selected.length} 枚を選択中` : '';
     syncActionButtons();
   };
@@ -357,7 +399,14 @@ export function createFlowCanvas(): HTMLElement {
     el?.classList.toggle('flow-cell--failed', state === 'failed');
   };
 
-  const renderCell = (image: FlowImage, step: FlowStep, index: number, label: RowLabel | null): HTMLElement => {
+  /** `whole`: the whole image instead of the thumbnail (the 元ページ pane's cells, as high as the pane). */
+  const renderCell = (
+    image: FlowImage,
+    step: FlowStep,
+    index: number,
+    label: RowLabel | null,
+    whole = false,
+  ): HTMLElement => {
     const img = h('img', { class: 'flow-cell__img', alt: image.name, draggable: false, dataset: { key: image.key } });
     // The 原画 of a panel's row opens the panel cropper (where it was cut from the page; cut it again).
     const panelHead = !!step.panel && index === 0;
@@ -406,7 +455,11 @@ export function createFlowCanvas(): HTMLElement {
         icon('progress_activity', 16),
       ),
     );
-    thumbnailObserver.observe(img);
+    if (whole) {
+      loadWhole(img, image.key);
+      // As wide as the image at the pane's height, even before it loads (flow-canvas.css).
+      if (image.width && image.height) cell.style.setProperty('--flow-aspect', String(image.width / image.height));
+    } else thumbnailObserver.observe(img);
     // ★ on each of several runs of a stack (candidates, or images generated from the same 原画).
     const candidate = step.layout === 'column' ? null : step.cellRuns[index];
     const candidateStack = graph && adoptableStack(graph, candidate);
@@ -471,16 +524,31 @@ export function createFlowCanvas(): HTMLElement {
   };
 
   /**
-   * 「最終」 at the right end of the label of a generated image made from a panel: marks it as what コマ結合
-   * pastes for that panel (one per panel; a click on the marked one removes the mark: the 原画 is pasted).
-   * Gray while not marked. The 原画 (the panel itself) has none: it is used when nothing is marked.
+   * The 「最終」 mark `image` can take: for the panel it was made from (what コマ結合 pastes for it), or for the split
+   * page when it is in the page's row (what the 元ページ pane shows). Null for the 原画 (the panel itself, a re-cut,
+   * the page): it is used when nothing is marked.
+   */
+  const markOf = (image: FlowImage): { owner: string; marked: boolean } | null => {
+    if (!graph) return null;
+    const row = [flow?.pageRow, flow?.mergeRow].find(r => r?.cells.includes(image));
+    if (row) {
+      if (row.cells[0] === image) return null;
+      return { owner: row.cells[0].key, marked: rowFinal(graph, row).key === image.key };
+    }
+    const panelKey = panelOf(graph, image.key);
+    const panel = panelKey ? graph.images.get(panelKey) : undefined;
+    if (!panelKey || !panel || versionOf(graph, image.key) === image.key) return null;
+    return { owner: panelKey, marked: mergeChoice(graph, panel).key === image.key };
+  };
+
+  /**
+   * 「最終」 at the right end of the label of a generated image made from a panel (or from the split page): marks it
+   * (one per panel / page; a click on the marked one removes the mark: the 原画 is used). Gray while not marked.
    */
   const mergeMark = (image: FlowImage, cell: HTMLElement): HTMLElement | null => {
-    const panelKey = graph && panelOf(graph, image.key);
-    const panel = panelKey ? graph?.images.get(panelKey) : undefined;
-    // None on a version of the panel itself (the panel as split, or a re-cut): it is pasted when nothing is marked.
-    if (!graph || !panelKey || !panel || versionOf(graph, image.key) === image.key) return null;
-    const marked = mergeChoice(graph, panel).key === image.key;
+    const mark = markOf(image);
+    if (!mark) return null;
+    const { owner, marked } = mark;
     cell.classList.toggle('flow-cell--merge-marked', marked);
     return h(
       'button',
@@ -489,14 +557,14 @@ export function createFlowCanvas(): HTMLElement {
         title: marked ? '最終を外す' : '最終にする',
         onclick: (e: MouseEvent) => {
           e.stopPropagation();
-          void setMergeChoice(panelKey, marked ? null : image.key);
+          void setMergeChoice(owner, marked ? null : image.key);
         },
       },
       '最終',
     );
   };
 
-  /** Marks `image` for コマ結合 of `panel` (null removes the mark; saved in the archive). */
+  /** Marks `image` 「最終」 for `panel` (a panel or the split page; null removes the mark; saved in the archive). */
   const setMergeChoice = async (panel: string, image: string | null) => {
     if (!graph || !archive) return;
     if (image) graph.merge[panel] = image;
@@ -506,7 +574,7 @@ export function createFlowCanvas(): HTMLElement {
     try {
       await setFlowMerge(archive, panel, image);
     } catch (err) {
-      showError('コマ結合に使う画像の指定を保存できませんでした', err);
+      showError('「最終」の指定を保存できませんでした', err);
     }
   };
 
@@ -542,7 +610,7 @@ export function createFlowCanvas(): HTMLElement {
 
   /** Runs コマ分割 on `page` like the tool's ▶ (settings read again, the page selected). */
   const splitPage = async (page: string) => {
-    const splitter = TOOLS.find(t => t.id === 'panel-splitter');
+    const splitter = TOOLS.find(t => t.id === SPLIT_TOOL_ID);
     if (!splitter || warnIfToolRunning(splitter.name)) return;
     setSelected([page]);
     await loadSettings();
@@ -666,6 +734,8 @@ export function createFlowCanvas(): HTMLElement {
           style: place(tools.header.x, tools.header.y, tools.header.h),
         },
         ...toolButtons(ROW_TOOL_IDS, everyRow, rowToolButtons),
+        // コマ結合 of every panel, as at the top of the コマ結合後 pane.
+        ...toolButtons([MERGE_TOOL_ID], panelOriginals, rowToolButtons),
       ),
     ];
     return [...header, ...rowTools];
@@ -728,7 +798,11 @@ export function createFlowCanvas(): HTMLElement {
     rowToolButtons = [];
     flow = graph ? visibleFlow(graph) : null;
     layout = flow ? layoutFlow(flow) : null;
-    const steps = flow && layout ? [...flow.steps.values()].map(s => renderStep(s, layout!.steps.get(s.id)!)) : [];
+    // The rows of the side panes (renderSideRows) are not laid out in the flow.
+    const steps =
+      flow && layout
+        ? [...flow.steps.values()].filter(s => !isSideRow(s)).map(s => renderStep(s, layout!.steps.get(s.id)!))
+        : [];
     const rows = layout ? layout.rows.map(renderRow) : [];
     const gaps = flow && layout ? panelGaps(flow, layout).map(renderGap) : [];
     renderEdges();
@@ -736,11 +810,77 @@ export function createFlowCanvas(): HTMLElement {
     world.replaceChildren(...rows.filter((r): r is HTMLElement => !!r), svg, ...steps, ...gaps, ...panelTools, band);
     world.style.width = `${layout?.width ?? 0}px`;
     world.style.height = `${layout?.height ?? 0}px`;
+    renderSideRows();
     for (const key of cellElements.keys()) applyTargetState(key);
-    const split = graph && splitPageOf(graph);
-    leftPane.show(split ? [split.page] : null);
-    rightPane.show(graph && split ? pageMerges(graph, split.split) : null);
     updateEmptyState();
+  };
+
+  /** A step shown in a side pane (元ページ / コマ結合後), not in the flow. */
+  const isSideRow = (step: FlowStep | undefined) => !!step && (step === flow?.pageRow || step === flow?.mergeRow);
+
+  /**
+   * The side panes (docs/specs/flow-canvas.md 「3 枚構成」): 元ページ (the page's row) and コマ結合後 (the shown merge's
+   * row; shown, empty, with a split page not merged yet). Both hidden without a split page.
+   */
+  const renderSideRows = () => {
+    const split = !!graph && splitPageOf(graph) !== null;
+    pageKey = flow?.pageRow?.cells[0].key ?? null;
+    // A page not split yet, nothing else in the flow: 元ページ widened over the whole Workspace (no panes, no flow).
+    const pageOnly = !split && !!flow?.pageRow && flow.trees.length === 0;
+    main.classList.toggle('flow-canvas--page-only', pageOnly);
+    leftPane.setFull(pageOnly);
+    renderSideRow(leftPane, flow?.pageRow ?? null, !!flow?.pageRow);
+    renderSideRow(rightPane, flow?.mergeRow ?? null, split, flow?.mergeRow ? variantSwitcher(flow.mergeRow) : null);
+    const kept = new Set([...(flow?.pageRow?.cells ?? []), ...(flow?.mergeRow?.cells ?? [])].map(c => c.key));
+    for (const [key, url] of paneUrls) {
+      if (kept.has(key)) continue;
+      URL.revokeObjectURL(url);
+      paneUrls.delete(key);
+    }
+  };
+
+  /**
+   * A side pane: open, the 「最終」 image of its row (else its 原画); widened, the row like a row of the flow (the
+   * same cells: bands, ★, 「最終」, selection, comparison), as high as the pane. `extra` under its label (‹ ›).
+   */
+  const renderSideRow = (pane: SidePane, row: FlowStep | null, shown: boolean, extra: HTMLElement | null = null) => {
+    if (!graph || !row) {
+      pane.setRow([]);
+      pane.show(shown ? null : undefined);
+      return;
+    }
+    const labels = rowLabels(row);
+    const cells: HTMLElement[] = row.cells.map((cell, i) => renderCell(cell, row, i, labels[i], true));
+    // ▶ between the 原画 and the images made from it, as in the flow.
+    if (cells.length > 1) {
+      cells.splice(
+        1,
+        0,
+        h('span', { class: 'flow-step__origin-arrow', attrs: { 'aria-hidden': 'true' } }, icon('play_arrow', 20)),
+      );
+    }
+    pane.setRow(cells, extra);
+    const final = rowFinal(graph, row);
+    const index = row.cells.findIndex(c => c.key === final.key);
+    pane.show(row.cells[index], { band: labels[index]?.name ?? '原画', size: row.cells[0] });
+  };
+
+  /** The whole image `key` into `img` (kept while it is in the 元ページ pane's row). */
+  const loadWhole = (img: HTMLImageElement, key: string) => {
+    const known = paneUrls.get(key);
+    if (known) {
+      img.src = known;
+      return;
+    }
+    void fetchArchiveKey(key).then(blob => {
+      if (!blob) {
+        img.closest('.flow-cell')?.classList.add('flow-cell--broken');
+        return;
+      }
+      const url = paneUrls.get(key) ?? URL.createObjectURL(blob);
+      paneUrls.set(key, url);
+      img.src = url;
+    });
   };
 
   const updateEmptyState = () => {
@@ -749,7 +889,7 @@ export function createFlowCanvas(): HTMLElement {
     emptyMessage.textContent = nothing ? '画像を読み込んでください' : empty ? 'このアーカイブには画像がありません' : '';
     emptyHint.textContent = nothing ? '右の「画像読み込み」を実行するか、画像ファイルをここにドロップしてください' : '';
     setShown(emptyState, nothing || empty, 'flex');
-    setShown(toolbar, !nothing, 'flex');
+    setShown(toolbarRow, !nothing, 'flex');
   };
 
   const syncArchiveSelect = () => {
@@ -813,6 +953,9 @@ export function createFlowCanvas(): HTMLElement {
 
   /** Scrolls the least so that the selection is in view (the view stays at the left edge when it can). */
   const revealSelection = () => {
+    // A new image of a side pane's row: into view in the pane (its row scrolls sideways).
+    const inPane = selected.filter(k => isSideRow(flow?.stepOfCell.get(k)));
+    cellElements.get(inPane[inPane.length - 1] ?? '')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     const rect = layout && boundsOf(selected.map(k => layout!.cells.get(k)).filter((r): r is Rect => !!r));
     if (!rect) return;
     /** The scroll position along one axis that shows [start, start + size) with `REVEAL_MARGIN` around it. */
@@ -1179,7 +1322,8 @@ export function createFlowCanvas(): HTMLElement {
       void deleteSelection();
     } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && cellElements.size) {
       e.preventDefault();
-      setSelected([...cellElements.keys()]);
+      // The cells of the flow: not the side panes' rows (the page itself would go with a deletion).
+      setSelected([...cellElements.keys()].filter(k => !isSideRow(flow?.stepOfCell.get(k))));
     }
   });
 

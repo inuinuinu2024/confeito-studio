@@ -102,6 +102,20 @@ def test_order_by_markers_ignores_invalid_values_and_is_stable() -> None:
     assert _ids(geo.order_by_markers(_boxes(2, 1, 2, 1))) == [1, 3, 0, 2]
 
 
+def test_detection_prompt_uses_the_instructions_then_the_fixed_output_format() -> None:
+    default = geo.build_detection_prompt("right_to_left")
+    assert default.startswith("あなたは漫画のコマ割りを検出する専門家です。")
+    assert geo.READING_ORDER_DESCRIPTIONS["right_to_left"] in default
+    assert "{reading_order}" not in default
+    assert default.endswith(geo.DETECTION_OUTPUT_FORMAT)
+    # Blank instructions are the defaults; others replace them (the reading order put in, braces kept as written).
+    assert geo.build_detection_prompt("right_to_left", "  \n") == default
+    custom = geo.build_detection_prompt("left_to_right", "Find {n} panels in {reading_order}.")
+    assert custom == (
+        f"Find {{n}} panels in {geo.READING_ORDER_DESCRIPTIONS['left_to_right']}.\n\n{geo.DETECTION_OUTPUT_FORMAT}"
+    )
+
+
 def test_detection_request_includes_thinking_config_only_for_known_levels() -> None:
     body = geo.build_detection_request("B64", "right_to_left", "HIGH")
     config = body["generationConfig"]
@@ -109,9 +123,9 @@ def test_detection_request_includes_thinking_config_only_for_known_levels() -> N
     assert config["response_schema"] == geo.PANEL_RESPONSE_SCHEMA
     assert config["response_schema"]["items"]["properties"]["marker_number"] == {"type": "INTEGER", "nullable": True}
     text = body["contents"][0]["parts"][0]["text"]
-    assert "Japanese manga reading order" in text
-    assert "hand-written numbers" in text and "NOT marks" in text
-    assert "inside another panel" in text
+    assert geo.READING_ORDER_DESCRIPTIONS["right_to_left"] in text
+    assert "手書きの数字" in text and "目印ではありません" in text
+    assert "入れ子" in text
     assert "without cutting off dialogue bubbles" not in text
     assert body["contents"][0]["parts"][1] == {"inline_data": {"mime_type": "image/jpeg", "data": "B64"}}
     assert "thinkingConfig" not in geo.build_detection_request("B64", "left_to_right", "WHATEVER")["generationConfig"]

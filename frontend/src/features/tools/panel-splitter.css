@@ -1,0 +1,13 @@
+/* ── コマ分割 (panel-splitter.ts): the detection instructions sent to Gemini, and their reset button ── */
+.panel-splitter__prompt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.panel-splitter__prompt {
+  height: 280px;
+  font-family: monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}

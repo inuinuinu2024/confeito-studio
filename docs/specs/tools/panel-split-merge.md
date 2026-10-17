@@ -12,14 +12,24 @@
 - 推論レベル（thinkingConfig.thinkingLevel）: LOW / MEDIUM / HIGH。
 - 読み順: 「左上から右下（ウェブトゥーン・左開き）」（既定）/「右上から左下（日本の漫画・右開き標準）」。
 - コマ余白（パディング）: 0〜30px（既定 0）。
-- 設定はすべて永続化（`panelSplitter_model` / `_thinking_level` / `_reading_order` / `_padding`）。
+- プロンプト（検出の指示）: Gemini に送るコマ検出の指示の全文を編集できるテキスト欄（下の「プロンプト」）と、その下の「初期値へ戻す」。
+- 設定はすべて永続化（`panelSplitter_model` / `_thinking_level` / `_reading_order` / `_padding` / `_prompt`）。
 - JSON プレビュー: バックエンド（`/api/image/split-panels/preview`）が組み立てた実際の Gemini リクエストと、保存先・出力ファイル・panels.json の例を表示する。
 
 ### 検出（バックエンド）
 - 画像は送信時だけ長辺 4096px 以下に縮小し JPEG（quality 85）にする（約 20MB の上限対策）。切り出しは元解像度で行う。
 - `response_mime_type: application/json` と `response_schema` で、`[{panel_number, box_2d: [ymin, xmin, ymax, xmax], marker_number}]`
   （box_2d は 0〜1000 の正規化整数、marker_number は手書きのコマ番号の目印。なければ null）を要求する。temperature 0.1。
-- プロンプト（`panel_geometry.build_detection_prompt`）で次のように指示する。設定項目はなく、常に自動。
+- プロンプト（`panel_geometry.build_detection_prompt`）は「検出の指示」と「出力形式」をこの順につないだもの。
+  - **検出の指示**: ツールウィンドウの「プロンプト（検出の指示）」で全文を編集できる。初期値は下の内容（日本語。`panel_geometry.DEFAULT_DETECTION_INSTRUCTIONS`。
+    欄の初期表示は `GET /api/image/split-panels/default-prompt` から読む）。指示の中の `{reading_order}` は「読み順」の設定の説明
+    （「日本の漫画の読み順（上から下、右から左）」/「西洋のコミックの読み順（上から下、左から右）」）に置き換えて送る。それ以外の `{…}` はそのまま送る。
+    初期値のままの時・空の時は設定に空文字を保存し、初期値（その時点のもの）を使う。「初期値へ戻す」で欄を初期値に戻す。
+    編集した指示はほかの設定と同じく実行の開始時に保存する（`panelSplitter_prompt`）。
+  - **出力形式**（固定・編集できない。英語のまま）: JSON の配列の形と、座標（0〜1000 の正規化整数）、JSON だけを返すことの指示。
+    崩れると応答を解析できないため、指示の後に必ず付ける（`panel_geometry.DETECTION_OUTPUT_FORMAT`）。
+  - JSON プレビューは編集した指示で組み立てたリクエストを表示する。
+- 初期値の検出の指示は次の内容:
   - **コマ番号の目印**: 作者・編集が書き足した手書きの数字（鉛筆や別の色、コマの隅や外の余白、丸囲みなど）があれば、それを最優先でコマ割りと順番の基準にする。
     目印 1 つがコマ 1 つ（目印が書かれたコマ、またはいちばん近いコマ）に対応する。
     吹き出し・ナレーション・効果音・看板・時計・画面・服などの中の数字、ノンブル、絵と同じタッチの数字は目印ではない。
@@ -40,7 +50,8 @@
 - 保存先は共通ルール（[archives.md](../archives.md)「ツールの結果の保存」）: 表示中のアーカイブの中の `YYYYMMDD_HHMMSS_コマ分割/`。
   選択した画像それぞれに 1 回ずつ実行し、1 回ごとに 1 つの結果フォルダを作る。
 - 出力: `01.png`, `02.png`, ...（読み順の連番）、`panels.json`、`info.json`（source = 分割した画像のキー、
-  settings = `model` / `thinking_level` / `reading_order` / `padding`）。元画像のコピーは保存しない。
+  settings = `model` / `thinking_level` / `reading_order` / `padding` / `prompt`（使った検出の指示。空なら初期値の全文。`{reading_order}` は置き換える前のまま））。
+  元画像のコピーは保存しない。
 - `panels.json`: `version`, `timestamp`, `created_at`, `original_filename`, `image_size {width, height}`, `reading_order`, `model`,
   `thinking_level`, `padding`, `panels_count`, `panels[]`。各コマは `panel_number`, `filename`, `box_2d`（Gemini 正規化）,
   `pixel_box [xmin, ymin, xmax, ymax]`（Pillow / PASCAL VOC）, `xywh [x, y, w, h]`（COCO / OpenCV）, `width`, `height`。
@@ -99,5 +110,5 @@ Workspace のコマの行の間の ＋ から開くウィンドウで、検出�
   settings.extras = 追加したコマ（API の `extras` と同じ）。いずれもなければ settings は空）を保存する（[archives.md](../archives.md)「ツールの結果の保存」）。
   API は `POST /api/image/merge-panels` の `overrides`（JSON `{コマのファイル名: 画像のキー}`）。
 - log.txt は書かない。
-- 完了後: 「コマ結合: 「<結果フォルダ>」に結合画像を保存しました」のトースト。結合画像は Workspace の右「コマ結合後」ペインに大きく表示する（図には出さない）。
+- 完了後: 「コマ結合: 「<結果フォルダ>」に結合画像を保存しました」のトースト。結合画像は Workspace の右「コマ結合後」ペインに表示する（新しい結合を表示する。図には出さない。docs/specs/flow-canvas.md「3 枚構成」）。
 - 対象がないまま「実行」を押すと注意トースト。panels.json がない・壊れている・コマ画像がない場合はエラートーストで理由を日本語で表示する。

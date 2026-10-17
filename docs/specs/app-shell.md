@@ -6,7 +6,7 @@
 - CSS Grid（`.manga-grid`）で 4 列 × 3 行: 上段 = トップバー（全幅）、中段 = 表示モードボタン | 左サイドバー | メイン領域 | AI パネル、下段 = ステータスバー（全幅）。
   メイン領域は Workspace では処理フローのキャンバス（[flow-canvas.md](./flow-canvas.md)）。画像の比較は Workspace から開くウィンドウで行う
   （[flow-canvas.md](./flow-canvas.md)「原画との比較」・[canvas.md](./canvas.md)。表示モードに Parallel / Overlay はない）。
-- 左端の列（`features/tool-bar/ToolBar.ts`）は上から 3 つのグループ: Workspace（account_tree のアイコン）、
+- 左端の列（`features/tool-bar/ToolBar.ts`）は上から 3 つのグループ: Workspace（content_cut のアイコン）、
   マネージャー（Archive Manager: inventory_2 / Prompt Manager: chat / Character Manager: person / Object Manager: eyeglasses / Style Manager: brush のアイコン）、
   モニター（Cost Monitor: browse_activity のアイコン）。
   グループの間には細い仕切り線（1px）を引く。

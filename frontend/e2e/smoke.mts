@@ -245,6 +245,11 @@ async function revealCell(page: Page, name: string | RegExp, nth = 0): Promise<v
 
 /** Scrolls the flow (wheel) until `target` (something in the flow) is fully on screen, below the toolbar. */
 async function revealInFlow(page: Page, target: Locator): Promise<void> {
+  // In a side pane (元ページ / コマ結合後, the page not split yet): its row scrolls on its own.
+  if (await target.evaluate(e => !!e.closest('.flow-pane'))) {
+    await target.scrollIntoViewIfNeeded();
+    return;
+  }
   const box = (await target.boundingBox())!;
   const view = (await page.locator('.flow-viewport').boundingBox())!;
   const inside =
@@ -800,24 +805,31 @@ async function runScenarios(
     const afterRefresh = await flowState(page);
     const removeBgCard = await toolCard(page, '背景除去');
 
-    // A click on the background clears the selection: the tools have nothing to run on.
-    const box = (await page.locator('.flow-viewport').boundingBox())!;
-    await page.mouse.click(box.x + box.width - 60, box.y + box.height - 120);
+    // A page not split yet is 元ページ over the whole Workspace (docs/specs/flow-canvas.md 「3 枚構成」): a click on
+    // its background clears the selection, as on the flow's: the tools have nothing to run on.
+    const pageOnly = await page.evaluate(() => ({
+      pageOnly: document.querySelector('.flow-canvas')!.classList.contains('flow-canvas--page-only'),
+      flowShown: getComputedStyle(document.querySelector('.flow-center')!).display !== 'none',
+      rightShown: getComputedStyle(document.querySelector('.flow-pane--right')!).display !== 'none',
+      edges: getComputedStyle(document.querySelector('.flow-pane--left .flow-pane__edges')!).display !== 'none',
+      tools: Array.from(document.querySelectorAll('.flow-pane--left .ai-tool-name')).map(n => n.textContent),
+    }));
+    const box = (await page.locator('.flow-pane--left').boundingBox())!;
+    await page.mouse.click(box.x + box.width - 30, box.y + box.height - 60);
     const cleared = await flowState(page);
     const clearedCard = await toolCard(page, '背景除去');
 
-    // A click on the caption selects, Ctrl+click toggles, the step header selects its cells, Esc clears.
+    // A click on the caption selects, Ctrl+click toggles, Esc clears.
     await selectCell(page, 'e2e-image.png');
     const selected = (await flowState(page)).selection;
     await selectCell(page, 'e2e-image.png', ['Control']);
     const toggledOff = (await flowState(page)).selection;
-    await page.locator('.flow-row__label').first().click();
-    const byHeader = (await flowState(page)).selection;
+    await selectCell(page, 'e2e-image.png');
     await page.keyboard.press('Escape');
     const afterEscape = (await flowState(page)).selection;
     await selectCell(page, 'e2e-image.png');
     await screenshot('flow-selected');
-    return { afterRefresh, removeBgCard, cleared, clearedCard, selected, toggledOff, byHeader, afterEscape };
+    return { pageOnly, afterRefresh, removeBgCard, cleared, clearedCard, selected, toggledOff, afterEscape };
   });
 
   await step('05-viewer', async () => {
@@ -857,21 +869,21 @@ async function runScenarios(
   });
 
   await step('06-pan', async () => {
-    // The flow is always at 100% from its top left: no zoom bar, Ctrl + wheel does not zoom, dragging the
-    // background does not move it (scroll bars when it does not fit).
+    // The page (not split yet: 元ページ over the whole Workspace) is not zoomed or moved: no zoom bar, Ctrl + wheel
+    // does not zoom, dragging the background does not move it (as the flow, always at 100% from its top left).
     const view = () =>
       page.evaluate(() => {
-        const viewport = document.querySelector('.flow-viewport')!.getBoundingClientRect();
-        const r = document.querySelector('.flow-step')!.getBoundingClientRect();
-        const label = document.querySelector('.flow-row__label')?.getBoundingClientRect();
+        const pane = document.querySelector('.flow-pane--left')!.getBoundingClientRect();
+        const r = document.querySelector('.flow-pane--left .flow-pane__history .flow-cell')!.getBoundingClientRect();
+        const label = document.querySelector('.flow-pane--left .flow-pane__row-label')!.getBoundingClientRect();
         return {
-          zoomBar: !!document.querySelector('.flow-center .canvas-zoom-bar'),
-          step: [Math.round(r.x - viewport.x), Math.round(r.y - viewport.y), Math.round(r.width)],
-          label: label ? [Math.round(label.x - viewport.x), Math.round(label.y - viewport.y)] : null,
+          zoomBar: !!document.querySelector('.flow-canvas .canvas-zoom-bar'),
+          cell: [Math.round(r.x - pane.x), Math.round(r.y - pane.y), Math.round(r.width)],
+          label: [Math.round(label.x - pane.x), Math.round(label.y - pane.y)],
         };
       });
     const start = await view();
-    const box = (await page.locator('.flow-viewport').boundingBox())!;
+    const box = (await page.locator('.flow-pane--left').boundingBox())!;
     await page.mouse.move(box.x + 200, box.y + 300);
     await page.keyboard.down('Control');
     await page.mouse.wheel(0, 100);
@@ -916,7 +928,7 @@ async function runScenarios(
     await screenshot('tool-window');
     const layout = await page.evaluate(() => {
       const r = document.querySelector('.tool-window')!.getBoundingClientRect();
-      const row = document.querySelector('.flow-step')!.getBoundingClientRect();
+      const row = document.querySelector('.flow-body')!.getBoundingClientRect();
       const hit = document.elementFromPoint(row.x + row.width / 2, row.y + row.height / 2);
       return {
         width: Math.round(r.width),
@@ -976,6 +988,32 @@ async function runScenarios(
       await dialog.waitFor({ state: 'detached' });
       await closeToolWindow(page);
     }
+    // コマ分割's prompt (docs/specs/tools/panel-split-merge.md 「プロンプト」): the field starts from the default
+    // detection instructions; an edited one is what the request carries (reading order put in, the output format
+    // after it); 初期値へ戻す brings the defaults back. Nothing is run or saved here.
+    await clickTool(page, 'コマ分割');
+    await page.waitForSelector('.tool-window');
+    const prompt = page.locator('.tool-window .panel-splitter__prompt');
+    const defaultStart = ((await prompt.inputValue()) ?? '').split('\n')[0];
+    await prompt.fill('E2E: split by {reading_order}.');
+    await page.locator('.tool-window button', { hasText: 'JSONプレビュー' }).click();
+    const dialog = page.locator('.cs-json-window');
+    await dialog.waitFor();
+    const sent = JSON.parse((await dialog.locator('pre').textContent()) ?? '{}') as {
+      request_body: { contents: { parts: { text?: string }[] }[] };
+    };
+    const sentText = sent.request_body.contents[0].parts[0].text ?? '';
+    await dialog.locator('.cs-window__close').click();
+    await dialog.waitFor({ state: 'detached' });
+    await page.locator('.tool-window button', { hasText: '初期値へ戻す' }).click();
+    const afterReset = ((await prompt.inputValue()) ?? '').split('\n')[0];
+    await closeToolWindow(page);
+    result['コマ分割のプロンプト'] = {
+      defaultStart,
+      sentStart: sentText.split('\n\n')[0],
+      outputFormatFollows: sentText.includes('Output a JSON array'),
+      afterReset,
+    };
     return result;
   });
 
@@ -1873,6 +1911,130 @@ async function runScenarios(
     await page.locator('.flow-pane--left .flow-pane__edge').click();
     await page.locator('.flow-pane--right .flow-pane__edge').click();
     await page.waitForTimeout(200);
+    // 元ページ opens in two stages: the ▶ below ◀ widens it over the flow up to コマ結合後 (kept in the settings);
+    // ◀ then goes back to the open width, not all the way.
+    await page.locator('.flow-pane--left .flow-pane__wide').click();
+    await page.waitForTimeout(200);
+    await screenshot('pane-left-wide');
+    // Widened, 元ページ has コマ分割, AI画像生成 and 背景除去 right of the page (hidden at the first stage): a button
+    // selects the page (hidden in the flow, outlined in the pane) and opens the tool window for it.
+    const pageTools = await page.$$eval('.flow-pane--left .flow-pane__row-tools', els =>
+      els.map(e => ({
+        visible: getComputedStyle(e).display !== 'none',
+        tools: Array.from(e.querySelectorAll('.ai-tool-name')).map(n => n.textContent),
+      })),
+    );
+    await page.locator('.flow-pane--left .ai-tool-row', { hasText: '背景除去' }).locator('.ai-tool-btn').click();
+    await page.waitForSelector('.tool-window');
+    await page.waitForTimeout(300);
+    const pageToolWindow = {
+      title: await page.locator('.tool-window .tool-window__title').textContent(),
+      selection: (await flowState(page)).selection,
+      cellSelected: await page
+        .locator('.flow-pane--left .flow-pane__cell')
+        .evaluate(e => e.classList.contains('flow-pane__cell--selected')),
+    };
+    await screenshot('pane-left-wide-tool');
+    await closeToolWindow(page);
+    await page.keyboard.press('Escape');
+
+    // The page's row: ▶ of 背景除去 (stubbed) runs on its rightmost image (the page) and the result joins the row in
+    // the pane (「背景除去 1 ← 原画」), not the flow; 「最終」 on it makes the open (first stage) pane show it.
+    const paneRow = () =>
+      page.evaluate(() => ({
+        cells: Array.from(
+          document.querySelectorAll<HTMLElement>('.flow-pane--left .flow-pane__history .flow-cell'),
+        ).map(c => `${c.querySelector('.flow-cell__origin')?.textContent ?? ''} | ${c.dataset.name}`),
+        flowCells: document.querySelectorAll('.flow-viewport .flow-cell').length,
+        shown: ((cell: HTMLElement | null) =>
+          cell && getComputedStyle(cell).display !== 'none'
+            ? `${cell.querySelector('.flow-cell__origin-name')?.textContent} | ${
+                cell.querySelector<HTMLImageElement>('img')?.dataset.key?.split('/').pop() ?? ''
+              }`
+            : null)(document.querySelector<HTMLElement>('.flow-pane--left .flow-pane__row > .flow-pane__cell')),
+      }));
+    const rowBefore = await paneRow();
+    const pageNobg = await makePng(page, 300, 200);
+    await page.route('**/api/image/remove-bg', route =>
+      route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        headers: { 'Cache-Control': 'no-store' },
+        body: pageNobg,
+      }),
+    );
+    await page.locator('.flow-pane--left .ai-tool-row', { hasText: '背景除去' }).locator('.ai-tool-play').click();
+    await waitForToast(page, /背景除去: 「.*」に保存しました/);
+    await page.waitForFunction(() => !document.querySelector('.ai-panel__list--busy'));
+    await page.waitForFunction(
+      () => document.querySelectorAll('.flow-pane--left .flow-pane__history .flow-cell').length === 2,
+    );
+    await page.unroute('**/api/image/remove-bg');
+    await page.waitForTimeout(500);
+    await screenshot('pane-left-wide-history');
+    const rowAfterRun = await paneRow();
+    await page.locator('.flow-pane--left .flow-pane__history .flow-cell__merge').click();
+    await page.waitForTimeout(200);
+    await page.locator('.flow-pane--left .flow-pane__edge').click();
+    await page.waitForTimeout(300);
+    await screenshot('pane-left-final');
+    const finalShown = (await paneRow()).shown;
+    // Back to the widened pane; the result is deleted again (selected by its band, Delete), for the next scenarios.
+    await page.locator('.flow-pane--left .flow-pane__wide').click();
+    await page.waitForTimeout(200);
+    await page.locator('.flow-pane--left .flow-pane__history .flow-cell').nth(1).locator('.flow-cell__origin').click();
+    await page.keyboard.press('Delete');
+    await page.locator('.cs-modal button', { hasText: /^削除$/ }).click();
+    await page.waitForFunction(
+      () => document.querySelectorAll('.flow-pane--left .flow-pane__history .flow-cell').length === 1,
+    );
+    await page.waitForTimeout(300);
+    const rowAfterDelete = await paneRow();
+    const paneWidths = () =>
+      page.evaluate(() => {
+        const width = (selector: string) => Math.round(document.querySelector(selector)!.getBoundingClientRect().width);
+        const left = document.querySelector('.flow-pane--left')!;
+        return {
+          wide: left.classList.contains('flow-pane--wide'),
+          collapsed: left.classList.contains('flow-pane--collapsed'),
+          edgeTitle: left.querySelector<HTMLElement>('.flow-pane__edge')?.title ?? null,
+          wideButton: getComputedStyle(left.querySelector('.flow-pane__wide')!).display !== 'none',
+          jump: ((b: HTMLElement) => (getComputedStyle(b).display === 'none' ? null : `${b.textContent} ${b.title}`))(
+            left.querySelector<HTMLElement>('.flow-pane__jump')!,
+          ),
+          left: width('.flow-pane--left'),
+          center: width('.flow-center'),
+          centerVisible: getComputedStyle(document.querySelector('.flow-viewport')!).visibility,
+          right: width('.flow-pane--right'),
+        };
+      });
+    const wide = await paneWidths();
+    const savedWide = (
+      JSON.parse(fs.readFileSync(path.join(settingsDir, 'user_settings.json'), 'utf-8')) as Record<string, string>
+    ).flowCanvas_leftWide;
+    await page.locator('.flow-pane--left .flow-pane__edge').click();
+    await page.waitForTimeout(200);
+    const narrowAgain = await paneWidths();
+    // ▶▶ under ▶ while collapsed opens it wide in one go; ◀◀ under ◀ while wide collapses it in one go.
+    await page.locator('.flow-pane--left .flow-pane__edge').click();
+    await page.waitForTimeout(200);
+    await screenshot('pane-left-collapsed-jump');
+    const jumpFromCollapsed = await paneWidths();
+    await page.locator('.flow-pane--left .flow-pane__jump').click();
+    await page.waitForTimeout(200);
+    await screenshot('pane-left-wide-jump');
+    const jumpedWide = await paneWidths();
+    await page.locator('.flow-pane--left .flow-pane__jump').click();
+    await page.waitForTimeout(200);
+    const jumpedClosed = await paneWidths();
+    const savedAfterJump = (({ flowCanvas_leftOpen, flowCanvas_leftWide }) => ({
+      flowCanvas_leftOpen,
+      flowCanvas_leftWide,
+    }))(JSON.parse(fs.readFileSync(path.join(settingsDir, 'user_settings.json'), 'utf-8')) as Record<string, string>);
+    // ▶ then opens the first stage again (as before the jumps).
+    await page.locator('.flow-pane--left .flow-pane__edge').click();
+    await page.waitForTimeout(200);
+    const reopened = await paneWidths();
     // One success toast per run, carrying the result.
     const mergeToasts = (await toastStack(page)).filter(t => t.message?.includes('結合'));
     const merged = await page.evaluate(async apiBase => {
@@ -1902,6 +2064,20 @@ async function runScenarios(
       info: await newestInfo(page, apiBase, 'e2e-panels', 'コマ結合'),
       collapsed: collapsed.panes,
       savedOpen,
+      wide,
+      pageTools,
+      pageToolWindow,
+      rowBefore,
+      rowAfterRun,
+      finalShown,
+      rowAfterDelete,
+      savedWide,
+      narrowAgain,
+      jumpFromCollapsed,
+      jumpedWide,
+      jumpedClosed,
+      savedAfterJump,
+      reopened,
       merged,
       flow: await flowState(page),
     };
@@ -2337,7 +2513,7 @@ async function runScenarios(
     // (docs/specs/flow-canvas.md 「コマの行のツール」): they select the row's rightmost image, then the button opens the
     // tool window and ▶ runs with the saved settings. The result joins the row.
     const rowTools = () =>
-      page.$$eval('.flow-row-tools', els =>
+      page.$$eval('.flow-viewport .flow-row-tools', els =>
         els.map(e => ({
           title: e.getAttribute('title'),
           tools: Array.from(e.querySelectorAll('.ai-tool-name')).map(n => n.textContent),
@@ -2392,12 +2568,27 @@ async function runScenarios(
   await step('12e-pane-tools', async () => {
     // The buttons for every panel (docs/specs/flow-canvas.md 「全コマのツール」), the TOOLS list's buttons: the 全コマ
     // header row above the panel rows has AI画像生成 / 背景除去 for every row's rightmost image (top to bottom), in the
-    // column of the rows' tools; the コマ結合後 pane has コマ結合 (the panels). They select those images, then the button
-    // opens the window and ▶ runs.
-    const pane = page.locator('.flow-pane--right .flow-pane__tools');
+    // column of the rows' tools, and コマ結合 (the panels); the widened コマ結合後 pane has AI画像生成 / 背景除去 for the
+    // rightmost image of its row (no コマ結合). They select those images, then the button opens the window and ▶ runs.
+    await page.locator('.flow-pane--right .flow-pane__wide').click();
+    await page.waitForTimeout(300);
+    await screenshot('pane-right-wide');
+    // The merged page's row: the shown merge (its 原画), the ‹ › of the merges under the label.
+    const rightWide = await page.evaluate(() => {
+      const right = document.querySelector('.flow-pane--right')!;
+      return {
+        wide: right.classList.contains('flow-pane--wide'),
+        leftWide: document.querySelector('.flow-pane--left')!.classList.contains('flow-pane--wide'),
+        cells: Array.from(right.querySelectorAll<HTMLElement>('.flow-pane__history .flow-cell')).map(
+          c => `${c.querySelector('.flow-cell__origin')?.textContent ?? ''} | ${c.dataset.name}`,
+        ),
+        variants: right.querySelector('.flow-pane__row-extra')?.textContent ?? '',
+      };
+    });
+    const pane = page.locator('.flow-pane--right .flow-pane__row-tools');
     const header = page.locator('.flow-panels-header');
     const headerButtons = await header.locator('.ai-tool-name').allTextContents();
-    const columns = await page.$$eval('.flow-row-tools', els => [
+    const columns = await page.$$eval('.flow-viewport .flow-row-tools', els => [
       ...new Set(els.map(e => (e as HTMLElement).style.left)),
     ]);
     const buttons = await pane
@@ -2407,8 +2598,19 @@ async function runScenarios(
       );
     const selected = () => page.$$eval('.flow-cell--selected', els => els.map(e => (e as HTMLElement).dataset.name));
 
-    // コマ結合: the window lists the コマ分割 of the panels.
-    await pane.locator('.ai-tool-row', { hasText: 'コマ結合' }).locator('.ai-tool-btn').click();
+    // Only one side pane is widened at a time: widening 元ページ brings コマ結合後 back to its open width.
+    await page.locator('.flow-pane--left .flow-pane__wide').click();
+    await page.waitForTimeout(200);
+    const oneWide = await page.evaluate(() =>
+      ['left', 'right'].map(side =>
+        document.querySelector(`.flow-pane--${side}`)!.classList.contains('flow-pane--wide'),
+      ),
+    );
+    await page.locator('.flow-pane--left .flow-pane__edge').click();
+    await page.waitForTimeout(200);
+    // コマ結合 in the 全コマ header row: the window lists the コマ分割 of the panels.
+    await revealInFlow(page, header);
+    await header.locator('.ai-tool-row', { hasText: 'コマ結合' }).locator('.ai-tool-btn').click();
     await page.locator('.tool-window .cs-card').filter({ hasText: 'コマ数' }).waitFor();
     const mergeCard = maskTimestamps(await page.locator('.tool-window .cs-card').innerText());
     const mergeSelection = await selected();
@@ -2457,6 +2659,8 @@ async function runScenarios(
       columns,
       mergeCard,
       mergeSelection,
+      rightWide,
+      oneWide,
       generateTitle,
       generateSelection,
       playToast,
@@ -2606,7 +2810,8 @@ async function runScenarios(
         body: JSON.stringify({ detail: { message: 'E2E: コマ分割は差し替えています', raw_response: 'stub' } }),
       }),
     );
-    await page.locator('.flow-step--action .flow-action__btn').click();
+    // Back to a page not split: 元ページ over the whole Workspace, its コマ分割 ▶ splits the page again.
+    await page.locator('.flow-pane--left .ai-tool-row', { hasText: 'コマ分割' }).locator('.ai-tool-play').click();
     const splitToast = await waitForToast(page, /コマ分割の実行に失敗しました/);
     const splitSelection = (await flowState(page)).selection;
     await page.unroute('**/api/image/split-panels');
